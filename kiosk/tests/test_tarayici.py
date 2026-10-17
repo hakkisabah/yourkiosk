@@ -171,8 +171,17 @@ def test_beyaz_liste_disi_dosyalar_verilmez(sunucu: int) -> None:
         gecici.unlink(missing_ok=True)
     # olmayan dosya: 404 (var olan ama izinsiz dosya 403 ile ayrılır)
     assert _indir(sunucu, "/olmayan.dat")[0] == 404
-    # proje kökündeki izinli olmayan dosya (örn. günlük) sunulmaz
-    assert _indir(sunucu, "/kiosk.log")[0] == 403
+    # proje kökündeki izinli olmayan dosya (örn. günlük) sunulmaz: 403
+    # (dosya temizlikte silinmiş olabilir → test için geçici olarak oluşturup denetliyoruz)
+    gunluk = tarayici.KOK / "kiosk.log"
+    olusturuldu = not gunluk.exists()
+    if olusturuldu:
+        gunluk.write_text("test\n", encoding="utf-8")
+    try:
+        assert _indir(sunucu, "/kiosk.log")[0] == 403
+    finally:
+        if olusturuldu:
+            gunluk.unlink(missing_ok=True)
     # web klasöründe olmayan yol (dosya yok → 404; yine de HİÇ sunulmaz)
     assert _indir(sunucu, "/security/network.py")[0] == 404
 
@@ -274,6 +283,31 @@ def test_gorsel_koprusu_bozuk_govdeyi_reddeder(sunucu: int, monkeypatch) -> None
     kod, _, _ = _indir(sunucu, _gorsel_yolu(url))
     assert kod == 403
     assert onbellek.gorsel_oku(url) is None, "reddedilen görsel önbelleğe yazıldı"
+
+
+def test_imza_veri_dosyasi_degisince_de_degisir(sunucu: int, monkeypatch) -> None:
+    """Panel/araç `lastSystemData.json`'u değiştirdiğinde DAMGA AYNI KALSA BİLE imza değişmeli.
+
+    Eski kurgu yalnız `lastupdate.json` + `tetikle.json` üst verisine bakıyordu; damga
+    tazelenmemişse arayüz damgaya bağlı önbellekten eski gövdeyi servis ediyordu.
+    """
+    import json
+
+    ad = "lastSystemData-test-imza.json"
+    monkeypatch.setattr(config, "SISTEM_VERISI_DOSYASI", ad)
+    yol = tarayici.KOK / ad
+    try:
+        ilk = tarayici.degisiklik_imzasi()
+        assert ad in ilk and f"{ad}:-" not in ilk.replace("lastSystemData-test-imza.json:-", "YOK")
+        yol.write_text('{"Nobetler": {}, "Yayinlar": {}}', encoding="utf-8")
+        sonra = tarayici.degisiklik_imzasi()
+        assert sonra != ilk, "veri dosyası değişince imza değişmeli"
+
+        kod, govde, _ = _indir(sunucu, f"/degisiklik?imza={urllib.parse.quote(ilk, safe='')}&sure=1")
+        belge = json.loads(govde.decode("utf-8"))
+        assert kod == 200 and belge["degisti"] is True
+    finally:
+        yol.unlink(missing_ok=True)
 
 
 def test_eksik_ayar_dosyalari_varsayilanla_doner(sunucu: int, monkeypatch) -> None:

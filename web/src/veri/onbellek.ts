@@ -321,6 +321,12 @@ export class Onbellek {
     return { silinen }
   }
 
+  /** Tek bir veri kaydını önbellekten siler (zorla yenileme yolu). */
+  async veriSil(ad: string): Promise<void> {
+    if (!this.depo) return
+    await this.depo.delete(anahtar(VERI_YOLU + ad))
+  }
+
   /** Tüm önbelleği boşaltır (panelden/teşhisten). */
   async bosalt(): Promise<number> {
     if (!this.depo) return 0

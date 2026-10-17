@@ -43,7 +43,7 @@ export interface Kiosk {
   ozellik: (ad: string) => boolean
   baslat: () => void
   durdur: () => void
-  yukle: () => Promise<boolean>
+  yukle: (zorla?: boolean) => Promise<boolean>
   dongu: () => Promise<void>
   goster: (animasyonlu?: boolean) => void
   yayinaGec: (aktif?: YayinKaydi[]) => Promise<void>
@@ -183,10 +183,16 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
   }
 
   // ---------------------------------------------------------------- veri
-  async function yukle(): Promise<boolean> {
+  /**
+   * Veriyi yükler.
+   *
+   * `zorla = true` → damga aynı olsa da önbellek atlanır (panel/araç kaynaklı değişiklik ya da
+   * tetikleyici): "veri değişti ama damga değişmedi" durumunda arayüz eski gövdeyi göstermesin.
+   */
+  async function yukle(zorla = false): Promise<boolean> {
     try {
       const damga = await secenekler.kaynak.lastupdate()
-      const sistem = await secenekler.kaynak.sistemVerisi(damga)
+      const sistem = await secenekler.kaynak.sistemVerisi(damga, zorla)
       if (!sistem) {
         durum.hata = 'Veri okunamadı (lastSystemData.json).'
         log('HATA: veri okunamadı')
@@ -464,8 +470,8 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
     const tetik = await secenekler.kaynak.tetikleyici()
     if (tetikUygulanmali(tetik, durum.konum, sonTetikZamani) && tetik) {
       sonTetikZamani = tetik.zaman
-      log(`tetikleyici uygulanıyor (${tetik.zaman}) → yenileniyor`)
-      await yukle()
+      log(`tetikleyici uygulanıyor (${tetik.zaman}) → tazeleniyor`)
+      await yukle(true) // tetikleyici: damga aynı olsa da önbelleği atla
     }
   }
 
@@ -511,12 +517,16 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
         ilkTur = false // ilk tur yalnız imzayı öğrenir (veri biraz önce yüklendi)
         continue
       }
-      if (bildirim.degisti && bildirim.damga && bildirim.damga !== durum.damga) {
-        log(`anlık bildirim: nöbet verisi değişti (damga=${bildirim.damga}) → yenileniyor`)
-        await yukle()
+      const damgaDegisti = Boolean(bildirim.damga) && bildirim.damga !== durum.damga
+      if (bildirim.degisti && (damgaDegisti || !bildirim.damga)) {
+        log(`anlık bildirim: nöbet verisi değişti (damga=${bildirim.damga || '-'}) → yenileniyor`)
+        await yukle(!damgaDegisti) // damga değişmediyse yalnız yerel içerik değişti → önbelleği atla
+      } else if (bildirim.degisti) {
+        log('anlık bildirim: yerel veri değişti (damga aynı) → önbellek atlanıp tazeleniyor')
+        await yukle(true)
       } else if (tetikGerekli) {
-        log('anlık bildirim: tetikleyici uygulanıyor → yenileniyor')
-        await yukle()
+        log('anlık bildirim: tetikleyici uygulanıyor → tazeleniyor')
+        await yukle(true)
       }
     }
   }

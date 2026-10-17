@@ -178,6 +178,27 @@ describe('canlı değişiklik — yansıma', () => {
     kiosk.durdur()
   })
 
+  it('damga AYNI olsa da anlık bildirim gelince tazelenir (panel/araç değişikliği)', async () => {
+    // Eski kurgu yalnız damga değişince yeniliyordu → `lastupdate` tazelenmemiş yerel
+    // değişiklik (panel kaydı, geçici test verisi) ekranda hiç görünmüyordu.
+    const durum: SahteDurum = {
+      damga: 'D1',
+      eczane: 'ESKİ',
+      yuklemeSayisi: 0,
+      bildirim: { degisti: true, imza: 'İMZA1', damga: 'D1', tetik: null },
+    }
+    const { kiosk } = kur(durum)
+    kiosk.baslat()
+    await vi.advanceTimersByTimeAsync(50)
+
+    durum.eczane = 'YENİ' // veri değişti, damga değişmedi
+    durum.bildirim = { degisti: true, imza: 'İMZA2', damga: 'D1', tetik: null }
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(kiosk.durum.kayitlar[0]?.eczane).toBe('YENİ')
+    expect(kiosk.durum.gunluk.some((s) => s.includes('yerel veri değişti'))).toBe(true)
+    kiosk.durdur()
+  })
+
   it('yenileme gösterimi bozmaz: sıradaki adım ve kuşak durumu korunur', async () => {
     const durum: SahteDurum = { damga: 'D1', eczane: 'A', yuklemeSayisi: 0 }
     const kaynakSistem = {

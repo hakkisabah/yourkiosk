@@ -129,10 +129,18 @@ export class VeriKaynagi {
     return this.onbellek.damga()
   }
 
-  /** Nöbet/yayın verisi — damga aynıysa önbellekten (ağa çıkılmaz). */
-  async sistemVerisi(damga?: string): Promise<SistemVerisi | null> {
+  /**
+   * Nöbet/yayın verisi — damga aynıysa önbellekten (ağa çıkılmaz).
+   *
+   * `zorla = true` → **damga aynı olsa da** önbellek atlanır ve taze indirilir. Bu yol,
+   * "veri yerelde değişti ama `lastupdate` damgası değişmedi" durumları için şarttır
+   * (panel/araç kaynaklı değişiklikler, tetikleyici bildirimi):
+   * aksi hâlde arayüz eskİ gövdeyi önbellekten servis etmeye devam eder.
+   */
+  async sistemVerisi(damga?: string, zorla = false): Promise<SistemVerisi | null> {
     const guncel = damga ?? (await this.lastupdate())
     const ad = 'lastSystemData.json'
+    if (zorla) await this.onbellek.veriSil(ad)
     const onbellekten = await this.onbellek.veriOku(ad, guncel)
     if (onbellekten) {
       try {

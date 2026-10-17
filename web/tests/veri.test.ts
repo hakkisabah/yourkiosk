@@ -176,6 +176,33 @@ describe('VeriKaynagi — lastupdate ile önbellek', () => {
     expect(cagrilar[0]).toContain(encodeURIComponent(url))
   })
 
+  it('zorla=true: damga aynı olsa da önbellek atlanır (yerel değişiklik görünür olur)', async () => {
+    // Panel/araç `lastSystemData.json`'u değiştirip damgayı tazelemezse eski gövde önbellekten
+    // geliyordu → "5'ten fazla nöbetçi" testinde ekranda hiçbir şey değişmiyordu.
+    const depo = new SahteDepo()
+    let surum = 1
+    const getir = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ Nobetler: {}, Yayinlar: {}, surum }), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    ) as unknown as typeof fetch
+    const k = new VeriKaynagi({
+      secenekler: { clientID: 'C1', veri: 'yerel', taban: '' },
+      onbellek: new Onbellek(2, depo),
+      getir,
+    })
+
+    const a = (await k.sistemVerisi('D1')) as unknown as { surum: number }
+    expect(a.surum).toBe(1)
+    surum = 2 // yerelde veri değişti, DAMGA AYNI
+    const b = (await k.sistemVerisi('D1')) as unknown as { surum: number }
+    expect(b.surum).toBe(1) // önbellekten (beklenen davranış)
+    const c = (await k.sistemVerisi('D1', true)) as unknown as { surum: number }
+    expect(c.surum).toBe(2) // zorla → taze indirildi
+    expect(getir).toHaveBeenCalledTimes(2)
+  })
+
   it('köprü yoksa tarayıcı önbelleği → doğrudan indirme sırasına düşülür', async () => {
     const depo = new SahteDepo()
     const cagrilar: string[] = []

@@ -292,14 +292,20 @@ def tetik_oku() -> dict | None:
 
 
 def degisiklik_imzasi() -> str:
-    """Nöbet değişikliği imzası: `lastupdate.json` (mtime+boyut) + tetikleyici (mtime+zaman).
+    """Nöbet değişikliği imzası: veri dosyalarının (mtime+boyut) + tetikleyicinin (mtime+zaman) özeti.
 
-    Yalnızca KÜÇÜK dosyaların üst verisi okunur; büyük veri dosyalarına dokunulmaz.
+    Yalnızca KÜÇÜK üst veriler okunur; büyük veri dosyasının İÇERİĞİ okunmaz.
+
+    NEDEN `lastSystemData.json` DA İMZADA: panel/araç veriyi değiştirdiğinde `lastupdate.json`
+    damgası tazelenmezse (ya da damga aynı kalırsa) arayüz damgaya bağlı önbellekten **eski**
+    gövdeyi servis etmeye devam ediyordu. Dosyanın mtime+boyutu imzaya girince her yerel
+    değişiklik anında bildirilir; arayüz de bildirimde önbelleği atlayıp taze veriyi indirir.
     """
     parcalar: list[str] = []
     for ad in (
         str(getattr(config, "LASTUPDATE_DOSYASI", "lastupdate.json")),
         str(getattr(config, "TETIK_DOSYASI", "tetikle.json")),
+        str(getattr(config, "SISTEM_VERISI_DOSYASI", "lastSystemData.json")),
     ):
         try:
             durum = (KOK / ad).stat()
