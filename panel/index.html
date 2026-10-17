@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>yourkiosk · Yönetim Paneli</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <!--
+      Güvenlik ağı: `amazon-cognito-identity-js` (crypto-js) Node'a özgü `global` nesnesini
+      kullanır. `vite.config.ts` bunu derleme anında `globalThis`e çevirir; bu satır ise
+      yapılandırma bir gün değişse bile tarayıcıda `global` tanımlı olsun diye durur
+      (tanımsızsa modül değerlendirilirken "global is not defined" hatası verir ve panel
+      bembeyaz kalır). Tek satırlık, zararsız bir takma ad tanımıdır.
+    -->
+    <script>
+      window.global = window.global || window.globalThis
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,98 @@
+{
+    "": {
+        "ilce": "İZMİT",
+        "bolge": "İzmit-4",
+        "eczane": "ŞİRİN",
+        "tel": "05332005041",
+        "adres": "ŞİRİNTEPE MAH.ŞİRİN SK.NO:3\/A İZMİT",
+        "adres_tarifi": "",
+        "enlem": "40.761156",
+        "boylam": "29.861117",
+        "baslangic": "2026-04-26 08:30:00",
+        "bitis": "2026-04-27 08:30:00"
+    },
+    "1": {
+        "ilce": "İZMİT",
+        "bolge": "İzmit-5",
+        "eczane": "GÜNDOĞDU",
+        "tel": "02623295121",
+        "adres": "AYAZMA MAH.17 AGUSTOS BULVARI NO:118\/C İZMİT",
+        "adres_tarifi": "BAYINDIRLIK İŞ MERKEZİ,İZMİT GÖÇ İDARESİ MÜDÜRLÜĞÜ YANI",
+        "enlem": "40.801015",
+        "boylam": "29.952323",
+        "baslangic": "2026-04-26 08:30:00",
+        "bitis": "2026-04-27 08:30:00"
+    },
+    "2": {
+        "ilce": "İZMİT",
+        "bolge": "İzmit-2",
+        "eczane": "İLKHAYAT",
+        "tel": "02623224289",
+        "adres": "CEDİT MAH. TURAN GÜNEŞ CAD. NO:53\/3 İZMİT",
+        "adres_tarifi": "KOCAELİ DEVLET HASTANESİ ACİL ÇIKIŞI, SOL ÇAPRAZI",
+        "enlem": "40.767995",
+        "boylam": "29.937436",
+        "baslangic": "2026-04-26 08:30:00",
+        "bitis": "2026-04-27 08:30:00"
+    },
+    "3": {
+        "ilce": "İZMİT",
+        "bolge": "İzmit-1",
+        "eczane": "SENEM",
+        "tel": "02623224909",
+        "adres": "İNÖNÜ CAD. NO:118 İZMİT",
+        "adres_tarifi": "",
+        "enlem": "40.765193",
+        "boylam": "29.924846",
+        "baslangic": "2026-04-26 08:30:00",
+        "bitis": "2026-04-27 08:30:00"
+    },
+    "4": {
+        "ilce": "İZMİT",
+        "bolge": "İzmit-3",
+        "eczane": "LAVANTA",
+        "tel": "02625025073",
+        "adres": "YAHYAKAPTAN MAH. ŞEHİT ERGÜN KÖNCÜ SOK. NO:45\/C İZMİT",
+        "adres_tarifi": "Ramada Otel karşısı",
+        "enlem": "40.770928",
+        "boylam": "29.969497",
+        "baslangic": "2026-04-26 08:30:00",
+        "bitis": "2026-04-27 08:30:00"
+    },
+    "5": {
+        "ilce": "İZMİT",
+        "bolge": "İzmit-3",
+        "eczane": "LAVANTA",
+        "tel": "02625025073",
+        "adres": "YAHYAKAPTAN MAH. ŞEHİT ERGÜN KÖNCÜ SOK. NO:45\/C İZMİT",
+        "adres_tarifi": "Ramada Otel karşısı",
+        "enlem": "40.770928",
+        "boylam": "29.969497",
+        "baslangic": "2026-04-26 08:30:00",
+        "bitis": "2026-04-27 08:30:00"
+    },
+    "6": {
+        "ilce": "İZMİT",
+        "bolge": "İzmit-3",
+        "eczane": "LAVANTA",
+        "tel": "02625025073",
+        "adres": "YAHYAKAPTAN MAH. ŞEHİT ERGÜN KÖNCÜ SOK. NO:45\/C İZMİT",
+        "adres_tarifi": "Ramada Otel karşısı",
+        "enlem": "40.770928",
+        "boylam": "29.969497",
+        "baslangic": "2026-04-26 08:30:00",
+        "bitis": "2026-04-27 08:30:00"
+    },
+    "7": {
+        "ilce": "İZMİT",
+        "bolge": "İzmit-3",
+        "eczane": "LAVANTA",
+        "tel": "02625025073",
+        "adres": "YAHYAKAPTAN MAH. ŞEHİT ERGÜN KÖNCÜ SOK. NO:45\/C İZMİT",
+        "adres_tarifi": "Ramada Otel karşısı",
+        "enlem": "40.770928",
+        "boylam": "29.969497",
+        "baslangic": "2026-04-26 08:30:00",
+        "bitis": "2026-04-27 08:30:00"
+    }
+}

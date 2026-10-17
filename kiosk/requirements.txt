@@ -1,0 +1,11 @@
+# Çalışma zamanı
+# NOT: PyPI'daki en yüksek PyQt6 sürümü 6.11.0'dır; buraya ">=6.11.3" yazmak kurulumu bozar
+# (6.11.3 henüz yayınlanmadı). Tekerleğin getirdiği Qt 6.11.2, CVE-2026-79680 (Qt VNC parola
+# atlatma) açısından etkilidir → uygulama açılışta libqvnc.so'yu ve kullanılmayan tüm Qt yüzeyini
+# karantinaya alır: security/qt_sertlestirme.py (bkz. GUVENLIK.md §4).
+# Arch'ta sistem paketi tercih edilirse: python-pyqt6 + qt6-base (6.12.0 → düzeltme dâhil).
+PyQt6>=6.11.0
+
+# Test
+pytest>=8
+pytest-qt>=4.4

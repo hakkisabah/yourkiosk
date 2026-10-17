@@ -1,0 +1,26 @@
+{
+  "name": "yourkiosk-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "yourkiosk tarayıcı (Chromium kiosk) gösterim modu — Qt arayüzüyle aynı görünüm, davranış ve veri kuralları",
+  "scripts": {
+    "dev": "NODE_ENV=development vite",
+    "build": "NODE_ENV=production vue-tsc --noEmit && NODE_ENV=production vite build",
+    "preview": "NODE_ENV=development vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/test-utils": "^2.4.6",
+    "jsdom": "^25.0.1",
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11",
+    "vitest": "^3.0.5",
+    "vue-tsc": "^2.2.0"
+  }
+}

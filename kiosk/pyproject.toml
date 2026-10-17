@@ -1,0 +1,14 @@
+[project]
+name = "yourkiosk"
+version = "1.0.0"
+description = "Eczane nöbet ekranı (kiosk) - referans sürüm + güvenlik adımları"
+requires-python = ">=3.11"
+dependencies = ["PyQt6>=6.11.3"]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-qt>=4.4"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["qt: Qt arayüz testleri (offscreen gerekir)"]

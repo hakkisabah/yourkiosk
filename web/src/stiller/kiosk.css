@@ -1,0 +1,333 @@
+/*
+ * yourkiosk TARAYICI ARAYÜZÜ — Qt görünümünün birebir CSS karşılığı.
+ *
+ * Tüm ölçü/punto/renk değerleri CSS DEĞİŞKENİ olarak `yerlesim.json`dan gelir
+ * (bkz. src/stiller/olcu.ts) — burada elle yazılmış görsel değer yoktur.
+ *
+ * Tasarım 1920×1080'e göre sabittir; sahne, ekran yüksekliğine göre ölçeklenir
+ * (Qt: `scale = screen_h / 1080`) → farklı çözünürlükte aynı görünüm.
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: bold;
+  cursor: none;
+}
+
+#uygulama,
+#sahne-kap {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- sahne */
+#sahne {
+  position: relative;
+  width: var(--ekran-g);
+  height: var(--ekran-y);
+  transform-origin: top left;
+  background: #fff;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- SOL PANEL */
+.sol-panel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--sol-genislik);
+  height: var(--ekran-y);
+  background: #fff;
+  overflow: hidden;
+}
+
+.sol-panel .liste {
+  display: flex;
+  flex-direction: column;
+  gap: var(--satir-bosluk);
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+  scrollbar-color: var(--kaydirma-tutamak) var(--kaydirma-ray);
+  scrollbar-width: thin;
+}
+
+/* Chromium: Qt kaydırma çubuğu (12 px, ray #d9dee5, tutamak #6b7280, yuvarlak uçlar) */
+.sol-panel .liste::-webkit-scrollbar {
+  width: var(--kaydirma-genislik);
+}
+.sol-panel .liste::-webkit-scrollbar-track {
+  background: var(--kaydirma-ray);
+}
+.sol-panel .liste::-webkit-scrollbar-thumb {
+  background: var(--kaydirma-tutamak);
+  border-radius: 6px;
+  min-height: 40px;
+}
+.sol-panel.kaydirmasiz .liste {
+  overflow-y: hidden;
+}
+
+.satir {
+  flex: 0 0 var(--satir-yuksekligi);
+  height: var(--satir-yuksekligi);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 var(--sol-ic-bosluk);
+  background-image: var(--kutu-normal);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  color: #000;
+}
+.satir.aktif {
+  background-image: var(--kutu-aktif);
+  color: #fff;
+}
+.satir .ad {
+  font-size: var(--punto-sol-ad);
+  line-height: 1.05;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.satir .ikincil {
+  font-size: var(--punto-sol-ikincil);
+  line-height: 1.05;
+}
+
+.dikey-cizgi {
+  position: absolute;
+  left: var(--sol-genislik);
+  top: 0;
+  width: var(--dikey-cizgi);
+  height: var(--ekran-y);
+  background: var(--kirmizi);
+}
+
+/* ---------------------------------------------------------------- ORTA PANEL */
+.orta-panel {
+  position: absolute;
+  left: calc(var(--sol-genislik) + var(--dikey-cizgi));
+  top: 0;
+  width: var(--sag-genislik);
+  height: var(--ekran-y);
+  overflow: hidden;
+}
+
+.serit-bandi {
+  width: 100%;
+  height: var(--serit-yukseklik);
+  background-image: var(--serit-gorseli);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}
+
+.viewport {
+  position: relative;
+  width: 100%;
+  height: var(--viewport-yuksekligi);
+  overflow: hidden;
+}
+
+.blok {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: var(--viewport-yuksekligi);
+  will-change: transform;
+}
+.blok.kayan {
+  transition: transform var(--animasyon-ms) cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+.tarih-aralik {
+  height: var(--tarih-aralik-yuksekligi);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--punto-tarih-aralik);
+  color: #000;
+  background: red;
+}
+
+.detay {
+  height: var(--detay-yuksekligi);
+  background: var(--krem);
+  border-top: 3px solid var(--kirmizi);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+}
+.detay .ad {
+  font-size: var(--punto-orta-ad);
+  color: var(--kirmizi);
+  text-align: center;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.detay .adres {
+  font-size: var(--punto-adres);
+  color: #000;
+  text-align: center;
+  white-space: pre-line;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.detay .telefon {
+  font-size: var(--punto-telefon);
+  color: var(--kirmizi);
+}
+.detay .esnek {
+  flex: 1 1 auto;
+}
+
+.yatay-cizgi {
+  width: 100%;
+  height: var(--yatay-cizgi);
+  background: var(--kirmizi);
+}
+
+.alt-serit {
+  width: 100%;
+  height: var(--alt-serit-yuksekligi);
+  display: flex;
+  align-items: flex-start;
+  overflow: hidden;
+}
+.logo-kap {
+  width: var(--logo-genislik);
+  height: var(--alt-serit-yuksekligi);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.logo-kap img {
+  width: calc(var(--logo-genislik) * 0.276); /* Qt: 330px sabit görsel */
+  height: auto;
+  max-height: 330px;
+  object-fit: contain;
+}
+
+.saat-kutu {
+  width: var(--saat-kutusu);
+  height: var(--alt-serit-yuksekligi);
+  background: var(--krem);
+  border-left: 3px solid var(--kirmizi);
+  border-right: 3px solid var(--kirmizi);
+  border-bottom: 3px solid var(--kirmizi);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding-top: 0;
+}
+.saat-kutu .saat {
+  font-size: var(--punto-saat);
+  color: #000;
+}
+.saat-kutu .tarih,
+.saat-kutu .gun {
+  font-size: var(--punto-tarih-aralik);
+  color: #000;
+}
+
+/* ---------------------------------------------------------------- YAYIN (tam ekran) */
+.yayin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--ekran-g);
+  height: var(--ekran-y);
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Qt `setScaledContents(True)`: görsel alanı TAMAMEN doldurur (oran korunmaz) */
+.yayin img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}
+
+/* ---------------------------------------------------------------- KAYAN YAZI KUŞAĞI */
+.kusak {
+  position: absolute;
+  left: 0;
+  top: var(--kusak-y);
+  width: var(--ekran-g);
+  height: var(--kusak-yukseklik);
+  background: var(--kirmizi);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+.kusak .yazi {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  font-size: var(--kusak-punto);
+  color: #fff;
+  white-space: pre;
+  will-change: transform;
+}
+
+/* ---------------------------------------------------------------- teşhis katmanı */
+/* `d` tuşuyla açılır: kiosk modunda konsol olmadığı için durum EKRANDA görünür */
+.tani-kart {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2147483646;
+  max-width: 62%;
+  margin: 0;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.9);
+  color: #7cf;
+  font: 13px/1.45 'Consolas', 'DejaVu Sans Mono', monospace;
+  white-space: pre-wrap;
+  cursor: auto;
+}
+
+/* ---------------------------------------------------------------- hata kartı */
+.hata-kart {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: #fff;
+  color: #000;
+  font-size: 28px;
+  text-align: center;
+  padding: 40px;
+  font-weight: normal;
+}
+.hata-kart code {
+  font-size: 22px;
+  background: #f2f2f2;
+  padding: 4px 8px;
+}

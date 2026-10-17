@@ -1,0 +1,25 @@
+# Bağımlılıklar ve derleme çıktısı
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+coverage/
+
+# Ortam dosyaları (AWS kimlikleri — ASLA paylaşılmaz)
+.env
+.env.*
+!.env.ornek
+
+# Düzenleyici / işletim sistemi
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log
+
+# Lambda modu (Cognito'suz): yerel test ortamı
+lambda/.venv/
+lambda/__pycache__/
+lambda/.pytest_cache/
+lambda/fonksiyon.zip

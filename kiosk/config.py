@@ -1,0 +1,164 @@
+# ==================== AYARLAR ====================
+DATA_URL = "https://hakkisabah.com/api/ornekdata.json"
+# Veri saatte bir güncelleniyor; cihaz da saatte bir kontrol eder
+REFRESH_INTERVAL_MS = 60 * 60 * 1000
+CYCLE_INTERVAL_MS = 10000
+LOGO_PATH = "logo.png"
+BG_PATH = "bg_layout"
+FONT_PATH = "font"
+# ================================================
+
+# ==================== VERİ KAYNAĞI ====================
+# Sunucudaki dosyalar (kiosk cihazı sırayla bunlara bakar):
+#   lastupdate.json    -> nöbet verisi en son ne zaman güncellendi
+#   match.json         -> ilçe/bölge -> makine id'leri (cihaz kendi yerini buradan öğrenir)
+#   lastSystemData.json-> şablon.json doldurulmuş hâli (asıl nöbet verisi)
+#   makinebilgileri.json-> bu cihazın kendi kimliği (clientID)
+KAYNAK = "dosya"                      # "dosya" | "https"
+LASTUPDATE_DOSYASI = "lastupdate.json"
+MATCH_DOSYASI = "match.json"
+SISTEM_VERISI_DOSYASI = "lastSystemData.json"
+MAKINE_DOSYASI = "makinebilgileri.json"
+# Cihazın kendi bölgesini bulamazsak hangi kapsam gösterilsin:
+#   "ilce"  -> cihazın ilçesindeki tüm bölgelerin nöbetleri (7li örnekteki davranış)
+#   "bolge" -> yalnızca cihazın kendi bölgesi
+KAPSAM = "ilce"
+# Söz konusu dosyaların bulunduğu sunucu (KAYNAK="https" olduğunda kullanılır)
+SUNUCU_ADRESI = "https://www.kocaelieo.org.tr/nobet-belediye"
+NOBET_VERISI_ADRESI = "https://www.kocaelieo.org.tr/nobet-belediye"
+DOSYA_ADRESI = ""                      # ör. "https://ornek.com/kiosk/" (sonunda /)
+ALLOWED_HOSTS = ("hakkisabah.com", "www.kocaelieo.org.tr", "kocaelieo.org.tr")
+VERI_DOSYASI = "lastSystemData.json"   # geriye uyum: eski ad
+VERI_DOSYASI_YEDEK = "data/ornekdata_7li.json"
+# Saatte 1 kontrol: lastupdate.json değişmişse veriler yeniden çekilir
+LASTUPDATE_KONTROL_MS = 60 * 60 * 1000
+# --- NÖBET DEĞİŞİKLİĞİNİ ANINDA YANSITMA (tetikleyici) ---
+#: Panelin yazdığı tetikleyici dosyası: {"zaman": ISO, "ilceId": "...", "bolgeId": "..."}
+#: Boş/"*" ilceId → tüm cihazlar; doluysa yalnız o ilçenin (ya da bölgenin) cihazları
+#: hemen yenilenir. Saatlik kontrole ek olarak çalışır.
+TETIK_DOSYASI = "tetikle.json"
+#: Damga/tetik yoklama aralığı (ms). Yalnızca KÜÇÜK dosyalar okunur (lastupdate+tetik);
+#: büyük veri dosyaları damga değişmedikçe indirilmez.
+DAMGA_KONTROL_MS = 20 * 1000
+#: Tarayıcı modunda anlık değişiklik ucu: tek istekte en fazla kaç saniye beklenir
+DEGISIKLIK_BEKLEME_S = 30
+# =====================================================
+
+# ==================== GÜVENLİK SINIRLARI ====================
+HTTP_TIMEOUT_S = 10.0
+MAX_JSON_BAYT = 4 * 1024 * 1024
+MAX_GORSEL_BAYT = 8 * 1024 * 1024
+MAX_GORSEL_PIKSEL = 4096 * 4096
+LOG_DOSYASI = "kiosk.log"
+# =====================================================
+
+# ==================== GÜVENLİK SINIRLARI ====================
+# Ağ: yalnızca https + izin listesi + bu portlar (varsayılan https portu)
+AG_IZINLI_PORTLAR = (443,)
+MAX_URL_UZUNLUK = 2048
+AG_YONLENDIRME_IZINLI = False        # False: yalnızca aynı ana makineye yönlendirme
+# Veri: JSON derinlik/düğüm sınırları (bozuk ya da kötü niyetli dosya belleği şişirmesin)
+MAX_JSON_DERINLIK = 32
+MAX_JSON_DUGUM = 200_000
+MAX_METIN_UZUNLUK = 160              # ekranda gösterilen tek bir alanın (eczane/adres/tel) üst sınırı
+MAX_GOSTERILEN_ECZANE = 60           # tek seferde gösterilecek en fazla nöbet kaydı
+MAX_AKTIF_YAYIN = 20                 # aynı anda işlenecek en fazla yayın
+YAYIN_SURE_VARSAYILAN_S = 10         # duration okunamazsa
+YAYIN_SURE_EN_AZ_S = 1               # duration alt sınırı
+YAYIN_SURE_EN_COK_S = 60             # duration üst sınırı (bozuk değer ekranı kilitlemesin)
+# Günlükte cihaz kimliği (clientID) ham gösterilmesin: kısa özet yazılır
+LOG_CLIENT_ID_GIZLE = True
+# Tehlikeli Qt eklentileri (svg/pdf/tiff/gif…, vnc platformu) karantinaya alınsın mı
+QT_EKLENTI_KARANTINA = True
+# Kullanılmayan Qt kütüphaneleri/modülleri (Qml, Quick3D, Pdf, Sql, Multimedia…) karantinaya alınsın mı
+QT_MODUL_KARANTINA = True
+# ===========================================================
+
+# ==================== GENEL KULLANIM (ÖZELLİK AÇ/KAPA) ====================
+# Bu kiosk yalnızca eczane nöbeti için değil: yalnızca görsel yayını yapan bir
+# kurum nöbet listesini, kayan yazıyı vb. kapatabilir. Değerler `ayarlar.json`
+# (örneği: ayarlar.ornek.json) ile dışarıdan — ileride yönetim panelinden —
+# değiştirilebilir; buradakiler VARSAYILANdır.
+AYARLAR_DOSYASI = "ayarlar.json"
+# Kapsam (ilçe/bölge/cihaz) bazlı ikinci ayar dosyası — yönetim paneli yazar
+KAPSAM_AYARLARI_DOSYASI = "kapsam-ayarlari.json"
+OZELLIK_NOBET_LISTESI = True   # nöbet listesi + detay ekranı
+OZELLIK_YAYINLAR = True        # yayın (görsel) moduna geçiş
+OZELLIK_KAYAN_YAZI = True      # yayın görünümündeki alt kuşak/kayan yazı
+OZELLIK_SAAT_TARIH = True      # nöbet ekranındaki saat/tarih yazısı
+# Sol panelde satır yüksekliği bu sayıya göre hesaplanır: az nöbetçi olsa da
+# çerçeveler büyümez (5 kişilik referans görünüm). Bu sayıdan FAZLA nöbetçi varsa
+# sol panel kaydırılabilir olur: ilk `MAKS_GORUNUR_SATIR` kayıt görünür, sonra
+# aşağı kayarak kalanlar gösterilir (aşağıdaki SOL_PANEL_KAYDIRMA_* ayarları).
+MAKS_GORUNUR_SATIR = 5
+
+# ---- Sol panel kaydırma (yalnızca kayıt sayısı tabanı aşınca çalışır) ----
+# Kayıt sayısı MAKS_GORUNUR_SATIR'dan fazlaysa sol panel kaydırılabilir olur ve
+# VURGULANAN nöbetçiyi TAKİP eder: vurgu görünür alandaki son satıra geldiğinde
+# panel bir sonraki satırı içine alacak kadar aşağı kayar; döngü başa dönerse yukarı
+# döner. Kaydırma, orta geçiş (nöbetçi değişimi) animasyonuyla AYNI ANDA başlar ve
+# aynı süreyi kullanır — bağımsız bir zamanlayıcı yoktur (eski davranış: orta
+# slider'dan 1-2 sn önce aşağı/yukarı zıplıyordu).
+SOL_PANEL_OTOMATIK_KAYDIRMA = True   # False: yalnızca elle kaydırma (çubuk kalır)
+SOL_PANEL_KAYDIRMA_SURE_MS = 1800    # orta geçiş animasyonuyla aynı süre (referans: 1800 ms)
+SOL_PANEL_KAYDIRMA_CUBUGU_GENISLIK = 12   # px (0 → çubuk gizlenir, kaydırma sürükleyerek olmaz)
+SOL_PANEL_KAYDIRMA_CUBUGU_RENK = "#d9dee5"     # ray (silik)
+SOL_PANEL_KAYDIRMA_TUTAMAK_RENK = "#6b7280"    # tutamak
+
+# ==================== ÇALIŞTIRMA MODU (Qt / tarayıcı) ====================
+# Gösterim iki yoldan biriyle yapılabilir; ikisi de AYNI veriyi, AYNI kuralları ve
+# AYNI görünümü kullanır:
+#   "qt"       → PyQt6 penceresi (bu depodaki referans uygulama; varsayılan)
+#   "tarayici" → Chromium kiosk modu; `WEB_KLASORU` içindeki HTML/JS arayüzü açılır.
+# Tarayıcı şu adresle başlatılır:  http://<adres>:<port>/index.html?clientID=<cihaz>
+# Cihazın kendi kimliğini (makinebilgileri.json → clientID) URL'de alması yeterlidir;
+# sayfa veriyi kendisi çeker (yerel dosyalardan ya da `DOSYA_ADRESI`'nden).
+CALISTIRMA_MODU = "qt"                    # "qt" | "tarayici"
+TARAYICI_YOLU = "chromium"                # tarayıcı çalıştırılabilir dosyası
+TARAYICI_EK_BAYRAKLAR = ""                # boşlukla ayrılmış ek Chromium bayrakları
+TARAYICI_PROFIL_KLASORU = ".tarayici-profil"   # kalıcı profil (disk önbelleği burada kalır)
+TARAYICI_PENCERE_BOYUTU = "1920,1080"     # --window-size (kiosk modunda yok sayılır)
+TARAYICI_YENIDEN_BASLAT_S = 5             # tarayıcı kapanırsa kaç saniye sonra yeniden açılsın
+WEB_KLASORU = "web"                       # HTML/JS arayüzünün bulunduğu klasör (proje kökü altında)
+WEB_SUNUCU_ADRESI = "127.0.0.1"           # yerel sunucu (yalnızca bu makineden erişilir)
+WEB_SUNUCU_PORTU = 8090
+WEB_VERI_MODU = "yerel"                   # "yerel": veri dosyaları yerel sunucudan | "https": DOSYA_ADRESI
+WEB_YENILEME_MS = 60000                   # sayfanın veriyi kontrol etme aralığı (kiosk: saatlik timer)
+
+# ==================== ÖNBELLEK (maliyet + performans) ====================
+# Cihaz, veri dosyalarını ve yayın görsellerini DİSKTE saklar; aynı içerik tekrar
+# gösterilirken internet kullanılmaz. `lastupdate.json` değeri değiştiğinde veri
+# önbelleği otomatik olarak geçersiz sayılır ve içerik yeniden alınır.
+# Süresi geçen (son gösterim tarihi + saklama süresi geçen) görseller cihazdan
+# kendiliğinden silinir; toplam boyut üst sınırı aşılırsa en eski kullanılanlar atılır.
+ONBELLEK_AKTIF = True                 # ana anahtar (paneldan kapatılabilir)
+ONBELLEK_KLASORU = "onbellek"         # proje kökü altındaki klasör (.gitignore)
+ONBELLEK_MAKS_BAYT = 512 * 1024 * 1024     # toplam önbellek üst sınırı (512 MB)
+ONBELLEK_GORSEL_SAKLAMA_GUN = 2       # son gösterimden sonra kaç gün daha tutulsun
+ONBELLEK_VERI_LASTUPDATE_KULLAN = True   # lastupdate değişmediyse veriyi ağdan çekme
+ONBELLEK_GORSEL_LASTUPDATE_YENILER = True  # veri değişince görselleri bir kez tazele
+
+# ==================== ÇALIŞMA KURALI ====================
+# Kiosk cihazı o günün nöbetçisini 08:30'dan ertesi gün 08:30'a kadar gösterir;
+# bu saatten önce hâlâ dünün nöbeti geçerlidir.
+NOBET_DEGISIM_SAATI = (8, 30)
+# Telefon/adres boşsa liste, detay ve alt kuşakta "-" yerine bölge adı gösterilir
+EKSIK_TELEFON_YERINE_BOLGE = True
+# =======================================================
+
+# ================= ALT KUŞAK (yayın ekranındaki kayan yazı) =================
+# Değerler 1080p için verilmiştir; başka çözünürlükte `scale` ile ölçeklenir.
+KUSAK_YUKSEKLIK = 110          # kırmızı şeridin yüksekliği (px)
+KUSAK_ALT_BOSLUK = 50         # şeridin ekranın alt kenarından yukarıda kalacağı boşluk (px)
+KUSAK_YAZI_PUNTO = 36         # yazı puntosu
+KUSAK_HIZ = 5                 # liste modunda her adımda sola kayma (px)
+KUSAK_ADIM_ARALIGI_MS = 30    # adımlar arası süre (ms)
+# True : eczaneler TEKER TEKER; sağdan ortaya gelir, bir süre durur, soldan çıkar
+#        (nöbet listesi geçişiyle aynı InOutCubic yumuşatma)
+# False: referans davranış — tüm liste tek metin hâlinde kesintisiz akar
+KUSAK_TEKLI = True
+KUSAK_GIRIS_MS = 1200         # sağdan ortaya gelme süresi
+KUSAK_DURMA_MS = 3000         # ortada durma süresi
+KUSAK_CIKIS_MS = 1200         # ortadan sola çıkma süresi
+KUSAK_AYIRICI = "    |   "    # yalnızca KUSAK_TEKLI = False iken kullanılır
+

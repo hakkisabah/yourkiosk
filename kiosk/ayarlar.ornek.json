@@ -1,0 +1,52 @@
+{
+  "_aciklama": "yourkiosk çalışma zamanı ayarları. Bu dosyayı 'ayarlar.json' adıyla kopyalayın (veya yönetim panelinden yazdırın). Verilmeyen her anahtar config.py varsayılanını kullanır. 'gelismis' grubu standart kullanıcı için gerekli değildir.",
+
+  "ozellikler": {
+    "_aciklama": "Ekranda ne görüneceğini aç/kapa yapar. Bu kiosk yalnızca eczane nöbeti için değil; sadece görsel yayını yapan kurumlar için de kullanılabilir.",
+    "nobet_listesi": true,
+    "yayinlar": true,
+    "kayan_yazi": true,
+    "saat_tarih": true
+  },
+
+  "kusak": {
+    "_aciklama": "Yayın görünümündeki kırmızı şerit ve kayan yazı (1080p değerleri; diğer çözünürlüklerde ölçeklenir).",
+    "yukseklik": 110,
+    "alt_bosluk": 50,
+    "yazi_punto": 36,
+    "giris_ms": 1200,
+    "durma_ms": 3000,
+    "cikis_ms": 1200,
+    "hiz": 5,
+    "adim_araligi_ms": 30,
+    "tekli": true
+  },
+
+  "veri": {
+    "_aciklama": "Verinin nereden okunacağı. 'dosya' = proje kökündeki JSON'lar, 'https' = sunucudan indirilir.",
+    "kaynak": "dosya",
+    "dosya_adresi": ""
+  },
+
+  "ag": {
+    "_aciklama": "Yalnızca indirme yapılacak adresler. Üretimde listenizi daraltın.",
+    "izinli_hostlar": ["hakkisabah.com", "www.kocaelieo.org.tr", "kocaelieo.org.tr"],
+    "izinli_portlar": [443],
+    "yonlendirme_izinli": false,
+    "http_timeout_s": 10
+  },
+
+  "gelismis": {
+    "_aciklama": "GELİŞMİŞ: veri hacmi büyüdükçe (ör. 20-30 MB JSON) yükseltilebilir. Yönetim panelinden düzenlenebilir; standart kurulumda dokunmayın. Sınır, bozuk/kötü niyetli girdiyi yakalamak içindir; normal büyüme için 8-10 katı pay bırakılmıştır.",
+    "max_json_bayt": 4194304,
+    "max_json_derinlik": 32,
+    "max_json_dugum": 200000,
+    "max_gorsel_bayt": 8388608,
+    "max_gorsel_piksel": 16777216,
+    "max_metin_uzunluk": 160,
+    "max_gosterilen_kayit": 60,
+    "max_aktif_yayin": 20,
+    "yayin_sure_en_az_s": 1,
+    "yayin_sure_en_cok_s": 60
+  }
+}

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="tr">
+  <!--
+    yourkiosk — TARAYICI (Chromium kiosk) GÖSTERİM MODU
+    (bu işaret, kiosk sunucusunun "portta bizim arayüzümüz mü?" denetiminde kullanılır)
+
+    Qt arayüzüyle AYNI görünüm/davranış. Cihaz kimliği URL'den gelir:
+
+        index.html?clientID=<cihaz>&veri=yerel|https[&taban=<veri-adresi>][&yerlesim=<test>]
+
+    · clientID : cihaz kimliği (makinebilgileri.json'daki clientID; URL'de yeterli)
+    · veri     : veri kaynağı modu (varsayılan "yerel" — cihazdaki dosyalar)
+    · taban    : https modunda veri kök adresi (verilmezse ayarlar.json'daki adres)
+    · yerlesim : yalnızca test için ölçek (ör. 0.5) — üretimde kullanılmaz
+  -->
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <!-- kiosk sunucusu portta kendi arayüzünü tanısın (derlemeden sonra da kalır) -->
+    <meta name="application-name" content="yourkiosk" />
+    <meta name="generator" content="yourkiosk-web" />
+    <title>yourkiosk</title>
+    <script>
+      /*
+       * GÜVENLİK AĞI — "boş ekran" olmasın.
+       *
+       * Derlenmiş paket hiç yüklenemezse ya da çalışma anında hata olursa, kullanıcı
+       * siyah/beyaz ekran yerine NE OLDUĞUNU görsün diye bağımsız (paket gerektirmeyen)
+       * bir hata kartı çizilir. Kart, hata metnini ve doğrulama komutunu gösterir.
+       */
+      ;(function () {
+        var GOSTERILDI = false
+        function kart(baslik, ayrinti) {
+          try {
+            if (GOSTERILDI && document.getElementById('__kiosk_hata')) return
+            GOSTERILDI = true
+            var eski = document.getElementById('__kiosk_hata')
+            if (eski) eski.remove()
+            var kutu = document.createElement('div')
+            kutu.id = '__kiosk_hata'
+            kutu.setAttribute(
+              'style',
+              'position:fixed;inset:0;z-index:2147483647;background:#fff;color:#111;' +
+                'font:16px/1.5 Arial,Helvetica,sans-serif;padding:32px;overflow:auto;white-space:pre-wrap;' +
+                'cursor:auto',
+            )
+            var bas = document.createElement('div')
+            bas.setAttribute('style', 'font-size:26px;font-weight:bold;color:#c8102e;margin-bottom:12px')
+            bas.textContent = 'yourkiosk — ' + baslik
+            var metin = document.createElement('div')
+            metin.textContent = ayrinti
+            var ipucu = document.createElement('div')
+            ipucu.setAttribute('style', 'margin-top:20px;font-size:14px;color:#555')
+            ipucu.textContent =
+              'Adres: ' +
+              location.href +
+              '\nKonsol hatalarını terminale dökmek için:  python3 tools/tarayici_kiosk.py --tani\n' +
+              'Ayrıntılı rehber: web/CALISTIRMA.md'
+            kutu.appendChild(bas)
+            kutu.appendChild(metin)
+            kutu.appendChild(ipucu)
+            ;(document.body || document.documentElement).appendChild(kutu)
+          } catch (_) {
+            /* kart çizilemese bile sayfa çökmemeli */
+          }
+        }
+        window.__kioskKart = kart
+
+        window.addEventListener('error', function (olay) {
+          var hata = olay && olay.error
+          kart(
+            'arayüz hatası',
+            String((olay && olay.message) || hata || 'bilinmeyen hata') +
+              '\n' +
+              String((hata && hata.stack) || '') +
+              '\nKaynak: ' +
+              String((olay && olay.filename) || '') +
+              ':' +
+              String((olay && olay.lineno) || ''),
+          )
+        })
+        window.addEventListener('unhandledrejection', function (olay) {
+          var sebep = olay && olay.reason
+          kart(
+            'arayüz hatası (promise)',
+            String((sebep && (sebep.stack || sebep.message)) || sebep || 'bilinmeyen'),
+          )
+        })
+
+        // Paket yüklense bile arayüz çizilmediyse (6 sn) kullanıcıya söyle
+        window.setTimeout(function () {
+          var hedef = document.getElementById('uygulama')
+          if (!hedef || hedef.children.length === 0) {
+            kart(
+              'arayüz başlatılamadı',
+              'Derlenmiş arayüz yüklenemedi ya da hiç çizim yapılmadı.\n' +
+                'Sık sebepler:\n' +
+                '  · web/dist derlenmemiş ya da eski  →  cd web && npm install --include=dev && npm run build\n' +
+                '  · tarayıcı çok eski (ES2020+ gerekir)\n' +
+                '  · sayfa dosya:// üzerinden açılmış (yerel sunucu kullanın)\n',
+            )
+          }
+        }, 6000)
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="uygulama"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

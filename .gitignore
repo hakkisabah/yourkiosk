@@ -1,0 +1,51 @@
+# yourkiosk deposu — kök düzeyinde yok sayılacaklar
+# (kiosk/ ve panel/ içinde ayrıca kendi .gitignore dosyaları var)
+
+# --- kiosk: yerel ortam ve üretilen veri ---
+kiosk/.venv/
+kiosk/.qt-libs/
+kiosk/.karantina/
+kiosk/.cache/
+kiosk/_arsiv/
+kiosk/kiosk.log
+kiosk/ayarlar.json
+kiosk/kapsam-ayarlari.json
+kiosk/makinebilgileri.json
+kiosk/onbellek/
+kiosk/lastSystemData.json
+kiosk/lastupdate.json
+kiosk/match.json
+kiosk/data/id_eslesme.json
+
+# --- tarayıcı (Chromium kiosk) gösterim modu ---
+kiosk/.tarayici-profil/
+web/node_modules/
+web/dist/
+
+# --- panel: bağımlılıklar, derleme, ortam ---
+panel/node_modules/
+panel/dist/
+panel/.env
+panel/.env.*
+!panel/.env.ornek
+panel/coverage/
+
+# --- düzenleyici / işletim sistemi ---
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log
+
+# --- derleyici/yorumlayıcı artıkları (her dil, her alt klasör) ---
+# `panel/lambda/tests/__pycache__/` gibi derin klasörler için kök düzeyinde kural şart:
+# panel/.gitignore yalnız `lambda/__pycache__/` diyordu ve `lambda/tests/__pycache__/` kaçıyordu.
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+web/.vite/
+panel/.vite/
+.karantina/

@@ -1,0 +1,799 @@
+{
+  "_aciklama": "OTOMATİK ÜRETİLDİ — elle düzenlemeyin. Kaynak: kiosk/ayarlar.py (KURALLAR, ACIKLAMALAR). Yenilemek için: python3 tools/sema_disa_aktar.py",
+  "surum": 1,
+  "kapsam_gruplari": [
+    "ozellikler",
+    "kusak",
+    "gorunum",
+    "gelismis",
+    "onbellek"
+  ],
+  "gruplar": [
+    {
+      "ad": "ozellikler",
+      "baslik": "Özellikler (aç/kapa)",
+      "kapsam": true,
+      "anahtarlar": [
+        {
+          "ad": "nobet_listesi",
+          "tam": "ozellikler.nobet_listesi",
+          "tip": "bool",
+          "etiket": "Nöbet listesi",
+          "aciklama": "Nöbet listesi + detay ekranı gösterilsin mi",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": true,
+          "gelismis": false
+        },
+        {
+          "ad": "yayinlar",
+          "tam": "ozellikler.yayinlar",
+          "tip": "bool",
+          "etiket": "Yayınlar (görsel modu)",
+          "aciklama": "Yayın (görsel) moduna geçilsin mi",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": true,
+          "gelismis": false
+        },
+        {
+          "ad": "kayan_yazi",
+          "tam": "ozellikler.kayan_yazi",
+          "tip": "bool",
+          "etiket": "Kayan yazı kuşağı",
+          "aciklama": "Yayın görünümünde alt kırmızı kuşak/kayan yazı gösterilsin mi",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": true,
+          "gelismis": false
+        },
+        {
+          "ad": "saat_tarih",
+          "tam": "ozellikler.saat_tarih",
+          "tip": "bool",
+          "etiket": "Saat / tarih yazısı",
+          "aciklama": "Nöbet ekranındaki saat/tarih yazısı gösterilsin mi",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": true,
+          "gelismis": false
+        }
+      ]
+    },
+    {
+      "ad": "kusak",
+      "baslik": "Kayan yazı kuşağı",
+      "kapsam": true,
+      "anahtarlar": [
+        {
+          "ad": "yukseklik",
+          "tam": "kusak.yukseklik",
+          "tip": "int",
+          "etiket": "Kuşak yüksekliği",
+          "aciklama": "",
+          "birim": "px",
+          "alt": 20,
+          "ust": 400,
+          "izinli": null,
+          "varsayilan": 110,
+          "gelismis": false
+        },
+        {
+          "ad": "alt_bosluk",
+          "tam": "kusak.alt_bosluk",
+          "tip": "int",
+          "etiket": "Alt boşluk",
+          "aciklama": "",
+          "birim": "px",
+          "alt": 0,
+          "ust": 400,
+          "izinli": null,
+          "varsayilan": 50,
+          "gelismis": false
+        },
+        {
+          "ad": "yazi_punto",
+          "tam": "kusak.yazi_punto",
+          "tip": "int",
+          "etiket": "Yazı puntosu",
+          "aciklama": "",
+          "birim": "",
+          "alt": 8,
+          "ust": 160,
+          "izinli": null,
+          "varsayilan": 36,
+          "gelismis": false
+        },
+        {
+          "ad": "giris_ms",
+          "tam": "kusak.giris_ms",
+          "tip": "int",
+          "etiket": "Giriş süresi",
+          "aciklama": "",
+          "birim": "ms",
+          "alt": 100,
+          "ust": 20000,
+          "izinli": null,
+          "varsayilan": 1200,
+          "gelismis": false
+        },
+        {
+          "ad": "durma_ms",
+          "tam": "kusak.durma_ms",
+          "tip": "int",
+          "etiket": "Ortada durma süresi",
+          "aciklama": "",
+          "birim": "ms",
+          "alt": 0,
+          "ust": 60000,
+          "izinli": null,
+          "varsayilan": 3000,
+          "gelismis": false
+        },
+        {
+          "ad": "cikis_ms",
+          "tam": "kusak.cikis_ms",
+          "tip": "int",
+          "etiket": "Çıkış süresi",
+          "aciklama": "",
+          "birim": "ms",
+          "alt": 100,
+          "ust": 20000,
+          "izinli": null,
+          "varsayilan": 1200,
+          "gelismis": false
+        },
+        {
+          "ad": "hiz",
+          "tam": "kusak.hiz",
+          "tip": "int",
+          "etiket": "Kayma hızı",
+          "aciklama": "",
+          "birim": "",
+          "alt": 1,
+          "ust": 100,
+          "izinli": null,
+          "varsayilan": 5,
+          "gelismis": false
+        },
+        {
+          "ad": "adim_araligi_ms",
+          "tam": "kusak.adim_araligi_ms",
+          "tip": "int",
+          "etiket": "Adım aralığı",
+          "aciklama": "",
+          "birim": "ms",
+          "alt": 5,
+          "ust": 500,
+          "izinli": null,
+          "varsayilan": 30,
+          "gelismis": false
+        },
+        {
+          "ad": "tekli",
+          "tam": "kusak.tekli",
+          "tip": "bool",
+          "etiket": "Tek tek göster",
+          "aciklama": "",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": true,
+          "gelismis": false
+        }
+      ]
+    },
+    {
+      "ad": "gorunum",
+      "baslik": "Görünüm",
+      "kapsam": true,
+      "anahtarlar": [
+        {
+          "ad": "sol_panel_satir",
+          "tam": "gorunum.sol_panel_satir",
+          "tip": "int",
+          "etiket": "Sol panel taban satır sayısı",
+          "aciklama": "Sol panelde satır yüksekliğinin hesaplandığı taban satır sayısı (az nöbetçide çerçeve büyümesin)",
+          "birim": "",
+          "alt": 1,
+          "ust": 20,
+          "izinli": null,
+          "varsayilan": 5,
+          "gelismis": false
+        },
+        {
+          "ad": "sol_panel_otomatik_kaydirma",
+          "tam": "gorunum.sol_panel_otomatik_kaydirma",
+          "tip": "bool",
+          "etiket": "Sol panel otomatik kaydirma",
+          "aciklama": "Sol panel vurgulanan nöbetçiyi otomatik takip etsin mi (satır alttan taşınca kaydırır)",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": true,
+          "gelismis": false
+        },
+        {
+          "ad": "sol_panel_kaydirma_sure_ms",
+          "tam": "gorunum.sol_panel_kaydirma_sure_ms",
+          "tip": "int",
+          "etiket": "Sol panel kaydirma sure ms",
+          "aciklama": "Sol panel kaydırma süresi (ms) — orta geçiş animasyonuyla aynı olması önerilir",
+          "birim": "",
+          "alt": 100,
+          "ust": 10000,
+          "izinli": null,
+          "varsayilan": 1800,
+          "gelismis": false
+        },
+        {
+          "ad": "kaydirma_cubugu_genislik",
+          "tam": "gorunum.kaydirma_cubugu_genislik",
+          "tip": "int",
+          "etiket": "Kaydirma cubugu genislik",
+          "aciklama": "Sol panel kaydırma çubuğu genişliği (px, 0 = gizli)",
+          "birim": "",
+          "alt": 0,
+          "ust": 60,
+          "izinli": null,
+          "varsayilan": 12,
+          "gelismis": false
+        },
+        {
+          "ad": "kaydirma_cubugu_renk",
+          "tam": "gorunum.kaydirma_cubugu_renk",
+          "tip": "str",
+          "etiket": "Kaydirma cubugu renk",
+          "aciklama": "Kaydırma çubuğu rayının rengi (#rrggbb)",
+          "birim": "",
+          "alt": 0,
+          "ust": 16,
+          "izinli": null,
+          "varsayilan": "#d9dee5",
+          "gelismis": false
+        },
+        {
+          "ad": "kaydirma_tutamak_renk",
+          "tam": "gorunum.kaydirma_tutamak_renk",
+          "tip": "str",
+          "etiket": "Kaydirma tutamak renk",
+          "aciklama": "Kaydırma çubuğu tutamağının rengi (#rrggbb)",
+          "birim": "",
+          "alt": 0,
+          "ust": 16,
+          "izinli": null,
+          "varsayilan": "#6b7280",
+          "gelismis": false
+        }
+      ]
+    },
+    {
+      "ad": "veri",
+      "baslik": "Veri kaynağı",
+      "kapsam": false,
+      "anahtarlar": [
+        {
+          "ad": "kaynak",
+          "tam": "veri.kaynak",
+          "tip": "secim",
+          "etiket": "Veri kaynağı türü",
+          "aciklama": "",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": [
+            "dosya",
+            "https"
+          ],
+          "varsayilan": "dosya",
+          "gelismis": false
+        },
+        {
+          "ad": "dosya_adresi",
+          "tam": "veri.dosya_adresi",
+          "tip": "str",
+          "etiket": "Dosya adresi",
+          "aciklama": "",
+          "birim": "",
+          "alt": 0,
+          "ust": 2048,
+          "izinli": null,
+          "varsayilan": "",
+          "gelismis": true
+        }
+      ]
+    },
+    {
+      "ad": "ag",
+      "baslik": "Ağ (güvenlik)",
+      "kapsam": false,
+      "anahtarlar": [
+        {
+          "ad": "izinli_hostlar",
+          "tam": "ag.izinli_hostlar",
+          "tip": "liste",
+          "etiket": "İzinli ana makineler",
+          "aciklama": "",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": [
+            "hakkisabah.com",
+            "www.kocaelieo.org.tr",
+            "kocaelieo.org.tr"
+          ],
+          "gelismis": true
+        },
+        {
+          "ad": "izinli_portlar",
+          "tam": "ag.izinli_portlar",
+          "tip": "sayi_listesi",
+          "etiket": "İzinli portlar",
+          "aciklama": "",
+          "birim": "",
+          "alt": 1,
+          "ust": 65535,
+          "izinli": null,
+          "varsayilan": [
+            443
+          ],
+          "gelismis": true
+        },
+        {
+          "ad": "yonlendirme_izinli",
+          "tam": "ag.yonlendirme_izinli",
+          "tip": "bool",
+          "etiket": "Yonlendirme izinli",
+          "aciklama": "",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": false,
+          "gelismis": false
+        },
+        {
+          "ad": "http_timeout_s",
+          "tam": "ag.http_timeout_s",
+          "tip": "float",
+          "etiket": "Http timeout s",
+          "aciklama": "",
+          "birim": "",
+          "alt": 1,
+          "ust": 300,
+          "izinli": null,
+          "varsayilan": 10.0,
+          "gelismis": false
+        }
+      ]
+    },
+    {
+      "ad": "gelismis",
+      "baslik": "Gelişmiş (veri hacmi)",
+      "kapsam": true,
+      "anahtarlar": [
+        {
+          "ad": "max_json_bayt",
+          "tam": "gelismis.max_json_bayt",
+          "tip": "int",
+          "etiket": "JSON üst boyutu",
+          "aciklama": "JSON gövdesi üst sınırı (bayt) — büyük veri için yükseltin",
+          "birim": "bayt",
+          "alt": 65536,
+          "ust": 536870912,
+          "izinli": null,
+          "varsayilan": 4194304,
+          "gelismis": true
+        },
+        {
+          "ad": "max_json_derinlik",
+          "tam": "gelismis.max_json_derinlik",
+          "tip": "int",
+          "etiket": "JSON derinlik sınırı",
+          "aciklama": "JSON iç içe geçme derinliği üst sınırı (GELİŞMİŞ)",
+          "birim": "seviye",
+          "alt": 4,
+          "ust": 256,
+          "izinli": null,
+          "varsayilan": 32,
+          "gelismis": true
+        },
+        {
+          "ad": "max_json_dugum",
+          "tam": "gelismis.max_json_dugum",
+          "tip": "int",
+          "etiket": "JSON düğüm sınırı",
+          "aciklama": "JSON düğüm (anahtar+değer) sayısı üst sınırı (GELİŞMİŞ)",
+          "birim": "düğüm",
+          "alt": 1000,
+          "ust": 50000000,
+          "izinli": null,
+          "varsayilan": 200000,
+          "gelismis": true
+        },
+        {
+          "ad": "max_gorsel_bayt",
+          "tam": "gelismis.max_gorsel_bayt",
+          "tip": "int",
+          "etiket": "Görsel üst boyutu",
+          "aciklama": "",
+          "birim": "bayt",
+          "alt": 65536,
+          "ust": 134217728,
+          "izinli": null,
+          "varsayilan": 8388608,
+          "gelismis": true
+        },
+        {
+          "ad": "max_gorsel_piksel",
+          "tam": "gelismis.max_gorsel_piksel",
+          "tip": "int",
+          "etiket": "Görsel piksel sınırı",
+          "aciklama": "",
+          "birim": "piksel",
+          "alt": 16384,
+          "ust": 100000000,
+          "izinli": null,
+          "varsayilan": 16777216,
+          "gelismis": true
+        },
+        {
+          "ad": "max_metin_uzunluk",
+          "tam": "gelismis.max_metin_uzunluk",
+          "tip": "int",
+          "etiket": "Metin uzunluk sınırı",
+          "aciklama": "",
+          "birim": "karakter",
+          "alt": 20,
+          "ust": 4096,
+          "izinli": null,
+          "varsayilan": 160,
+          "gelismis": false
+        },
+        {
+          "ad": "max_gosterilen_kayit",
+          "tam": "gelismis.max_gosterilen_kayit",
+          "tip": "int",
+          "etiket": "Gösterilen kayıt sınırı",
+          "aciklama": "Tek ekranda gösterilecek en fazla kayıt",
+          "birim": "",
+          "alt": 1,
+          "ust": 5000,
+          "izinli": null,
+          "varsayilan": 60,
+          "gelismis": false
+        },
+        {
+          "ad": "max_aktif_yayin",
+          "tam": "gelismis.max_aktif_yayin",
+          "tip": "int",
+          "etiket": "Aktif yayın sınırı",
+          "aciklama": "Aynı anda işlenecek en fazla yayın",
+          "birim": "",
+          "alt": 1,
+          "ust": 1000,
+          "izinli": null,
+          "varsayilan": 20,
+          "gelismis": false
+        },
+        {
+          "ad": "yayin_sure_en_az_s",
+          "tam": "gelismis.yayin_sure_en_az_s",
+          "tip": "int",
+          "etiket": "En az yayın süresi",
+          "aciklama": "",
+          "birim": "saniye",
+          "alt": 1,
+          "ust": 3600,
+          "izinli": null,
+          "varsayilan": 1,
+          "gelismis": false
+        },
+        {
+          "ad": "yayin_sure_en_cok_s",
+          "tam": "gelismis.yayin_sure_en_cok_s",
+          "tip": "int",
+          "etiket": "En çok yayın süresi",
+          "aciklama": "",
+          "birim": "saniye",
+          "alt": 1,
+          "ust": 3600,
+          "izinli": null,
+          "varsayilan": 60,
+          "gelismis": false
+        }
+      ]
+    },
+    {
+      "ad": "onbellek",
+      "baslik": "Önbellek (maliyet + performans)",
+      "kapsam": true,
+      "anahtarlar": [
+        {
+          "ad": "aktif",
+          "tam": "onbellek.aktif",
+          "tip": "bool",
+          "etiket": "Aktif",
+          "aciklama": "Cihaz önbelleği açık mı (veri + yayın görselleri diskte tutulur, internet tasarrufu)",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": true,
+          "gelismis": false
+        },
+        {
+          "ad": "klasor",
+          "tam": "onbellek.klasor",
+          "tip": "str",
+          "etiket": "Klasor",
+          "aciklama": "Önbellek klasörü (proje kökü altında; sürüm kontrolüne girmez)",
+          "birim": "",
+          "alt": 1,
+          "ust": 64,
+          "izinli": null,
+          "varsayilan": "onbellek",
+          "gelismis": false
+        },
+        {
+          "ad": "maks_bayt",
+          "tam": "onbellek.maks_bayt",
+          "tip": "int",
+          "etiket": "Maks bayt",
+          "aciklama": "Önbelleğin toplam boyut üst sınırı (bayt) — aşılırsa en eski kullanılanlar silinir",
+          "birim": "",
+          "alt": 8388608,
+          "ust": 68719476736,
+          "izinli": null,
+          "varsayilan": 536870912,
+          "gelismis": false
+        },
+        {
+          "ad": "gorsel_saklama_gun",
+          "tam": "onbellek.gorsel_saklama_gun",
+          "tip": "int",
+          "etiket": "Gorsel saklama gun",
+          "aciklama": "Son gösterimden sonra görsellerin kaç gün daha tutulacağı (süresi geçen yayınlar silinir)",
+          "birim": "",
+          "alt": 0,
+          "ust": 365,
+          "izinli": null,
+          "varsayilan": 2,
+          "gelismis": false
+        },
+        {
+          "ad": "veri_lastupdate_kullan",
+          "tam": "onbellek.veri_lastupdate_kullan",
+          "tip": "bool",
+          "etiket": "Veri lastupdate kullan",
+          "aciklama": "`lastupdate` değişmediyse büyük veri dosyalarını ağdan yeniden çekme (yalnızca https kaynağında)",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": true,
+          "gelismis": false
+        },
+        {
+          "ad": "gorsel_lastupdate_yeniler",
+          "tam": "onbellek.gorsel_lastupdate_yeniler",
+          "tip": "bool",
+          "etiket": "Gorsel lastupdate yeniler",
+          "aciklama": "Veri değiştiğinde görselleri bir kez tazele (aynı adresteki içerik değişmiş olabilir)",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": true,
+          "gelismis": false
+        }
+      ]
+    },
+    {
+      "ad": "calistirma",
+      "baslik": "Çalıştırma modu (Qt / tarayıcı)",
+      "kapsam": false,
+      "anahtarlar": [
+        {
+          "ad": "mod",
+          "tam": "calistirma.mod",
+          "tip": "secim",
+          "etiket": "Mod",
+          "aciklama": "Gösterim modu: 'qt' (PyQt6 penceresi) veya 'tarayici' (Chromium kiosk)",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": [
+            "qt",
+            "tarayici"
+          ],
+          "varsayilan": "qt",
+          "gelismis": false
+        },
+        {
+          "ad": "tarayici_yolu",
+          "tam": "calistirma.tarayici_yolu",
+          "tip": "str",
+          "etiket": "Tarayici yolu",
+          "aciklama": "Tarayıcı çalıştırılabilir dosyası (ör. chromium, chromium-browser, google-chrome)",
+          "birim": "",
+          "alt": 1,
+          "ust": 200,
+          "izinli": null,
+          "varsayilan": "chromium",
+          "gelismis": false
+        },
+        {
+          "ad": "tarayici_ek_bayraklar",
+          "tam": "calistirma.tarayici_ek_bayraklar",
+          "tip": "str",
+          "etiket": "Tarayici ek bayraklar",
+          "aciklama": "Chromium'a eklenecek ek bayraklar (boşlukla ayrılmış)",
+          "birim": "",
+          "alt": 1,
+          "ust": 500,
+          "izinli": null,
+          "varsayilan": "",
+          "gelismis": false
+        },
+        {
+          "ad": "profil_klasoru",
+          "tam": "calistirma.profil_klasoru",
+          "tip": "str",
+          "etiket": "Profil klasoru",
+          "aciklama": "Tarayıcı profili klasörü (kalıcı: görsel/HTTP önbelleği burada kalır)",
+          "birim": "",
+          "alt": 1,
+          "ust": 64,
+          "izinli": null,
+          "varsayilan": ".tarayici-profil",
+          "gelismis": false
+        },
+        {
+          "ad": "pencere_boyutu",
+          "tam": "calistirma.pencere_boyutu",
+          "tip": "str",
+          "etiket": "Pencere boyutu",
+          "aciklama": "Pencere boyutu (genişlik,yükseklik) — kiosk modunda yok sayılır",
+          "birim": "",
+          "alt": 3,
+          "ust": 20,
+          "izinli": null,
+          "varsayilan": "1920,1080",
+          "gelismis": false
+        },
+        {
+          "ad": "yeniden_baslat_s",
+          "tam": "calistirma.yeniden_baslat_s",
+          "tip": "int",
+          "etiket": "Yeniden baslat s",
+          "aciklama": "Tarayıcı kapanırsa kaç saniye sonra yeniden açılsın (0 = yeniden açma)",
+          "birim": "",
+          "alt": 0,
+          "ust": 3600,
+          "izinli": null,
+          "varsayilan": 5,
+          "gelismis": false
+        },
+        {
+          "ad": "web_klasoru",
+          "tam": "calistirma.web_klasoru",
+          "tip": "str",
+          "etiket": "Web klasoru",
+          "aciklama": "HTML/JS arayüzünün klasörü (proje kökü altında, ör. 'web')",
+          "birim": "",
+          "alt": 1,
+          "ust": 64,
+          "izinli": null,
+          "varsayilan": "web",
+          "gelismis": false
+        },
+        {
+          "ad": "web_sunucu_adresi",
+          "tam": "calistirma.web_sunucu_adresi",
+          "tip": "str",
+          "etiket": "Web sunucu adresi",
+          "aciklama": "Yerel sunucu adresi (varsayılan 127.0.0.1 — yalnızca cihazdan erişilir)",
+          "birim": "",
+          "alt": 3,
+          "ust": 64,
+          "izinli": null,
+          "varsayilan": "127.0.0.1",
+          "gelismis": false
+        },
+        {
+          "ad": "web_sunucu_portu",
+          "tam": "calistirma.web_sunucu_portu",
+          "tip": "int",
+          "etiket": "Web sunucu portu",
+          "aciklama": "Yerel sunucu portu",
+          "birim": "",
+          "alt": 1024,
+          "ust": 65535,
+          "izinli": null,
+          "varsayilan": 8090,
+          "gelismis": false
+        },
+        {
+          "ad": "web_veri_modu",
+          "tam": "calistirma.web_veri_modu",
+          "tip": "secim",
+          "etiket": "Web veri modu",
+          "aciklama": "Tarayıcı modunda veri kaynağı: 'yerel' (cihazdaki dosyalar) veya 'https' (DOSYA_ADRESI)",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": [
+            "yerel",
+            "https"
+          ],
+          "varsayilan": "yerel",
+          "gelismis": false
+        },
+        {
+          "ad": "web_yenileme_ms",
+          "tam": "calistirma.web_yenileme_ms",
+          "tip": "int",
+          "etiket": "Web yenileme ms",
+          "aciklama": "Tarayıcının veriyi yeniden kontrol etme aralığı (ms)",
+          "birim": "",
+          "alt": 5000,
+          "ust": 3600000,
+          "izinli": null,
+          "varsayilan": 60000,
+          "gelismis": false
+        },
+        {
+          "ad": "degisiklik_kontrol_ms",
+          "tam": "calistirma.degisiklik_kontrol_ms",
+          "tip": "int",
+          "etiket": "Degisiklik kontrol ms",
+          "aciklama": "",
+          "birim": "",
+          "alt": 5000,
+          "ust": 3600000,
+          "izinli": null,
+          "varsayilan": 20000,
+          "gelismis": false
+        },
+        {
+          "ad": "degisiklik_bekleme_s",
+          "tam": "calistirma.degisiklik_bekleme_s",
+          "tip": "int",
+          "etiket": "Degisiklik bekleme s",
+          "aciklama": "",
+          "birim": "",
+          "alt": 0,
+          "ust": 120,
+          "izinli": null,
+          "varsayilan": 30,
+          "gelismis": false
+        },
+        {
+          "ad": "tetik_dosyasi",
+          "tam": "calistirma.tetik_dosyasi",
+          "tip": "str",
+          "etiket": "Tetik dosyasi",
+          "aciklama": "",
+          "birim": "",
+          "alt": 1,
+          "ust": 64,
+          "izinli": null,
+          "varsayilan": "tetikle.json",
+          "gelismis": false
+        }
+      ]
+    }
+  ]
+}

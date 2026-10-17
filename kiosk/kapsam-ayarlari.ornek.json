@@ -1,0 +1,22 @@
+{
+  "_aciklama": [
+    "KAPSAM AYARLARI — ilçe / bölge / cihaz bazında özellik yönetimi (yönetim paneli yazar).",
+    "Çözümleme sırası: varsayilan → ilceler[ilceId] → bolgeler[bolgeId] → cihazlar[clientID]. En özel kapsam kazanır.",
+    "Sadece verilen anahtar geçersiz kılınır; verilmeyenler bir üst kapsamdan/varsayılandan gelir.",
+    "Gruplar: ozellikler, kusak, gorunum, gelismis (ayarlar.json ile aynı anahtarlar; bkz. ayarlar.ornek.json).",
+    "Dosya yoksa davranış birebir aynıdır (config.py varsayılanları geçerlidir).",
+    "Geçersiz değer sessizce kabul edilmez: günlüğe gerekçe yazılır, varsayılan korunur."
+  ],
+  "varsayilan": {
+    "ozellikler": { "nobet_listesi": true, "yayinlar": true, "kayan_yazi": true, "saat_tarih": true }
+  },
+  "ilceler": {
+    "1001": { "ozellikler": { "kayan_yazi": false } }
+  },
+  "bolgeler": {
+    "2002": { "kusak": { "yazi_punto": 30, "yukseklik": 110, "alt_bosluk": 50 } }
+  },
+  "cihazlar": {
+    "ORNEK-CIHAZ-0001": { "gelismis": { "max_json_bayt": 33554432 } }
+  }
+}

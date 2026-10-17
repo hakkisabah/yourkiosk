@@ -1,0 +1,16 @@
+{
+  "_aciklama": "Kapsam (ilçe/bölge/cihaz) çözümlemesi için ORTAK test verisi. Hem kiosk (Python: tests/test_kapsam_ayarlari.py) hem yönetim paneli (TypeScript: panel/src/domain/kapsam.test.ts) bu dosyayı okur; iki tarafın aynı sonucu vermesi beklenir.",
+  "varsayilan": {
+    "ozellikler": { "kayan_yazi": true, "saat_tarih": true },
+    "kusak": { "yazi_punto": 36 }
+  },
+  "ilceler": {
+    "1001": { "ozellikler": { "kayan_yazi": false } }
+  },
+  "bolgeler": {
+    "2002": { "kusak": { "yazi_punto": 30 }, "ozellikler": { "kayan_yazi": true } }
+  },
+  "cihazlar": {
+    "ORNEK-CIHAZ-0001": { "kusak": { "yazi_punto": 28 } }
+  }
+}

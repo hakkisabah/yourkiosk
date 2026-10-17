@@ -1,0 +1,31 @@
+from PyQt6.QtCore import QTimer
+import config
+
+class TimerManager:
+    def __init__(self, app_instance):
+        self.app_instance = app_instance
+        
+        self.data_timer = QTimer(app_instance)
+        self.data_timer.timeout.connect(app_instance.load_data)
+
+        self.cycle_timer = QTimer(app_instance)
+        self.cycle_timer.timeout.connect(app_instance.manage_loop)
+
+        self.clock_timer = QTimer(app_instance)
+        self.clock_timer.timeout.connect(app_instance.update_clock)
+
+        self.ticker_timer = QTimer(app_instance)
+        self.ticker_timer.timeout.connect(app_instance.scroll_ticker)
+
+        # Hızlı değişiklik denetimi: lastupdate damgası + panel tetikleyicisi
+        self.tetik_timer = QTimer(app_instance)
+        self.tetik_timer.timeout.connect(app_instance.tetik_kontrol)
+
+    def start_all(self):
+        self.data_timer.start(config.REFRESH_INTERVAL_MS)
+        self.cycle_timer.start(config.CYCLE_INTERVAL_MS)
+        self.clock_timer.start(1000)
+        self.ticker_timer.start(30)
+        # NÖBET DEĞİŞİKLİĞİ: damga + tetikleyici hızlı denetimi (yalnız küçük dosyalar).
+        # Saatlik kontrolü beklemeden değişikliği yansıtır (`DAMGA_KONTROL_MS`, 20 sn).
+        self.tetik_timer.start(getattr(config, "DAMGA_KONTROL_MS", 20000))

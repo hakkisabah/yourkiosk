@@ -1,0 +1,41 @@
+    {
+        "Nobetler": {
+            "T20261014": {
+                "ilceId": [
+                    {
+                        "bolgeId": [
+                            {
+                                "ilce": "ilce adı",
+                                "ilceId": "ilceId",
+                                "bolge": "Bölge Adı",
+                                "bolgeId": "bolgeId",
+                                "eczane": "Eczane Adı",
+                                "adres": "adres bilgisi",
+                                "tel": "telefon bilgisi",
+                                "adres_tarifi": "adres tarifi",
+                                "enlem": "enlem bilgisi",
+                                "boylam": "boylam bilgisi",
+                                "start": "14/10/2026 08:30",
+                                "end": "15/10/2026 08:30"
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        "Yayinlar": {
+            "1": {
+                "start": "2026-10-14T15:16:00.468",
+                "end": "2026-10-14T15:33:00.468",
+                "contentUrl": "https://hakkisabah.com/api/havuzlu-bahce.png",
+                "duration": "30"
+            },
+            "2": {
+                "start": "2026-10-14T15:16:00.468",
+                "end": "2026-10-14T15:33:00.468",
+                "contentUrl": "https://hakkisabah.com/api/filmss.png",
+                "duration": "20"
+            }
+        },
+        "lastUpdate": "BURAYA TIMESTAMP GELECEK"
+    }

@@ -1,0 +1,43 @@
+# ============================================================
+#  yourkiosk — paylaşılmayacaklar
+#  Kural: cihaza özel veri, üretilen dosyalar ve ağır yerel kurulumlar
+#  depoya girmez; uygulamanın kendisi ve tasarım varlıkları (bg_layout/,
+#  font/) her zaman depodadır.
+# ============================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Sanal ortam + yerel kütüphane aşamalaması ---
+.venv/
+venv/
+.qt-libs/
+
+# --- Qt karantinası (uygulama açılışında oluşur; yerel, geri alınabilir) ---
+.karantina/
+
+# --- Uygulama önbelleği (ekran görüntüleri, fontconfig) ---
+.cache/
+
+# --- Kullanımdan kalkan yaklaşımların arşivi ---
+_arsiv/
+
+# --- Çalışma zamanı ayarları (yönetim paneli yazar; örneği: ayarlar.ornek.json) ---
+ayarlar.json
+
+# --- Cihaza özel/üretilen veri (clientID sızdırmasın, her kurulum kendi üretir) ---
+makinebilgileri.json
+lastupdate.json
+match.json
+lastSystemData.json
+data/id_eslesme.json
+
+# --- Günlükler ---
+kiosk.log
+kiosk.log.*
+*.log

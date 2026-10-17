@@ -1,0 +1,36 @@
+{
+  "name": "yourkiosk-panel",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "yourkiosk yönetim paneli — Vue 3 + Vuetify 3 + TypeScript; tüm veriler S3 üzerinden",
+  "scripts": {
+    "dev": "NODE_ENV=development vite",
+    "build": "vue-tsc --noEmit && NODE_ENV=production vite build",
+    "build:only": "NODE_ENV=production vite build",
+    "preview": "NODE_ENV=production vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "tip": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity": "^3.700.0",
+    "@aws-sdk/client-s3": "^3.700.0",
+    "@aws-sdk/credential-provider-cognito-identity": "^3.700.0",
+    "amazon-cognito-identity-js": "^6.3.12",
+    "pinia": "^2.2.6",
+    "vue": "^3.5.13",
+    "vue-router": "^4.4.5",
+    "vuetify": "^3.7.4"
+  },
+  "devDependencies": {
+    "@mdi/font": "^7.4.47",
+    "@types/node": "^22.10.2",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "~5.6.3",
+    "vite": "^6.0.7",
+    "vite-plugin-vuetify": "^2.0.4",
+    "vitest": "^3.2.7",
+    "vue-tsc": "^2.1.10"
+  }
+}
