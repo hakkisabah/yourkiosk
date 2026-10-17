@@ -310,6 +310,37 @@ Veri saatte bir kontrol edilir; bir nöbet değişikliğinde cihazın beklemesin
 
 Ayrıntılı akış, ayarlar ve uçtan uca doğrulama adımları: **[NODET-DEGISIKLIGI.md](NODET-DEGISIKLIGI.md)**.
 
+## 1.9 Uzaktan komut: yeniden başlat / uygulamayı yeniden başlat / ekranı yenile
+
+Cihazın bulunduğu yere gitmeden **imzalı** bir komut gönderilebilir. Taşıma yolu §1.8'deki
+tetikleyiciyle **aynıdır** (`komut.json`, 20 sn içinde alınır); fark, komutun çalıştırılmadan önce
+imza + beyaz liste denetiminden geçmesidir.
+
+| Komut | İşlem (varsayılan) |
+|---|---|
+| `yeniden-baslat` | `systemctl reboot` |
+| `uygulamayi-yeniden-baslat` | `systemctl restart kiosk.service` |
+| `ekrani-yenile` | uygulama içi tazeleme (tarayıcı modunda sayfa yeniden yüklenir) |
+
+```bash
+# cihazda bir kez: anahtar üret (0600, depoya girmez)
+python3 tools/komut_gonder.py --anahtar-olustur
+
+# yönetici makinesinde: imzala ve S3'e koy
+python3 tools/komut_gonder.py --komut uygulamayi-yeniden-baslat --cihaz 98273648723468273
+aws s3 cp komut-gonderilecek.json s3://<KOVA>/kiosk/komut.json
+
+# cihazda doğrula
+python3 tools/komut_gonder.py --durum
+```
+
+Kurallar: beyaz liste (yalnız 3 komut), HMAC imza **zorunlu** (fail-closed), hedef cihaz denetimi,
+tek seferlik uygulama (`komut-durum.json`), sabit `argv` (`shell` yok), kuru çalıştırma ve zaman
+aşımı. Panelde komut **salt-okunur** (istemciye sır konmaz); gönderme yönetici aracıyla ya da
+sunucu tarafı (Lambda + `KOMUT_ANAHTARI`) üzerinden yapılır.
+
+Ayrıntılı kurulum, komut gönderme, sorun giderme ve geri alma: **[KOMUTLAR.md](KOMUTLAR.md)**.
+
 ## 2. Veri üretme / tazeleme
 
 Nöbet verisinin gerçek kaynağı: `https://www.kocaelieo.org.tr/nobet-belediye/<baslangic>/<bitis>/`

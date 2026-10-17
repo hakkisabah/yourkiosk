@@ -20,6 +20,7 @@ from core.data_handler import DataHandler
 from core.broadcast_manager import BroadcastManager
 from core import onbellek
 from core import tetik as tetik_modulu
+from core import komut as komut_modulu
 from core import veri_kaynagi
 from core.timer_manager import TimerManager
 from core.animation_handler import AnimationHandler
@@ -103,12 +104,16 @@ class PharmacyApp(QMainWindow):
         """NÖBET DEĞİŞİKLİĞİNİ BEKLEMEDEN yansıt (panel tetikleyicisi ya da damga değişikliği).
 
         Saatlik `data_timer`'a EK olarak `DAMGA_KONTROL_MS` (varsayılan 20 sn) ile çalışır ve
-        yalnızca KÜÇÜK dosyaları okur (`lastupdate.json`, `tetikle.json`); büyük veri dosyası
-        damga değişmedikçe indirilmez:
+        yalnızca KÜÇÜK dosyaları okur (`lastupdate.json`, `tetikle.json`, `komut.json`); büyük veri
+        dosyası damga değişmedikçe indirilmez:
           · `lastupdate` damgası değiştiyse → veri yenilenir,
           · panelin yazdığı tetikleyici bu cihazı ilgilendiriyorsa → veri yenilenir
-            (`core/tetik.uygulanmali`: tüm cihazlar / kendi ilçesi / kendi bölgesi).
+            (`core/tetik.uygulanmali`: tüm cihazlar / kendi ilçesi / kendi bölgesi),
+          · uzaktan komut varsa (imzalı, beyaz listede) uygulanır (`core/komut.py`).
         """
+        # UZAKTAN KOMUT + küçük dosya senkronu (her turda; hızlı ve ucuz)
+        self.uzak_kontrol()
+
         try:
             damga = veri_kaynagi.lastupdate_taze()
         except Exception:  # noqa: BLE001 - denetim hatası gösterimi durdurmamalı
@@ -129,6 +134,38 @@ class PharmacyApp(QMainWindow):
             kapsam = tetik.get("ilceId") or "tüm cihazlar"
             log.info("tetikleyici uygulanıyor (%s · kapsam=%s) → hemen yenileniyor", tetik.get("zaman"), kapsam)
             self.load_data(zorla=True)
+
+    def uzak_kontrol(self):
+        """Küçük kontrol dosyalarını sunucudan tazeler ve UZAKTAN KOMUT varsa uygular.
+
+        Fazladan güvenlik katmanları `core/komut.py` içindedir: beyaz liste, HMAC imza (fail-closed),
+        hedef cihaz, tek seferlik uygulama ve sabit argv (kabuk yok). Komut uygulandığında günlüğe
+        yazılır; `ekrani-yenile` ise ekran kendi içinde tazelenir.
+        """
+        try:
+            tetik_modulu.getir()
+            komut_modulu.getir()
+        except Exception:  # noqa: BLE001 - indirme hatası gösterimi etkilememeli
+            log.warning("uzak kontrol dosyaları alınamadı", exc_info=True)
+
+        try:
+            _karar, sonuc = komut_modulu.kontrol(cihaz_id=self.cihaz_kimligi())
+        except Exception:  # noqa: BLE001
+            log.warning("uzaktan komut denetimi yapılamadı", exc_info=True)
+            return
+        if sonuc is None:
+            return
+        log.warning("UZAKTAN KOMUT: %s", komut_modulu.sonuc_metni(sonuc))
+        if sonuc.uygulama_ici:
+            self.update_display()  # ekranı tazele (Qt içi karşılık)
+            log.info("ekran tazelendi (uzaktan komut)")
+
+    def cihaz_kimligi(self) -> str:
+        """Bu cihazın kimliği (`makinebilgileri.json` → clientID)."""
+        try:
+            return str(veri_kaynagi.client_id() or "").strip()
+        except Exception:  # noqa: BLE001
+            return ""
 
     @property
     def pharmacies(self):

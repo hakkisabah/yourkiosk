@@ -310,6 +310,55 @@ def test_imza_veri_dosyasi_degisince_de_degisir(sunucu: int, monkeypatch) -> Non
         yol.unlink(missing_ok=True)
 
 
+def test_uzak_kontrol_bir_tur_komut_yoksa_bos_doner(monkeypatch) -> None:
+    """Uzaktan komut yoksa hiçbir şey yapılmaz (boş metin)."""
+    monkeypatch.setattr(tarayici, "uzak_kontrol_bir_tur", tarayici.uzak_kontrol_bir_tur)  # dokunma
+    from core import komut as komut_modulu
+
+    monkeypatch.setattr(komut_modulu, "kontrol", lambda **_k: (komut_modulu.Karar(False, "komut yok"), None))
+    assert tarayici.uzak_kontrol_bir_tur("CIHAZ", {"surec": None}) == ""
+
+
+def test_uzak_kontrol_bir_tur_ekrani_yenile_tarayiciyi_yeniden_baslatir(monkeypatch) -> None:
+    """`ekrani-yenile` → tarayıcı süreci kapatılır, süpervizör onu yeniden başlatır."""
+    from core import komut as komut_modulu
+
+    sonuc = komut_modulu.Sonuc(id="c1", komut="ekrani-yenile", uygulama_ici=True, zaman="2026-10-17T18:00:00")
+    monkeypatch.setattr(komut_modulu, "kontrol", lambda **_k: (komut_modulu.Karar(True, "imza geçerli"), sonuc))
+
+    class SahteSurec:
+        def __init__(self) -> None:
+            self.durduruldu = False
+
+        def poll(self):
+            return None
+
+        def terminate(self) -> None:
+            self.durduruldu = True
+
+    surec = SahteSurec()
+    satir = tarayici.uzak_kontrol_bir_tur("CIHAZ", {"surec": surec})
+    assert satir and "ekrani-yenile" in satir
+    assert surec.durduruldu is True
+
+
+def test_uzak_kontrol_bir_tur_kapali_surece_dokunmaz(monkeypatch) -> None:
+    """Tarayıcı süreci çalışmıyorsa (poll != None) terminate çağrılmaz."""
+    from core import komut as komut_modulu
+
+    sonuc = komut_modulu.Sonuc(id="c1", komut="ekrani-yenile", uygulama_ici=True, zaman="2026-10-17T18:00:00")
+    monkeypatch.setattr(komut_modulu, "kontrol", lambda **_k: (komut_modulu.Karar(True, "ok"), sonuc))
+
+    class OluSurec:
+        def poll(self):
+            return 0
+
+        def terminate(self) -> None:  # pragma: no cover - çağrılmamalı
+            raise AssertionError("kapalı sürece dokunulmamalı")
+
+    assert tarayici.uzak_kontrol_bir_tur("CIHAZ", {"surec": OluSurec()})
+
+
 def test_eksik_ayar_dosyalari_varsayilanla_doner(sunucu: int, monkeypatch) -> None:
     """`ayarlar.json`/`kapsam-ayarlari.json` cihazda yoksa 404 yerine VARSAYILAN içerik.
 

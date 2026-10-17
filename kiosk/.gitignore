@@ -37,6 +37,16 @@ match.json
 lastSystemData.json
 data/id_eslesme.json
 
+# --- Nöbet değişikliği tetikleyicisi ve uzaktan komut ---
+tetikle.json
+komut.json
+komut-durum.json
+komut.anahtar
+komut.anahtar.*
+!komut.anahtar.ornek
+komut-gonderilecek.json
+!komut.json.ornek
+
 # --- Günlükler ---
 kiosk.log
 kiosk.log.*

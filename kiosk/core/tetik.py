@@ -91,6 +91,20 @@ def sil() -> bool:
         return False
 
 
+def getir() -> bool:
+    """Panelin S3'e yazdığı `tetikle.json`u yerel kopyaya indirir (değiştiyse True).
+
+    Tarayıcı modunda yerel sunucu imzası bu dosyanın mtime'ına baktığı için, indirme anında
+    arayüz de uzun yoklama ile haberdar olur.
+    """
+    from core import uzak
+
+    govde = uzak.getir(str(getattr(config, "TETIK_DOSYASI", "tetikle.json")))
+    if not govde:
+        return False
+    return uzak.yerel_guncelle(dosya_yolu(), govde)
+
+
 def imza() -> str:
     """Hızlı değişiklik imzası: dosyanın mtime+boyut+zamanı (yalnız üst veri okunur)."""
     yol = dosya_yolu()

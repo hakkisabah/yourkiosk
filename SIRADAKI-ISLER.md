@@ -3,13 +3,19 @@
 Bu dosya, oturum aralarında kaybolmaması için **bekleyen işleri kök neden + kabul ölçütü** ile
 listeler. Her iş bitince "Durum" sütunu güncellenir.
 
-**Bugünkü durum (özet):** kiosk **319** test ✓ · web **106** test ✓ · panel **104** test ✓ ·
-`vue-tsc` ve üç derleme temiz ✓. Kalan tek doğrulama: **5'ten fazla nöbetçi canlı testi başarısız
-(ekranda 8 yerine 2 kayıt)** — kök nedenleri aşağıda kesinleşti.
+**Bugünkü durum (özet):** kiosk **352** test ✓ · web **108** test ✓ · panel **104** test ✓ ·
+`vue-tsc` ve üç derleme temiz ✓. **İş 1 bitti** (kökteki iki neden + 10 yeni test, gerçek veriyle
+uçtan uca doğrulandı, `--geri-al` parmak izi birebir). **İş 3 bitti** (uzaktan komut: imza, beyaz
+liste, tek seferlik, hem Qt hem tarayıcı modu, 23 yeni test). Kalan: cihazda **canlı** doğrulamalar
+(İş 1 kabul ölçütü + İş 2 adımları) ve panel `komut.json` gösterimi (tasarım onayı bekliyor).
 
 ---
 
-## İş 1 — "5'ten fazla nöbetçi" canlı doğrulaması ve iki kök neden  ⚠️ (kritik)
+## İş 1 — "5'ten fazla nöbetçi" canlı doğrulaması ve iki kök neden  ✅ YAPILDI (canlı test kaldı)
+
+**Durum:** iki kök neden kapatıldı, gerçek veriyle uçtan uca doğrulandı (`--adet 8` → **ekranda
+gösterilecek kayıt: 8**, damga tazelendi; `--geri-al` sonrası içerik parmak izi birebir).
+Testler: `kiosk/tests/test_gecici_coklu.py` (9) + imza testi. **Cihazda canlı deneme** kaldı.
 
 **Belirti:** `tools/gecici_coklu_test.py --adet 8` sonrası tarayıcı modunda hâlâ **2 kayıt**
 (cihazın kendi ilçesindeki 2 bölge) görünüyor; kaydırma hiç oluşmuyor.
@@ -59,7 +65,13 @@ sol panelde **8 satır**, 6. kayıt gösterilirken `d` kaplamasında `kaydırma=
 
 ---
 
-## İş 2 — Tetikleyiciyi uçtan uca canlı doğrulama  (İş 1 yüzünden yapılamadı)
+## İş 2 — Tetikleyiciyi uçtan uca canlı doğrulama  (kod tamam, cihazda denenmedi)
+
+**Yeni (bu turda kapatılan boşluk):** panel S3'e `tetikle.json` yazıyordu ama **cihazın onu nasıl
+alacağı** tanımlı değildi (elle kopyalama varsayılıyordu). Artık cihaz, `DOSYA_ADRESI` tanımlıysa
+`core/uzak.py` ile `tetikle.json` + `komut.json` dosyalarını kendisi indirir (yalnız izinli alan
+adı/HTTPS/boyut sınırı; içerik aynıysa dosyaya dokunulmaz → gereksiz bildirim olmaz). Yerel kopya
+değiştiği an yerel sunucunun imzası da değişir → tarayıcı uzun yoklama ile **anında** haber alır.
 
 Kod ve testler hazır (`core/tetik.py`, `/degisiklik` ucu, panel "Cihazlara hemen bildir", 20 sn
 yoklama, `tools/nobet_tetikle.py`); **cihazda canlı** denenmedi.
@@ -74,25 +86,30 @@ yoklama, `tools/nobet_tetikle.py`); **cihazda canlı** denenmedi.
 
 ---
 
-## İş 3 — Uzaktan komut: yeniden başlat / uygulamayı yeniden başlat  (sonraki istek)
+## İş 3 — Uzaktan komut: yeniden başlat / uygulamayı yeniden başlat / ekranı yenile  ✅ YAPILDI
 
-Tasarım taslağı `kiosk/NODET-DEGISIKLIGI.md §7`'de. Özet gereksinimler:
+**Uygulanan tasarım** (`kiosk/core/komut.py`, `kiosk/tools/komut_gonder.py`, `kiosk/KOMUTLAR.md`):
 
-1. **Komut S3'ten gelir** (`komutlar/` ön eki) ve **imzalıdır**: panel komutu yazar, cihaz
-   indirir; imza/izin listesi denetiminden geçmeyen komut **çalıştırılmaz** (yalnız `https`, izinli
-   alan adı, boyut/derinlik sınırı, beklenen alanlar).
-2. **Beyaz liste:** `yeniden-baslat`, `uygulamayi-yeniden-baslat`, `ekrani-yenile`. Serbest metin
-   komut **asla** çalıştırılmaz (kabuk yok, `subprocess` ile dizi argüman).
-3. **Tek seferlik:** komut kimliği (`id`) + son uygulanan `id` saklanır; aynı komut iki kez uygulanmaz.
-4. **Kuru çalıştırma + günlük:** her komut `kiosk.log`'a yazılır; panelde son komut ve sonucu görünür.
-5. **Zamanlama:** cihaz uygun anda (yayın arasında/molada) uygular; **gösterim kesilirken**
-   "yeniden başlatılıyor" durumu ekranda kısa süre gösterilir.
-6. **Güvenlik:** komut betiği kendini yükseltmez; kiosk kullanıcısıyla sınırlı `systemd` yeniden
-   başlatma (polkit/`systemctl --user` ya da izinli bir yardımcı script).
+1. **Taşıma:** `komut.json` — tetikleyiciyle aynı yol (S3 → cihazın yerel kopyası → 20 sn'de bir
+   `core/uzak.py` ile tazelenir). Yeni: `core/tetik.py::getir` ve `core/komut.py::getir` (bu,
+   İş 2'nin "panel S3'e yazıyor ama cihaz nasıl alıyor" boşluğunu da kapatır).
+2. **Beyaz liste:** `yeniden-baslat`, `uygulamayi-yeniden-baslat`, `ekrani-yenile`; `argv` ayarlardan
+   (`KOMUT_*`), `shell` yok, dosyadan metin çalıştırılmaz.
+3. **İmza zorunlu:** HMAC-SHA256 (`id|komut|cihazId|zaman`), anahtar `komut.anahtar` (0600, depo dışı);
+   yok/yanlış imza → **uygulanmaz** (fail-closed). Panel istemcisine sır konmaz.
+4. **Hedef cihaz** (`cihazId` boş/`*` → tümü) + **tek seferlik** (`komut-durum.json`, son 20 kayıt).
+5. **Kuru çalıştırma** (`komut_kuru_calistirma` / `--kuru`), **zaman aşımı** (`komut_zaman_asimi_s`).
+6. **Cihaz tarafı:** Qt → `pharmacy_app.tetik_kontrol → uzak_kontrol`; tarayıcı modu → süpervizörün
+   `uzak-kontrol` iş parçacığı (`core/tarayici.py::uzak_kontrol_bir_tur`; `ekrani-yenile` tarayıcıyı
+   yeniden başlatır → sayfa tazelenir).
 
-**Kabul ölçütü:** panelden "uygulamayı yeniden başlat" → cihaz ≤ 30 sn içinde yeniden başlar;
-geçersiz imzalı/izin dışı komut **hiçbir şey yapmaz** ve günlüğe "reddedildi" yazar; testler
-(imza doğrulama, beyaz liste, tekrar engeli, kuru çalıştırma) yeşil.
+**Açık kalanlar (bilinçli):**
+
+* Komut uygulanırken ekranda kısa süre "yeniden başlatılıyor" bilgisi **yok** — bu bir *tasarım*
+  katmanı değişikliği olduğu için kullanıcı onayı olmadan yapılmadı.
+* Panelde komut **gönderme** yok (istenciye sır konmaz): yönetici aracı ya da sunucu tarafı
+  (Lambda + `KOMUT_ANAHTARI`) üzerinden yapılır. Panelde son komutun **gösterilmesi** de tasarım
+  onayı bekliyor (dosya `s3.listele` ile görünür, ayrı kart eklenmedi).
 
 ---
 
@@ -140,7 +157,16 @@ yeniden başlat), yedekleme (S3 sürümleme), cihaz durumunun panelde izlenmesi.
 * **Eksik ayar dosyaları** 404 yerine varsayılan içerikle sunulur.
 * **Nöbet değişikliğini anında yansıtma**: `tetikle.json` + uzun yoklama `/degisiklik` + 20 sn damga
   yoklaması + panel düğmesi + Qt `tetik_kontrol()` + `tools/nobet_tetikle.py`.
-* **Test sayıları**: kiosk 319 · web 106 · panel 104.
+* **Test sayıları**: kiosk 352 · web 108 · panel 104.
+* **İş 1 düzeltmesi**: geçici çoklu-nöbetçi aracı gösterilen bloğu dolduruyor + `lastupdate` damgasını
+  tazeliyor; sunucu değişiklik imzasına `lastSystemData.json` eklendi; web'e zorla yenileme yolu.
+* **İş 3 — uzaktan komut**: `core/komut.py` (beyaz liste, HMAC imza, hedef cihaz, tek seferlik, kuru
+  çalıştırma, sabit `argv`), `core/uzak.py` (küçük dosya senkronu), `tools/komut_gonder.py` (imzalama
+  aracı), Qt + tarayıcı modu entegrasyonu, `KOMUTLAR.md`; 23 yeni test.
+* **Ayar şeması**: 8 grup / **61** anahtar (6 yeni komut ayarı); `panel/src/domain/sema.generated.json`
+  yeniden üretildi.
+* **GitHub**: `origin` = `git@github.com:hakkisabah/yourkiosk.git`, `main` dalı; commit'ler
+  `a785fdd` (ilk, 173 dosya) ve `15bda0e` (İş 1).
 * **Temizlik + GitHub hazırlığı**: 156 MB Qt karantinası, önbellekler, günlükler silindi; `.gitignore`
   kök düzeyinde sıkılaştırıldı (`__pycache__` kaçağı kapatıldı); kök `README.md`, `LICENSE` (GPL-3.0),
   `GITHUB-YUKLEME.md` eklendi; yerel `git init -b main` yapıldı (commit yok).

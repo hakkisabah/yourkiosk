@@ -227,3 +227,7 @@ panel/
 - Kimseye hesap açmayın: kurulum **tek** yönetici içindir. Yeni kullanıcı gerekirse Identity Pool rolünü
   gözden geçirin (aynı yetkiyi alır).
 - Oturum Cognito'nun localStorage'ında tutulur; ortak kullanılan bir tarayıcıda **Çıkış** yapın.
+- **Uzaktan komut gönderme panelde YOKTUR (bilinçli):** cihaz yalnız HMAC imzalı komut çalıştırır ve
+  imza anahtarı bir tarayıcı istemcisine konulamaz (pakete sızardı). Komutlar yönetici aracıyla ya da
+  sunucu tarafıyla (Lambda ortam değişkeni `KOMUT_ANAHTARI`) gönderilir; ayrıntı:
+  `kiosk/KOMUTLAR.md`. `komut.json` / `tetikle.json` S3 ön ekinde olağan nesnelerdir.

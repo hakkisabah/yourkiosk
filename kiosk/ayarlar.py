@@ -80,6 +80,13 @@ KURALLAR: dict[tuple[str, str], tuple] = {
     ("calistirma", "degisiklik_kontrol_ms"): ("DAMGA_KONTROL_MS", int, 5000, 3600000),
     ("calistirma", "degisiklik_bekleme_s"): ("DEGISIKLIK_BEKLEME_S", int, 0, 120),
     ("calistirma", "tetik_dosyasi"): ("TETIK_DOSYASI", str, 1, 64),
+    # ---- uzaktan komut (S3 → cihaz) ----
+    ("calistirma", "komut_imza_zorunlu"): ("KOMUT_IMZA_ZORUNLU", bool, None, None),
+    ("calistirma", "komut_kuru_calistirma"): ("KOMUT_KURU_CALISTIRMA", bool, None, None),
+    ("calistirma", "komut_zaman_asimi_s"): ("KOMUT_ZAMAN_ASIMI_S", int, 1, 3600),
+    ("calistirma", "komut_yeniden_baslat"): ("KOMUT_YENIDEN_BASLAT", str, 0, 200),
+    ("calistirma", "komut_uygulama_yeniden_baslat"): ("KOMUT_UYGULAMA_YENIDEN_BASLAT", str, 0, 200),
+    ("calistirma", "komut_ekrani_yenile"): ("KOMUT_EKRANI_YENILE", str, 0, 200),
     # ---- önbellek (maliyet + performans) ----
     ("onbellek", "aktif"): ("ONBELLEK_AKTIF", bool, None, None),
     ("onbellek", "klasor"): ("ONBELLEK_KLASORU", str, 1, 64),

@@ -42,6 +42,23 @@ TETIK_DOSYASI = "tetikle.json"
 DAMGA_KONTROL_MS = 20 * 1000
 #: Tarayıcı modunda anlık değişiklik ucu: tek istekte en fazla kaç saniye beklenir
 DEGISIKLIK_BEKLEME_S = 30
+# --- UZAKTAN KOMUT (S3 → cihaz): yeniden başlat / uygulamayı yeniden başlat / ekranı yenile ---
+#: Cihaza indirilen imzalı komut dosyası (panel/S3 yazar, cihaz okur)
+KOMUT_DOSYASI = "komut.json"
+#: Uygulanan komutların kimliği (tekrar engeli) — cihazın kendi dosyası
+KOMUT_DURUM_DOSYASI = "komut-durum.json"
+#: HMAC-SHA256 anahtarı (0600; panel/Lambda'da aynı değer). Depoya GİRMEZ.
+KOMUT_ANAHTAR_DOSYASI = "komut.anahtar"
+#: True: imzasız/yanlış imzalı komut ASLA uygulanmaz (fail-closed — varsayılan ve önerilen)
+KOMUT_IMZA_ZORUNLU = True
+#: True: komutlar yalnız günlüklenir, hiçbir süreç çalıştırılmaz (deneme/bakım)
+KOMUT_KURU_CALISTIRMA = False
+#: Tek komut için en fazla çalışma süresi (saniye)
+KOMUT_ZAMAN_ASIMI_S = 60
+#: Komut adlarının SABİT argv karşılıkları (kabuk kullanılmaz; boş = uygulama içi işlem)
+KOMUT_YENIDEN_BASLAT = "systemctl reboot"                  # cihazı yeniden başlat
+KOMUT_UYGULAMA_YENIDEN_BASLAT = "systemctl restart kiosk.service"  # yalnız kiosk servisi
+KOMUT_EKRANI_YENILE = ""                                   # ekranı tazele (uygulama içi)
 # =====================================================
 
 # ==================== GÜVENLİK SINIRLARI ====================

@@ -97,6 +97,9 @@ python3 tools/nobet_tetikle.py --sil                      # tetikleyiciyi kaldı
   bilgisi döner (veri içeriği taşımaz).
 * `tetikle.json` bir **komut değildir**: yalnız "verini yenile" der; hangi veriyi göstereceğini
   yayınlanmış veri dosyası belirler. Cihaz komut çalıştırmaz.
-* İleri adım (planlanan): cihaza **yeniden başlatma/uygulamayı yeniden başlatma** komutları —
-  güvenlik gereği komut betiği **S3'ten** alınacak, imza/izin denetiminden geçecek ve cihaz
-  yalnızca izinli komut kümesini uygulayacaktır (bu belge kapsamı dışında).
+* **Uzaktan komut (UYGULANDI):** `komut.json` aynı taşıma yolunu kullanır ama çalıştırılmadan önce
+  beyaz liste + HMAC imza (fail-closed) + hedef cihaz + tek seferlik denetimden geçer; `argv`
+  ayarlardan gelir (`shell` yok). Yeniden başlatma / uygulamayı yeniden başlatma / ekranı yenileme.
+  Kurulum ve kullanım: **[KOMUTLAR.md](KOMUTLAR.md)** (`core/komut.py`, `tools/komut_gonder.py`).
+  Cihaz tarafı: Qt'de `pharmacy_app.tetik_kontrol → uzak_kontrol`, tarayıcı modunda süpervizörün
+  `uzak-kontrol` iş parçacığı (`core/tarayici.py::uzak_kontrol_bir_tur`).

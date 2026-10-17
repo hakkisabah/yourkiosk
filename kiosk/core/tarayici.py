@@ -774,6 +774,7 @@ def baslat(
     denemeler: list[float] = []
     kod = 0
     durdur = {"istek": False}
+    surec_kutusu: dict = {"surec": None}
 
     def _sinyal(_isaret, _cerceve):  # pragma: no cover - sinyal yolu
         durdur["istek"] = True
@@ -784,11 +785,22 @@ def baslat(
         except (ValueError, OSError):  # ana iş parçacığı değilse
             pass
 
+    # NÖBET DEĞİŞİKLİĞİ + UZAKTAN KOMUT: arka planda küçük dosyaları tazeler, komutu uygular.
+    # (Süpervizör döngüsü tarayıcıyı beklediği için ayrı bir iş parçacığı gerekir.)
+    izleyici = threading.Thread(
+        target=_uzak_kontrol_dongusu,
+        args=(durdur, surec_kutusu, str(client_id), float(getattr(config, "DAMGA_KONTROL_MS", 20000)) / 1000.0),
+        name="uzak-kontrol",
+        daemon=True,
+    )
+    izleyici.start()
+
     try:
         while not durdur["istek"]:
             log.info("tarayıcı başlatılıyor (kiosk): %s", adres)
             try:
                 surec = subprocess.Popen(komut, cwd=str(KOK), start_new_session=True)  # noqa: S603
+                surec_kutusu["surec"] = surec
                 kod = surec.wait()
             except FileNotFoundError:
                 log.error("tarayıcı çalıştırılamadı: %s", yol)
@@ -815,6 +827,58 @@ def baslat(
             sunucu.shutdown()
             sunucu.server_close()
     return kod
+
+
+def uzak_kontrol_bir_tur(cihaz_id: str, surec_kutusu: dict | None = None) -> str:
+    """Küçük kontrol dosyalarını tazeler (`tetikle.json`, `komut.json`) ve komutu uygular.
+
+    Tek tur, yan etkileri sınırlı: dönen metin boşsa "yapılacak bir şey yok" demektir.
+    `ekrani-yenile` komutunda tarayıcı süreci kapatılır (süpervizör onu yeniden başlatır →
+    kiosk'ta sayfa tazelemenin en güvenilir yolu). `argv`'li komutlar (`systemctl ...`) kendileri
+    gerekli işi yapar.
+
+    Test edilebilirlik için ayrı tutuldu: zamanlayıcı/thread mantığı bu fonksiyonun dışında.
+    """
+    from core import komut as komut_modulu
+    from core import tetik as tetik_modulu
+
+    try:
+        tetik_modulu.getir()
+        komut_modulu.getir()
+    except Exception:  # noqa: BLE001 - ağ/indirme hatası gösterimi etkilemesin
+        log.warning("uzak kontrol dosyaları alınamadı", exc_info=True)
+
+    try:
+        karar, sonuc = komut_modulu.kontrol(cihaz_id=cihaz_id)
+    except Exception:  # noqa: BLE001
+        log.warning("uzaktan komut denetimi yapılamadı", exc_info=True)
+        return ""
+
+    if sonuc is None:
+        return ""
+    satir = komut_modulu.sonuc_metni(sonuc)
+    log.warning("UZAKTAN KOMUT: %s", satir)
+    if sonuc.uygulama_ici and surec_kutusu is not None:
+        surec = surec_kutusu.get("surec")
+        if surec is not None and surec.poll() is None:
+            log.info("ekrani-yenile: tarayıcı yeniden başlatılıyor (sayfa tazelenecek)")
+            surec.terminate()
+    return satir
+
+
+def _uzak_kontrol_dongusu(durdur: dict, surec_kutusu: dict, cihaz_id: str, aralik_s: float) -> None:
+    """Arka planda `DAMGA_KONTROL_MS` aralığıyla `uzak_kontrol_bir_tur` çağırır (daemon thread)."""
+    while not durdur.get("istek"):
+        for _ in range(int(max(1.0, float(aralik_s)) * 10)):
+            if durdur.get("istek"):
+                return
+            time.sleep(0.1)
+        if durdur.get("istek"):
+            return
+        try:
+            uzak_kontrol_bir_tur(cihaz_id, surec_kutusu)
+        except Exception:  # noqa: BLE001 - thread ölmesin
+            log.warning("uzak kontrol turu hata verdi", exc_info=True)
 
 
 def calistir(_ayarlar_hazir=None) -> int:

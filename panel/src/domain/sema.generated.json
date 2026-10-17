@@ -792,6 +792,84 @@
           "izinli": null,
           "varsayilan": "tetikle.json",
           "gelismis": false
+        },
+        {
+          "ad": "komut_imza_zorunlu",
+          "tam": "calistirma.komut_imza_zorunlu",
+          "tip": "bool",
+          "etiket": "Komut imza zorunlu",
+          "aciklama": "",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": true,
+          "gelismis": false
+        },
+        {
+          "ad": "komut_kuru_calistirma",
+          "tam": "calistirma.komut_kuru_calistirma",
+          "tip": "bool",
+          "etiket": "Komut kuru calistirma",
+          "aciklama": "",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": false,
+          "gelismis": false
+        },
+        {
+          "ad": "komut_zaman_asimi_s",
+          "tam": "calistirma.komut_zaman_asimi_s",
+          "tip": "int",
+          "etiket": "Komut zaman asimi s",
+          "aciklama": "",
+          "birim": "",
+          "alt": 1,
+          "ust": 3600,
+          "izinli": null,
+          "varsayilan": 60,
+          "gelismis": false
+        },
+        {
+          "ad": "komut_yeniden_baslat",
+          "tam": "calistirma.komut_yeniden_baslat",
+          "tip": "str",
+          "etiket": "Komut yeniden baslat",
+          "aciklama": "",
+          "birim": "",
+          "alt": 0,
+          "ust": 200,
+          "izinli": null,
+          "varsayilan": "systemctl reboot",
+          "gelismis": false
+        },
+        {
+          "ad": "komut_uygulama_yeniden_baslat",
+          "tam": "calistirma.komut_uygulama_yeniden_baslat",
+          "tip": "str",
+          "etiket": "Komut uygulama yeniden baslat",
+          "aciklama": "",
+          "birim": "",
+          "alt": 0,
+          "ust": 200,
+          "izinli": null,
+          "varsayilan": "systemctl restart kiosk.service",
+          "gelismis": false
+        },
+        {
+          "ad": "komut_ekrani_yenile",
+          "tam": "calistirma.komut_ekrani_yenile",
+          "tip": "str",
+          "etiket": "Komut ekrani yenile",
+          "aciklama": "",
+          "birim": "",
+          "alt": 0,
+          "ust": 200,
+          "izinli": null,
+          "varsayilan": "",
+          "gelismis": false
         }
       ]
     }
