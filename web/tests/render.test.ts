@@ -14,20 +14,25 @@ import { createApp } from 'vue'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { cssDegiskenleriniUygula } from '@/stiller/olcu'
+import { bulunanDosyalar, cihazDosyasi, cihazVerisiVar } from './yardimci/cihaz-verisi'
 
-/* Veri: kiosk klasöründeki GERÇEK dosyalar, JSON modülü olarak içeri alınır
-   (jsdom ortamında `node:fs`/`node:path` kullanılamaz — Vite bunları dışlar). */
-const sistem = (await import('../../kiosk/lastSystemData.json')).default as Record<string, unknown>
-const match = (await import('../../kiosk/match.json')).default as Record<string, unknown>
-const lastupdate = (await import('../../kiosk/lastupdate.json')).default as Record<string, unknown>
-let makine: { clientID?: string } | null = null
-try {
-  // @ts-ignore — cihaz kimliği dosyası cihaza özgüdür (depoda bulunmayabilir)
-  makine = (await import('../../kiosk/makinebilgileri.json')).default as { clientID?: string }
-} catch {
-  makine = null
-}
+/* Veri: `kiosk/` klasöründeki GERÇEK dosyalar — ÇALIŞMA ANINDA okunur (import.meta.glob).
+   Cihaz verisi depoya girmediği için derleme zamanında `import` EDİLEMEZ (temiz klonda TS2307).
+   Dosyalar yoksa gerçek-veri testleri atlanır; sahte veriyle koşan testler etkilenmez. */
+const sistem = (await cihazDosyasi<Record<string, unknown>>('lastSystemData.json')) ?? { Nobetler: {}, Yayinlar: {} }
+const match = (await cihazDosyasi<Record<string, unknown>>('match.json')) ?? {}
+const lastupdate = (await cihazDosyasi<Record<string, unknown>>('lastupdate.json')) ?? { lastupdate: '' }
+const makine = await cihazDosyasi<{ clientID?: string }>('makinebilgileri.json')
 const KIMLIK = String(makine?.clientID ?? '')
+
+if (!cihazVerisiVar) {
+  // Görünür bilgi: test çıktısında neden atlandığı anlaşılsın
+  console.warn(
+    '[render.test] Cihaz verisi bulunamadı; gerçek veriyle koşan testler atlanacak.\n' +
+      '  Beklenen: kiosk/lastSystemData.json, match.json, lastupdate.json, makinebilgileri.json\n' +
+      `  Bulunan kiosk JSON: ${bulunanDosyalar.join(', ') || '(yok)'}`,
+  )
+}
 
 class BellekDeposu {
   kayitlar = new Map<string, Response>()
@@ -89,7 +94,7 @@ afterEach(() => {
   uygulama = null
 })
 
-describe('arayüz gerçek veriyle açılıyor (beyaz ekran yok)', () => {
+describe.skipIf(!cihazVerisiVar)('arayüz gerçek veriyle açılıyor (beyaz ekran yok)', () => {
   it('nöbetçi listesi, orta panel ve saat DOM\'da görünür', async () => {
     // URL: yalnızca cihaz kimliği + veri modu (gerçek kullanımdaki gibi)
     Object.defineProperty(window, 'location', {
@@ -131,7 +136,9 @@ describe('arayüz gerçek veriyle açılıyor (beyaz ekran yok)', () => {
     // orta panel yerleşimi: serit + viewport + iki blok
     expect(document.querySelectorAll('.orta-panel .blok').length).toBe(2)
   })
+})
 
+describe('eksik/bozuk başlatma parametreleri', () => {
   it('cihaz kimliği yoksa beyaz ekran yerine okunabilir hata kartı çıkar', async () => {
     Object.defineProperty(window, 'location', {
       value: { search: '?veri=yerel', href: 'http://127.0.0.1:8090/' },
