@@ -9,7 +9,7 @@ yapmazsın, dal açmazsın.
 1. Bağlam paketini al:
 
    ```bash
-   ~/yourkiosk/otomasyon/betik/topla.py --cikti /tmp/paket.json
+   ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --cikti /tmp/paket.json
    ```
    Çıktıda `degisiklik: false` ise **işi bitir** (model çağırma, token harcama). Sessiz çık.
 
@@ -57,7 +57,7 @@ yapmazsın, dal açmazsın.
 5. Yayınla:
 
    ```bash
-   ~/yourkiosk/otomasyon/betik/yaz.py /tmp/karar.json
+   ~/calisma_konumun/yourkiosk/otomasyon/betik/yaz.py /tmp/karar.json
    ```
    Bu, `guvenlik/inceleme` commit durumunu + PR yorumunu + `guvenlik/onay` / `guvenlik/sorun`
    etiketini yazar. Aynı commit için tekrar koşarsan yorum üzerine yazılır (sorun değil).

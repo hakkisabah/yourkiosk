@@ -75,7 +75,7 @@ Her yorumun sonunda `<details>` içinde şu blok bulunur (insan için üstte öz
    - **Administration izni VERMEYİN** (branch protection kurmak benim token'ımın işi).
    - **Benim token'ım** ayrı: `Administration: Read and write` (kurulum sonrası iptal edilebilir).
 2. Her makinede token dosyası: `~/.config/hermes-secrets/github-yourkiosk.token` (0600).
-3. Her makinede depo klonu: `git clone https://github.com/hakkisabah/yourkiosk.git ~/yourkiosk`
+3. Her makinede depo klonu: `git clone https://github.com/hakkisabah/yourkiosk.git ~/calisma_konumun/yourkiosk`
    (HTTPS + token ya da o makineye özel deploy key).
 4. Her makinede **Hermes cron görevi** (dashboard → Cron ya da o makinedeki Hermes'e "şu görevi kur"
    deyin): i5 `*/15 * * * *`, i3 `*/30 * * * *`; istem = `otomasyon/prompt/i5-guvenlik.md`

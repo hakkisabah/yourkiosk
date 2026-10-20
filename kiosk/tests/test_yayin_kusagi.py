@@ -33,6 +33,20 @@ from conftest import zamanlayicilari_durdur
 
 KOK = Path(__file__).resolve().parent.parent
 
+#: Kuşak akışı testleri için SABİT kayıtlar. Cihazın gerçek yayın verisi tarihe bağlıdır
+#: (bazı günler tek yayın kalır) → test gün içinde rastgele kırılmasın.
+SENTETIK_ECZANELER = [
+    {"eczane": "BİRİNCİ ECZANE", "tel": "0000 000 00 00", "adres": "", "adres_tarifi": ""},
+    {"eczane": "İKİNCİ ECZANE", "tel": "1111 111 11 11", "adres": "", "adres_tarifi": ""},
+    {"eczane": "ÜÇÜNCÜ ECZANE", "tel": "2222 222 22 22", "adres": "", "adres_tarifi": ""},
+]
+
+
+def sentetik_eczaneler(monkeypatch: pytest.MonkeyPatch, pencere: PharmacyApp) -> None:
+    """`pharmacies` özelliğini sabit kayıtlarla değiştirir ve kuşağı yeniden hazırlar."""
+    monkeypatch.setattr(type(pencere), "pharmacies", property(lambda self: SENTETIK_ECZANELER))
+    pencere.prepare_ticker_text()
+
 
 @pytest.fixture()
 def pencere(qapp, monkeypatch):
@@ -200,8 +214,9 @@ def test_yazi_ortada_bir_sure_bekler(pencere: PharmacyApp) -> None:
     )
 
 
-def test_yazi_soldan_cikar_ve_siradaki_gelir(pencere: PharmacyApp) -> None:
+def test_yazi_soldan_cikar_ve_siradaki_gelir(pencere: PharmacyApp, monkeypatch: pytest.MonkeyPatch) -> None:
     yayin_moduna_gec(pencere)
+    sentetik_eczaneler(monkeypatch, pencere)  # veriye bağımlı olma
     etiket = pencere.yayin_widget.ticker_label
     anim = pencere.kusak_animasyonu
     serit = pencere.yayin_widget.ticker_strip.width()
@@ -299,7 +314,7 @@ def test_liste_modu_ayiriciyla_akar(pencere: PharmacyApp, monkeypatch: pytest.Mo
     """KUSAK_TEKLI = False ise referans davranış: tüm liste tek metin, kesintisiz akar."""
     monkeypatch.setattr(config, "KUSAK_TEKLI", False)
     yayin_moduna_gec(pencere)
-    pencere.prepare_ticker_text()
+    sentetik_eczaneler(monkeypatch, pencere)  # veriye bağımlı olma
     etiket = pencere.yayin_widget.ticker_label
     assert config.KUSAK_AYIRICI in etiket.text()
     assert all(item in etiket.text() for item in pencere.ticker_items)

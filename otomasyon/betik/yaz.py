@@ -25,11 +25,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import os
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 TABAN = "https://api.github.com"
@@ -150,17 +152,50 @@ def etiket_ekle(depo: str, token: str, no: int, eklenecek: list[str], cikarilaca
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="i5/i3 kararını GitHub'a yaz")
-    ap.add_argument("karar", help="karar.json yolu")
+    ap.add_argument("karar", nargs="?", default="", help="karar.json yolu")
+    ap.add_argument("--ornek", action="store_true", help="geçerli bir örnek karar dosyası yaz (şablon)")
+    ap.add_argument("--depo", default="", help="--ornek için: sha'nın alınacağı git deposu")
     ap.add_argument("--depo-adresi", default="hakkisabah/yourkiosk")
     ap.add_argument("--token-dosya", default=str(Path.home() / ".config/hermes-secrets/github-yourkiosk.token"))
     ap.add_argument("--kuru", action="store_true", help="hiçbir istek atmadan göster")
     a = ap.parse_args()
 
+    # --- şablon üret (JSON elle yazmak hataya açık; bu komut her zaman geçerli dosya üretir)
+    if a.ornek:
+        depo = a.depo or str(Path(__file__).resolve().parents[2])
+        sha = ""
+        try:
+            sha = subprocess.run(["git", "-C", depo, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=30).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            sha = ""
+        ornek = {
+            "makine": "i5", "sha": sha, "pr": None, "karar": "onay", "onem": "dusuk",
+            "ozet": "Şablon: buraya 1-3 cümlelik değerlendirme yazın.",
+            "bulgular": [{"dosya": "yol/dosya.py", "satir": 0, "onem": "dusuk", "aciklama": "örnek bulgu"}],
+            "not": "Şablon: geliştiriciye iletilecek not (yoksa boş bırakın).",
+            "zaman": datetime.now().isoformat(timespec="seconds"),
+        }
+        hedef = Path("karar-ornek.json") if not a.karar else Path(a.karar).expanduser()
+        hedef.write_text(json.dumps(ornek, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"örnek karar dosyası yazıldı: {hedef}  (sha: {(sha or 'BULUNAMADI')[:12]})")
+        print("düzenleyip: python3 otomasyon/betik/yaz.py " + str(hedef) + " --kuru")
+        return 0
+
+    if not a.karar:
+        print("karar dosyası gerekli (ya da --ornek ile şablon üretin)", file=sys.stderr)
+        return 2
+
     yol = Path(a.karar).expanduser()
     try:
-        karar = json.loads(yol.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as hata:
+        ham = yol.read_text(encoding="utf-8-sig").strip()
+    except OSError as hata:
         print(f"karar dosyası okunamadı: {hata}", file=sys.stderr)
+        return 2
+    try:
+        karar = json.loads(ham)
+    except json.JSONDecodeError as hata:
+        print(f"karar dosyası GEÇERSİZ JSON: {hata.msg} (satır {hata.lineno}, kolon {hata.colno})", file=sys.stderr)
+        print("  ipucu: şablon üret → python3 otomasyon/betik/yaz.py --ornek", file=sys.stderr)
         return 2
     if not isinstance(karar, dict) or not karar.get("karar"):
         print("karar dosyasında 'karar' alanı yok", file=sys.stderr)
@@ -189,8 +224,15 @@ def main() -> int:
         return 3
 
     sha = str(karar.get("sha") or "").strip()
+    if not sha and karar.get("pr"):
+        # PR numarası verilmişse head sha'yı API'den çöz (elle sha yazmak gerekmesin)
+        kod, pr_veri = istek(f"/repos/{a.depo_adresi}/pulls/{karar['pr']}", token)
+        if kod == 200 and isinstance(pr_veri, dict):
+            sha = str((pr_veri.get("head") or {}).get("sha", ""))
+            karar["sha"] = sha
+            print(f"[yaz] PR #{karar['pr']} head sha: {sha[:12]}")
     if not sha:
-        print("karar dosyasında 'sha' yok → commit durumu işaretlenemez", file=sys.stderr)
+        print("karar dosyasında 'sha' yok (ve pr yok) → commit durumu işaretlenemez", file=sys.stderr)
         return 2
 
     kod, yanit = istek(

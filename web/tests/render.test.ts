@@ -226,3 +226,34 @@ describe('sol panel: 5`ten fazla nöbetçi (kaydırmalı)', () => {
     expect(document.querySelector('.orta-panel')?.textContent).toContain('ECZANE 1')
   })
 })
+
+describe('cihaz verisi yok (temiz klon)', () => {
+  it('beyaz ekran yerine ne yapılacağını söyleyen kart çıkar', async () => {
+    // Temiz klonda cihaz verisi yoktur (depoya girmez): sunucu 404 döner.
+    // Kart, dosya adını ve düzeltme komutunu göstermeli (kullanıcı "kaynak json bulunamadı"da kalmasın).
+    Object.defineProperty(window, 'location', {
+      value: { search: '?clientID=CIHAZ-1&veri=yerel', href: 'http://127.0.0.1:8090/' },
+      writable: true,
+    })
+    vi.stubGlobal('fetch', async () => new Response('bulunamadı', { status: 404 }))
+    // boş önbellek: önceki testler gerçek veriyi Cache Storage'a yazmış olabilir
+    vi.stubGlobal('caches', {
+      open: async () => ({
+        match: async () => undefined,
+        put: async () => undefined,
+        delete: async () => true,
+        keys: async () => [],
+      }),
+      delete: async () => true,
+      keys: async () => [],
+    })
+    document.body.innerHTML = '<div id="uygulama"></div>' // önceki test body'yi temizlemiş olabilir
+    const { default: App } = await import('@/App.vue')
+    uygulama = createApp(App)
+    uygulama.mount('#uygulama')
+    await vi.waitFor(() => expect(document.querySelector('.hata-kart')).not.toBeNull())
+    const metin = document.querySelector('.hata-kart')?.textContent ?? ''
+    expect(metin).toContain('lastSystemData.json')
+    expect(metin).toContain('fetch_nobet.py')
+  })
+})

@@ -49,6 +49,9 @@ KOK = Path(__file__).resolve().parent.parent          # kiosk/ (çalışma zaman
 PROJE_KOK = KOK.parent                                 # proje kökü (web/ burada)
 
 #: Yerel sunucudan sunulabilecek veri dosyaları (cihaz kimliği hariç — o URL'de gelir)
+#: Cihaza özgü, depoya girmeyen veri dosyaları (temiz klonda BULUNMAZ)
+CIHAZ_VERI_DOSYALARI = ("lastSystemData.json", "match.json", "lastupdate.json", "makinebilgileri.json")
+
 SUNULAN_VERI_DOSYALARI = (
     "lastSystemData.json",
     "lastupdate.json",
@@ -199,6 +202,15 @@ def tani_raporu(client_id: str, port: int | None = None) -> list[str]:
     satirlar: list[str] = []
     satirlar.append(f"arayüz kökü     : {web_kok()}")
     satirlar.append(f"derlenmiş mi    : {'EVET' if derlenmis_mi() else 'HAYIR → cd web && npm run build'}")
+    eksik_veri = [ad for ad in CIHAZ_VERI_DOSYALARI if not (KOK / ad).is_file()]
+    if eksik_veri:
+        satirlar.append(f"cihaz verisi    : EKSİK → {', '.join(eksik_veri)}")
+        satirlar.append("                  bu dosyalar cihaza özgüdür (depoya girmez). Çözüm:")
+        satirlar.append("                    python3 tools/fetch_nobet.py      # veriyi kaynaktan üret")
+        satirlar.append("                    # ya da eski kurulumdan kopyala:")
+        satirlar.append("                    cp /eski/kurulum/kiosk/{lastupdate,lastSystemData,match,makinebilgileri}.json kiosk/")
+    else:
+        satirlar.append("cihaz verisi    : TAM ✓")
     satirlar.append(f"cihaz kimliği   : {client_id or '(BOŞ — URL\'ye clientID yazılamaz!)'}")
     satirlar.append(f"profil klasörü  : {profil_kok()}")
 
@@ -725,6 +737,19 @@ def baslat(
         for satir in tani_raporu(client_id, 0):
             print(f"  {satir}")
         print()
+
+    eksik_veri = [ad for ad in CIHAZ_VERI_DOSYALARI if not (KOK / ad).is_file()]
+    if eksik_veri:
+        mesaj = (
+            "CİHAZ VERİSİ EKSİK: " + ", ".join(eksik_veri) + "\n"
+            "  Bu dosyalar cihaza özgüdür ve depoya girmez (temiz klonda yoktur).\n"
+            "  Çözüm:  python3 tools/fetch_nobet.py        (veriyi kaynaktan üret)\n"
+            "          ya da eski kurulumdan kopyalayın:\n"
+            "          cp /eski/kurulum/kiosk/{lastupdate,lastSystemData,match,makinebilgileri}.json kiosk/"
+        )
+        log.error("%s", mesaj.replace("\n", " | "))
+        print(mesaj)
+        print("  (arayüz açılacak ama veri kartında aynı mesaj görünecek)\n")
 
     if not yol:
         log.error("tarayıcı bulunamadı: %s (ayar: calistirma.tarayici_yolu)", getattr(config, "TARAYICI_YOLU", "chromium"))

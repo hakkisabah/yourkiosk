@@ -22,10 +22,10 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/hermes-secrets/github-yourkios
 2. Bağlam paketini al ve ilgili commit'i incele:
 
    ```bash
-   ~/yourkiosk/otomasyon/betik/topla.py --cikti /tmp/paket.json
+   ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --cikti /tmp/paket.json
    ```
    (Paket son noktadan itibaren olanı verir; i5'in işaretlediği commit farklıysa
-   `git -C ~/yourkiosk show <sha> --stat` ve `git -C ~/yourkiosk show <sha>` ile bak.)
+   `git -C ~/calisma_konumun/yourkiosk show <sha> --stat` ve `git -C ~/calisma_konumun/yourkiosk show <sha>` ile bak.)
 
 3. i5'in bulgularını **doğrula**: gerçekten sömürülebilir mi, yoksa yanlış alarm mı? Bu depo için
    kabul edilebilir bir risk mi (ör. cihaz yalnız 127.0.0.1'de dinliyor, yerel ağ izole)?
@@ -53,7 +53,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/hermes-secrets/github-yourkios
 5. Yayınla:
 
    ```bash
-   ~/yourkiosk/otomasyon/betik/yaz.py /tmp/karar.json
+   ~/calisma_konumun/yourkiosk/otomasyon/betik/yaz.py /tmp/karar.json
    ```
    Bu `guvenlik/karar` commit durumunu, PR yorumunu ve `karar/verildi` / `duzeltme/gerekli`
    etiketlerini yazar.

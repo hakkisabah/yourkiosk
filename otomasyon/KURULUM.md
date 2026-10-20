@@ -1,36 +1,39 @@
-# Kurulum — i5 ve i3 makineleri (adım adım)
+# Kurulum — i5 ve i3 makineleri (adım adım, denenmiş komutlar)
 
-Her iki makinede de aynı adımlar; yalnız **prompt** ve **zamanlama** farklı. Komutlar Linux içindir
-(Hermes kurulu olduğu için `python3` zaten var).
+Bu belge **Hermes'in gerçek cron arayüzüne** göre yazıldı (`cronjob_manage` aracı + `hermes cron`
+CLI + dashboard). Önceki sürümdeki "Cron → Yeni görev" tarifi eksikti; doğrusu aşağıda.
+
+> **Çalışma konumu:** bu belge depoyu `~/calisma_konumun/yourkiosk` altında varsayar. Farklıysa
+> komutlarda yolu değiştirin ve `KIOSK_YOLU` ortam değişkenini ayarlayın.
+
+Her iki makinede de aynı adımlar; yalnız **prompt** ve **zamanlama** farklı.
 
 ---
 
-## 0. Ön koşullar (tek sefer)
+## 0. Ön koşullar
 
 ```bash
 python3 --version && git --version && curl --version | head -1
-# eksikse:  sudo apt install -y python3 git curl
+# eksikse: sudo apt install -y python3 git curl
 ```
 
 ---
 
 ## 1. Token dosyası
 
-Token'ı **o makinede** oluşturduğunuz fine-grained PAT ile doldurun (sohbete yazmayın):
+Her makineye **kendi** fine-grained token'ı (i5 ve i3 ayrı; bir sızarsa diğeri etkilenmesin).
+İzinler: `Contents: Read` · `Pull requests: Read and write` · `Issues: Read and write` ·
+`Commit statuses: Read and write` · `Metadata: Read`. **Administration izni vermeyin.**
 
 ```bash
 mkdir -p ~/.config/hermes-secrets && chmod 700 ~/.config/hermes-secrets
 read -rsp "token: " T && printf '%s\n' "$T" > ~/.config/hermes-secrets/github-yourkiosk.token && unset T
 chmod 600 ~/.config/hermes-secrets/github-yourkiosk.token
-```
 
-Doğrulama (yalnız depo adı görünmeli, hata yoksa tamam):
-
-```bash
+# doğrula (200 beklenir; 404 → token depoya erişemiyor, 401 → geçersiz)
 curl -s -o /dev/null -w "%{http_code}\n" \
   -H "Authorization: Bearer $(cat ~/.config/hermes-secrets/github-yourkiosk.token)" \
   https://api.github.com/repos/hakkisabah/yourkiosk
-# 200 beklenir (404 → token depoya erişemiyor, 401 → token geçersiz)
 ```
 
 ---
@@ -38,83 +41,147 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 ## 2. Depo klonu
 
 ```bash
-# HTTPS + token (deploy key yoksa en kolayı):
-git clone https://x-access-token:$(cat ~/.config/hermes-secrets/github-yourkiosk.token)@github.com/hakkisabah/yourkiosk.git ~/yourkiosk
+mkdir -p ~/calisma_konumun
+git clone https://github.com/hakkisabah/yourkiosk.git ~/calisma_konumun/yourkiosk
 ```
 
-> Bu komut token'ı `.git/config` içine yazar (`origin` URL'i). İstemiyorsanız klondan sonra temizleyin:
-> ```bash
-> cd ~/yourkiosk && git remote set-url origin https://github.com/hakkisabah/yourkiosk.git
-> git config --global credential.helper store   # ilk push'ta token'ı bir kez girer
-> ```
-> i5/i3 yalnız **okur** (fetch + API), bu yüzden token'sız `https` uzak adres de yeterlidir.
+Depo **public** olduğu için token'sız klon çalışır (i5/i3 yalnız **okur**; yazma API üzerinden).
 
 ---
 
 ## 3. Betikleri dene (hiçbir şey yayınlamadan)
 
 ```bash
-cd ~/yourkiosk
-python3 otomasyon/betik/topla.py --cikti /tmp/paket.json        # bağlam paketi
-python3 -c "import json;p=json.load(open('/tmp/paket.json'));print('değişiklik:',p['degisiklik'],'commit:',len(p['commitler']),'sır:',len(p['taramalar']['sirlar']))"
+cd ~/calisma_konumun/yourkiosk
 
-# karar dosyası örneği (elle) ve KURU yayın:
-cat > /tmp/karar.json <<'JSON'
-{"makine":"i5","sha":"'"$(git rev-parse HEAD)"'","pr":null,"karar":"onay","onem":"dusuk",
- "ozet":"Deneme kararı (kurulum testi).","bulgular":[],"not":"kurulum doğrulaması"}
-JSON
-python3 otomasyon/betik/yaz.py /tmp/karar.json --kuru
+# a) monitor çıktısı: uzak HEAD sha'sı (tek satır, deterministik)
+python3 otomasyon/betik/topla.py --imza
+
+# b) bağlam paketi
+python3 otomasyon/betik/topla.py --cikti /tmp/paket.json
+python3 -c "import json;p=json.load(open('/tmp/paket.json'));print('değişiklik:',p['degisiklik'],'| commit:',len(p['commitler']),'| sır:',len(p['taramalar']['sirlar']))"
+
+# c) karar dosyası ŞABLONU (elle JSON yazmayın — bu komut her zaman geçerli dosya üretir)
+python3 otomasyon/betik/yaz.py --ornek
+python3 otomasyon/betik/yaz.py karar-ornek.json --kuru     # yayınlamadan göster
 ```
 
-Son komut yalnız **gösterir** (istek atmaz). Çıktıda yorum metni + `guvenlik/inceleme=success`
-görünüyorsa betikler hazır.
+> **Dünkü hata:** KURULUM.md'deki heredoc (`<<'JSON'` içinde `"$(git rev-parse HEAD)"`) geçersiz JSON
+> üretiyordu → `yaz.py` "Expecting ',' delimiter" diyordu. Artık `--ornek` ile üretiliyor; ayrıca
+> `yaz.py` bozuk JSON'da satır/kolon ve "şablon üret" ipucu veriyor.
 
 ---
 
-## 4. Hermes cron görevi
+## 4. Hermes cron görevi (doğru arayüz)
 
-### Yol A — Dashboard (önerilen)
+Hermes'te zamanlanmış görev = **`cronjob_manage` aracı** (`hermes cron create|list|edit|run`).
+Önemli alanlar:
 
-1. O makinede `hermes dashboard` açın.
-2. **Cron** (ya da "Zamanlanmış görevler") → **Yeni görev**.
-3. Ayarlar:
+| Alan | Ne işe yarar | Bizim için |
+|---|---|---|
+| `schedule` | `30m`, `every 2h`, `0 9 * * *`, ISO | i5: `30m` · i3: `1h` |
+| `prompt` | Görevin kendisi (kendi kendine yeterli olmalı) | `otomasyon/prompt/i5-guvenlik.md` içeriği |
+| `script` | Her turda çalışır, **stdout'u prompt'a bağlam olarak eklenir** | `otomasyon-topla.sh` |
+| `monitor` / `--monitor-script` | Ucuz değişiklik dedektörü: çıktı **aynıysa ajan hiç çalışmaz** | `i5-imza.sh` → tek satır sha |
+| `workdir` | Görevin çalışacağı klasör | `~/calisma_konumun/yourkiosk` |
+| `deliver` | Sonucun nereye gideceği | `local` (sonuç GitHub'a yazılıyor, sohbete değil) |
+| `enabled_toolsets` | Token tasarrufu | `["terminal"]` |
 
-   | Alan | i5 | i3 |
-   |---|---|---|
-   | Zamanlama | `*/15 * * * *` (07:00–23:00) | `*/30 * * * *` |
-   | İstem (prompt) | `otomasyon/prompt/i5-guvenlik.md` içeriği | `otomasyon/prompt/i3-karar.md` içeriği |
-   | Çalışma dizini | `~/yourkiosk` | `~/yourkiosk` |
-
-   İstem metninin **başına** şunu ekleyin:
-   > "Çalışma dizini ~/yourkiosk. Önce `python3 otomasyon/betik/topla.py --cikti /tmp/paket.json`
-   > çalıştır. `/tmp/paket.json` içinde `degisiklik: false` ise HİÇBİR ŞEY yapma, sessizce çık."
-
-4. Kaydedip bir kez **"Şimdi çalıştır"** ile deneyin.
-
-### Yol B — sistem cron + tek seferlik Hermes
+### 4.1. Sarmalayıcı betikler (Hermes `~/.hermes/scripts/` altından çalıştırır)
 
 ```bash
-# i5 için (crontab -e):
-*/15 * * * * cd /home/USER/yourkiosk && hermes chat -q "$(cat otomasyon/prompt/i5-guvenlik.md)" >> /home/USER/.local/state/i5.log 2>&1
+mkdir -p ~/.hermes/scripts
+K=~/calisma_konumun/yourkiosk/otomasyon/betik
+
+cat > ~/.hermes/scripts/i5-imza.sh <<EOF
+#!/usr/bin/env bash
+exec python3 "$K/topla.py" --imza
+EOF
+
+cat > ~/.hermes/scripts/i3-durum.sh <<EOF
+#!/usr/bin/env bash
+exec python3 "$K/topla.py" --imza-sorun
+EOF
+
+cat > ~/.hermes/scripts/otomasyon-topla.sh <<EOF
+#!/usr/bin/env bash
+# paketi üretir; stdout'a YALNIZ özet basar (tam paket /tmp/otomasyon-paket.json içinde)
+exec python3 "$K/topla.py" --cikti /tmp/otomasyon-paket.json
+EOF
+
+chmod +x ~/.hermes/scripts/*.sh
 ```
-`USER` yerine o makinenin kullanıcı adı. i3 için `*/30` ve `i3-karar.md`.
+
+> `$K` **mutlak yol** olmalı (yukarıdaki `EOF` tırnaksız olduğu için kabuk genişletir ✓).
+
+### 4.2. Görevi oluştur — Yol A: o makinedeki Hermes'e söyleyin
+
+O makinede Hermes'e (dashboard sohbeti ya da `hermes`) şunu yazın; gerisini kendisi kurar:
+
+> "Şu cron görevini oluştur: adı **i5 güvenlik**, zamanlama **30m**, workdir
+> **/home/KULLANICI/calisma_konumun/yourkiosk**, deliver **local**, toolsets **terminal**,
+> monitor-script **i5-imza.sh**, script **otomasyon-topla.sh**. Prompt olarak şu dosyanın içeriğini
+> kullan: /home/KULLANICI/calisma_konumun/yourkiosk/otomasyon/prompt/i5-guvenlik.md
+> Ayrıca prompt'un başına ekle: 'Bağlam paketi /tmp/otomasyon-paket.json içinde; önce onu oku.
+> degisiklik=false ise hiçbir şey yapma.'"
+
+i3 için: ad **i3 karar**, zamanlama **1h**, monitor-script **i3-durum.sh**, prompt `i3-karar.md`.
+
+### 4.3. Görevi oluştur — Yol B: CLI
+
+```bash
+cd ~/calisma_konumun/yourkiosk
+hermes cron create '30m' "$(cat otomasyon/prompt/i5-guvenlik.md)" \
+  --name "i5 guvenlik" \
+  --workdir "$PWD" \
+  --script otomasyon-topla.sh \
+  --monitor-script i5-imza.sh \
+  --deliver local
+```
+
+```bash
+hermes cron create '1h' "$(cat otomasyon/prompt/i3-karar.md)" \
+  --name "i3 karar" \
+  --workdir "$PWD" \
+  --script otomasyon-topla.sh \
+  --monitor-script i3-durum.sh \
+  --deliver local
+```
+
+Kontrol:
+
+```bash
+hermes cron list            # iki görev görünmeli
+hermes cron run <job_id>    # bir kez hemen çalıştır (arka planda)
+hermes cron runs <job_id>   # çalışma geçmişi
+hermes cron doctor          # yaygın sorunlar
+```
+
+### 4.4. Dashboard'dan
+
+`hermes dashboard` → **Scheduled Tasks / Cron** → **New job**. Formda yukarıdaki tablodaki alanlar
+vardır (Name, Schedule, Prompt, Script, Monitor, Model, Deliver, Workdir, Toolsets). Dashboard'da
+`script`/`monitor` alanları `~/.hermes/scripts/` altındaki **dosya adıyla** seçilir — bu yüzden 4.1
+adımını atlamayın.
+
+### 4.5. "Gece de incelensin mi?" ne demek
+
+Kastettiğim: cron görevi **gece de çalışsın mı**? Makineler açık kaldığı sürece çalışır; uyku/oturum
+kapanırsa çalışmaz. Buna gerek yok: gece commit atmıyorsanız i5'in koşması boşuna uyandırma olur.
+**Öneri:** i5 `30m`, i3 `1h`; gece de açık kalsın isterseniz hiçbir şey değiştirmeyin (maliyet ~0,
+çünkü `monitor` değişiklik yoksa ajanı hiç çalıştırmaz).
 
 ---
 
 ## 5. Durum ve günlükler
 
 ```bash
-~/.local/state/yourkiosk-otomasyon/son-sha   # en son incelenen commit
-~/.local/state/i5.log                        # (Yol B kullanılıyorsa)
-git -C ~/yourkiosk log --oneline -3          # ne çekilmiş
+~/.local/state/yourkiosk-otomasyon/son-sha    # en son incelenen commit
+hermes cron runs <job_id>                     # son koşular + çıktı
+python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --imza   # şu anki uzak HEAD
 ```
 
-Yeniden incelemek için (son noktayı sıfırla):
-
-```bash
-rm ~/.local/state/yourkiosk-otomasyon/son-sha
-python3 ~/yourkiosk/otomasyon/betik/topla.py --ilk --cikti /tmp/paket.json
-```
+Yeniden incelemek için: `rm ~/.local/state/yourkiosk-otomasyon/son-sha` (sonra `--ilk` ile çalıştırın).
 
 ---
 
@@ -122,19 +189,23 @@ python3 ~/yourkiosk/otomasyon/betik/topla.py --ilk --cikti /tmp/paket.json
 
 | Belirti | Neden / çözüm |
 |---|---|
-| `token yok` | Dosya yolu/izni: `ls -l ~/.config/hermes-secrets/…` (`-rw-------`), ya da `GH_TOKEN` ortam değişkeni |
+| `[topla] HATA: git deposu bulunamadı` | `--depo` veya `KIOSK_YOLU` yanlış; depo kökünü (`.git` olan klasör) verin |
+| `token yok` | Dosya yolu/izni (`-rw-------`) ya da `GH_TOKEN` ortam değişkeni |
 | `HTTP 404` (depo var) | Token'da depo seçili değil (*Only select repositories*) |
-| `HTTP 403` + `Resource not accessible` | İzin eksik: *Commit statuses: RW* / *Pull requests: RW* |
-| `degisiklik: false` hep | `git fetch` çalışmıyor olabilir: `git -C ~/yourkiosk fetch origin` çıktısına bakın |
-| `git fetch: could not read Username` | Uzak adres HTTPS ve token yok → deploy key kurun ya da 2. adımdaki URL'i kullanın |
-| Yorum iki kez | Aynı commit'e iki kez karar yazılmış; sorun değil, son yazan geçerli |
-| Cron hiç koşmuyor | Dashboard'da görev "aktif" mi? Makine uyumuyor mu (`systemctl status`)? |
+| `HTTP 403 Resource not accessible` | *Commit statuses: RW* / *Pull requests: RW* izni eksik |
+| `degisiklik: false` hep | `git -C ~/calisma_konumun/yourkiosk fetch origin` çıktısına bakın |
+| `karar dosyası GEÇERSİZ JSON` | Elle yazılmış JSON bozuk → `yaz.py --ornek` ile şablon üretin |
+| Cron hiç koşmuyor | `hermes cron list` (job var mı, paused mı?), `hermes cron status`, `hermes cron doctor` |
+| Ajan hiç çalışmıyor ama job koşuyor | `monitor` çıktısı değişmemiş → normal (tasarım gereği) |
+| Yorum iki kez | Aynı commit'e iki kez karar yazılmış; son yazan geçerli |
 
 ---
 
 ## 7. İlk gerçek koşu
 
-1. Bu makinede (bende) bir düzeltme commit'i push edilir.
-2. i5 ≤ 15 dk içinde PR yorumu + `guvenlik/inceleme` durumu yazar. PR yoksa yalnız commit durumu.
-3. Görüldüğü an: branch protection'a `guvenlik/inceleme` **zorunlu kontrol** olarak eklenir.
-4. i5 "sorun" derse i3 ≤ 30 dk içinde karar + plan yazar; ben düzeltirim.
+1. Ben bir düzeltme commit'i push ederim (artık `main`'e doğrudan değil, **dal + PR**).
+2. i5 ≤ 30 dk içinde PR yorumu + `guvenlik/inceleme` durumu yazar.
+3. Ondan sonra `guvenlik/inceleme` **zorunlu kontrol** olarak branch protection'a eklenir
+   (`python3 otomasyon/betik/koruma-kur.py --uygula --kontrol guvenlik/inceleme`).
+   Şu an bilinçli olarak **ekli değil**: i5 hiç çalışmadan eklersem hiçbir PR birleşemez.
+4. i5 "sorun" derse i3 ≤ 1 saat içinde karar + plan yazar; ben düzeltirim.
