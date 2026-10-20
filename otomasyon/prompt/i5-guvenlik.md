@@ -9,11 +9,11 @@ yapmazsın, dal açmazsın.
 1. Bağlam paketini al:
 
    ```bash
-   ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --cikti /tmp/paket.json
+   ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --cikti /tmp/otomasyon-paket.json
    ```
    Çıktıda `degisiklik: false` ise **işi bitir** (model çağırma, token harcama). Sessiz çık.
 
-2. `/tmp/paket.json` içindeki `diff`, `taramalar`, `degisen_dosyalar`, `commitler` alanlarını incele.
+2. `/tmp/otomasyon-paket.json` içindeki `diff`, `taramalar`, `degisen_dosyalar`, `commitler` alanlarını incele.
    `diff_kisaltildi: true` ise kırpıldığını raporunda belirt ve dosya listesine göre karar ver.
 
 3. Şu başlıklara bak (öncelik sırasıyla):

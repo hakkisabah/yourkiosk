@@ -4,6 +4,19 @@ Bu belge, üç makinenin **birbirine doğrudan bağlanmadan**, yalnız **GitHub 
 iş akışını tanımlar. Amaç: her commit güvenlik incelemesinden geçsin, sorun varsa ikinci bir makine
 karar versin, sonuç bana (geliştirici) **yapılandırılmış bir not** olarak ulaşsın.
 
+## 0. Güncel durum (21 Ekim 2026)
+
+| Adım | Durum |
+|---|---|
+| Depo görünürlüğü | **public** (private'da branch protection ve secret scanning ücretli) |
+| Branch protection (`main`) | ✅ PR zorunlu, force-push/silme kapalı, doğrusal geçmiş, `enforce_admins` |
+| Zorunlu kontrol `guvenlik/inceleme` | ⏳ i5 ilk kez çalıştıktan sonra eklenecek (şimdi eklersem hiçbir PR birleşemez) |
+| Secret scanning + push protection | ✅ açık |
+| Dependabot | ✅ alerts + security updates açık (8 uyarı raporlandı — token'da *Dependabot alerts: Read* yok, triyaj bekliyor) |
+| Etiketler | ✅ 4 etiket hazır |
+| `yaz.py` yazma yolu | ✅ gerçek yazma doğrulandı (HTTP 201) |
+| i5 / i3 kurulumu | ⏳ token izinlerine `Pull requests: RW` eklenmeli, sonra cron |
+
 ## 1. Neden GitHub "otobüs" olarak seçildi
 
 | Seçenek | Sorun |

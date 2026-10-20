@@ -22,7 +22,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/hermes-secrets/github-yourkios
 2. Bağlam paketini al ve ilgili commit'i incele:
 
    ```bash
-   ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --cikti /tmp/paket.json
+   ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --cikti /tmp/otomasyon-paket.json
    ```
    (Paket son noktadan itibaren olanı verir; i5'in işaretlediği commit farklıysa
    `git -C ~/calisma_konumun/yourkiosk show <sha> --stat` ve `git -C ~/calisma_konumun/yourkiosk show <sha>` ile bak.)

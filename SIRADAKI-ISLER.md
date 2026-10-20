@@ -3,11 +3,32 @@
 Bu dosya, oturum aralarında kaybolmaması için **bekleyen işleri kök neden + kabul ölçütü** ile
 listeler. Her iş bitince "Durum" sütunu güncellenir.
 
-**Bugünkü durum (özet):** kiosk **352** test ✓ · web **108** test ✓ · panel **104** test ✓ ·
+**Bugünkü durum (özet):** kiosk **353** test ✓ · web **108** test ✓ · panel **104** test ✓ ·
 `vue-tsc` ve üç derleme temiz ✓. **İş 1 bitti** (kökteki iki neden + 10 yeni test, gerçek veriyle
 uçtan uca doğrulandı, `--geri-al` parmak izi birebir). **İş 3 bitti** (uzaktan komut: imza, beyaz
 liste, tek seferlik, hem Qt hem tarayıcı modu, 23 yeni test). Kalan: cihazda **canlı** doğrulamalar
 (İş 1 kabul ölçütü + İş 2 adımları) ve panel `komut.json` gösterimi (tasarım onayı bekliyor).
+
+---
+
+## 21 Ekim — temiz klon, cron, GitHub koruması  ✅ (1 blokaj)
+
+* **Beyaz ekran / "veri bulunamadı"**: kök neden = temiz klonda cihaz verisi yok (`.gitignore`).
+  Arayüz ne yapılacağını yazıyor, `--tani` "cihaz verisi: EKSİK" diyor, başlangıçta terminal uyarısı
+  var; test eklendi (`test_tani_raporu_cihaz_verisi_eksikse_cozum_yazar` + web 404 kart testi).
+* **GitHub**: depo **public** yapıldı (private'da branch protection/secret scanning ücretli).
+  Branch protection uygulandı ve **doğrulandı** (doğrudan push `GH006 … pull request` ile reddedildi).
+  Secret scanning + push protection + Dependabot açık. 4 etiket hazır.
+  `yaz.py` gerçek yazma: HTTP 201 + API'den `guvenlik/inceleme=success` doğrulandı.
+* **Blokaj**: token'da `Pull requests: write` ve `Dependabot alerts: read` yok → PR açılamıyor,
+  dolayısıyla `main` şu an son düzeltmelerin **gerisinde** (dal: `duzeltme/temiz-klon-veri-cron`).
+  Token'a iki izin eklenince PR açılıp squash merge yapılacak.
+* **Dependabot 8 uyarı** (4 kritik, 4 orta) raporlandı; yerel `npm audit` iki projede de temiz →
+  uyarılar büyük olasılıkla PyQt6/Qt zinciri (CVE-2026-79680 `requirements.txt` yorumunda) ve
+  kilit dosyalarındaki eski sürümler. Triyaj için `Dependabot alerts: read` gerekiyor.
+* **KURULUM.md** gerçek Hermes cron arayüzüyle yeniden yazıldı; `topla.py --imza/--imza-sorun`
+  (monitor) eklendi; `yaz.py --ornek` şablonu; `topla.py` yanlış yolda artık sessiz sıfır vermiyor.
+* **Kuşak testleri** cihazın tarihe bağlı yayın verisine bağımlıydı → sentetik kayıtlarla düzeltildi.
 
 ---
 
