@@ -60,15 +60,38 @@ def istek(yol: str, token: str, yontem: str = "GET", govde: dict | None = None) 
         return 0, str(hata)[:200]
 
 
-def _json(metin: object) -> dict:
-    """`istek()` metin döndürür; güvenli JSON çözümü."""
-    if isinstance(metin, dict):
+def _json(metin: object) -> object:
+    """`istek()` metin döndürür; güvenli JSON çözümü (dict VEYA list dönebilir)."""
+    if isinstance(metin, (dict, list)):
         return metin
     try:
-        veri = json.loads(str(metin or ""))
+        return json.loads(str(metin or ""))
     except ValueError:
         return {}
-    return veri if isinstance(veri, dict) else {}
+
+
+def kontrol_kanitlari(a, token: str, adet: int = 10) -> dict[str, int]:
+    """Son `adet` commit'te her durum kontrolünün KAÇ kez üretildiğini sayar.
+
+    Neden: zorunlu kontrol PR'ları kapılar; `main`in ucundaki commit bir merge commit'i olabilir ve
+    hiçbir makine onu incelememiş olur. Doğru ölçüt "bu kontrolü üreten makine çalışıyor mu?"
+    sorusudur — son commit'te var mı sorusu değil.
+    """
+    sayac: dict[str, int] = {}
+    kod, ham = istek(f"/repos/{a.depo_adresi}/commits?per_page={adet}", token)
+    veri = _json(ham)
+    if kod != 200 or not isinstance(veri, list):
+        return sayac
+    for c in veri:
+        sha = str(c.get("sha", ""))
+        if not sha:
+            continue
+        kod_d, ham_d = istek(f"/repos/{a.depo_adresi}/commits/{sha}/status", token)
+        d = _json(ham_d)
+        for s in (d.get("statuses", []) if isinstance(d, dict) else []):
+            ad = s.get("context", "")
+            sayac[ad] = sayac.get(ad, 0) + 1
+    return sayac
 
 
 def son_commit_durumlari(a, token: str) -> dict:
@@ -79,7 +102,8 @@ def son_commit_durumlari(a, token: str) -> dict:
     if kod != 200 or not sha:
         return {"var": None, "sha": "", "durumlar": [], "hata": f"HTTP {kod}"}
     kod, ham2 = istek(f"/repos/{a.depo_adresi}/commits/{sha}/status", token)
-    kontroller = _json(ham2).get("statuses", [])
+    d2 = _json(ham2)
+    kontroller = d2.get("statuses", []) if isinstance(d2, dict) else []
     aranan = [k for k in kontroller if k.get("context") == "guvenlik/inceleme"]
     return {"var": bool(aranan), "sha": sha, "durumlar": kontroller, "kontrol": aranan}
 
@@ -90,7 +114,7 @@ def mevcut_durum(a, token: str) -> int:
     print("=== MEVCUT DURUM (salt okuma) ===")
     kod, ham = istek(f"/repos/{a.depo_adresi}/branches/{a.dal}/protection", token)
     veri = _json(ham)
-    if kod == 200 and veri:
+    if kod == 200 and isinstance(veri, dict) and veri:
         pr = veri.get("required_pull_request_reviews") or {}
         kontroller = (veri.get("required_status_checks") or {}).get("contexts") or []
         print(f"  koruma          : AKTİF")
@@ -105,6 +129,8 @@ def mevcut_durum(a, token: str) -> int:
         print(f"  koruma okunamadı: HTTP {kod} — token'da 'Administration: Read' yok (i5/i3 normal)")
         print("  (aşağıdaki commit bilgisi yine de okunur; yalnız koruma alanları görünmez)")
 
+    kanit = kontrol_kanitlari(a, token)
+    print("  kontroller      : " + (", ".join(f"{k}×{v}" for k, v in sorted(kanit.items())) or "(hiç yok)"))
     son = son_commit_durumlari(a, token)
     if son.get("var") is None:
         print(f"  son commit      : okunamadı ({son.get('hata')})")
@@ -176,16 +202,19 @@ def main() -> int:
         print("\n(KURU — uygulamak için --uygula)")
         return 0
 
-    # FREN: son commit'te kontrol yoksa zorunlu kılmak TÜM PR'ları kilitler
+    # FREN: hiç üretilmemiş bir kontrolü zorunlu kılmak TÜM PR'ları kilitler
     if kontrol_listesi and not a.zorla:
-        son = son_commit_durumlari(a, token)
-        if not son.get("var"):
-            print("DURDURULDU: bu commit'te `%s` durumu YOK." % kontrol_listesi[0])
-            print("  Zorunlu kontrol eklerseniz, i5 o kontrolü yazana kadar HİÇBİR PR birleştirilemez.")
-            print("  Sıra: önce i5 makinesinde cron çalışsın (bir commit'i incelesin), sonra bu komut.")
+        kanit = kontrol_kanitlari(a, token)
+        eksik = [k for k in kontrol_listesi if kanit.get(k, 0) == 0]
+        if eksik:
+            print("DURDURULDU: şu kontrol(ler) son 10 commit'te HİÇ üretilmemiş: " + ", ".join(eksik))
+            print("  Zorunlu kılınırsa, o kontrolü yazan makine çalışana kadar HİÇBİR PR birleştirilemez.")
+            print("  Sıra: ilgili makinede (i5 → guvenlik/inceleme, i3 → guvenlik/karar) cron çalışsın,")
+            print("        bir PR'ı inceleyip durumu yazsın; sonra bu komut.")
             print("  Kontrol: python3 otomasyon/betik/durum.py")
             print("  Bilerek yapıyorsanız: --zorla")
             return 7
+        print(f"[fren] kanıt var: " + ", ".join(f"{k}×{kanit[k]}" for k in kontrol_listesi))
 
     kod, govde = istek(f"/repos/{a.depo_adresi}", token)
     if kod != 200:
