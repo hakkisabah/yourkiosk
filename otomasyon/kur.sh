@@ -11,7 +11,11 @@ set -uo pipefail
 ROL="${1:-}"
 [ "$ROL" = "i5" ] || [ "$ROL" = "i3" ] || { echo "kullanım: bash otomasyon/kur.sh i5|i3 [--cron]" >&2; exit 2; }
 CRON_ISTENDI=0
-for arg in "$@"; do [ "$arg" = "--cron" ] && CRON_ISTENDI=1; done
+YENILE=0
+for arg in "$@"; do
+  [ "$arg" = "--cron" ] && CRON_ISTENDI=1
+  [ "$arg" = "--yenile-gorev" ] && YENILE=1 && CRON_ISTENDI=1
+done
 
 DEPO="$(cd "$(dirname "$0")/.." && pwd)"
 BETIK="$DEPO/otomasyon/betik"
@@ -83,8 +87,18 @@ if [ "$CRON_ISTENDI" -eq 1 ]; then
     printf '%q ' "${CRON_KOMUT[@]}"; echo
     exit 3
   fi
-  if hermes cron list 2>/dev/null | grep -q "$AD"; then
-    echo "'$AD' görevi zaten var → atlandı (düzenlemek için: hermes cron edit)"
+  # gerçek çıktı biçimi:  "  cd1e3449faa9 [active]" satırının ALTINDA "    Name: i5 guvenlik"
+  MEVCUT_ID="$(hermes cron list 2>/dev/null | grep -B1 "Name:.*$AD" | grep -oE '^[[:space:]]*[0-9a-f]{12}' | head -1 | tr -d ' ')"
+  if [ -n "$MEVCUT_ID" ]; then
+    if [ "$YENILE" -eq 1 ]; then
+      echo "'$AD' ($MEVCUT_ID) silinip yeniden oluşturuluyor (prompt güncel değilse şart)…"
+      hermes cron remove "$MEVCUT_ID" >/dev/null 2>&1 || true
+      "${CRON_KOMUT[@]}" && echo "görev YENİLENDİ: $AD ($ZAMAN)"
+    else
+      echo "'$AD' görevi zaten var ($MEVCUT_ID) → atlandı."
+      echo "  ⚠ Prompt/metin değiştiyse ESKİ metin çalışmaya devam eder."
+      echo "  Yenilemek için: bash otomasyon/kur.sh $ROL --yenile-gorev"
+    fi
   else
     "${CRON_KOMUT[@]}" && echo "görev oluşturuldu: $AD ($ZAMAN)"
   fi
