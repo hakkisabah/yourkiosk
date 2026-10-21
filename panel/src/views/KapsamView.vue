@@ -4,6 +4,7 @@
  * Çözümleme: varsayılan → ilçe → bölge → cihaz (en özel kazanır).
  * Burada yalnızca "geçersiz kılınan" anahtarlar yazılır; diğerleri üst kapsamdan devralınır.
  */
+import { kopya } from '@/domain/kopya'
 import { computed, ref, watch } from 'vue'
 
 import { DOSYALAR } from '@/aws/config'
@@ -24,7 +25,7 @@ import { gruplar, kapsamGrubuMu } from '@/domain/sema'
 import { tumKayitlar } from '@/domain/veri'
 import { useDosyalar } from '@/stores/dosyalar'
 const dosyalar = useDosyalar()
-const taslak = ref<KapsamBelgesi>(structuredClone(dosyalar.kapsamBelgesi))
+const taslak = ref<KapsamBelgesi>(kopya(dosyalar.kapsamBelgesi))
 const tur = ref<KapsamTuru>('varsayilan')
 const kimlik = ref('')
 const yeniKimlik = ref('')
@@ -32,7 +33,7 @@ const hata = ref('')
 
 watch(
   () => dosyalar.kapsam.veri,
-  (yeni) => (taslak.value = structuredClone(yeni ?? {})),
+  (yeni) => (taslak.value = kopya(yeni ?? {})),
   { deep: true },
 )
 
@@ -79,7 +80,7 @@ const gecersizSayisi = computed(() => ozet.value.filter((s) => s.gecersizMi).len
 
 function geriAl(): void {
   hata.value = ''
-  taslak.value = structuredClone(dosyalar.kapsamBelgesi)
+  taslak.value = kopya(dosyalar.kapsamBelgesi)
 }
 
 function kapsamDegistir(yeniTur: KapsamTuru): void {

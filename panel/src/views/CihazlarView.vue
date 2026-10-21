@@ -4,6 +4,7 @@
  * Bir cihazı başka bir bölgeye taşımak, kiosk tarafında bölge değiştirmenin panelden
  * yapılan hâlidir (cihaz bir sonraki veri turunda yeni bölgeyi gösterir).
  */
+import { kopya } from '@/domain/kopya'
 import { computed, ref, watch } from 'vue'
 
 import { DOSYALAR } from '@/aws/config'
@@ -11,13 +12,13 @@ import { gunEtiketi, tarihMetni, tumKayitlar } from '@/domain/veri'
 import { useDosyalar } from '@/stores/dosyalar'
 
 const dosyalar = useDosyalar()
-const taslak = ref<Record<string, unknown>>(structuredClone(dosyalar.match.veri ?? {}))
+const taslak = ref<Record<string, unknown>>(kopya(dosyalar.match.veri ?? {}))
 const taslakMakine = ref<string>(dosyalar.clientId)
 const mesaj = ref('')
 
 watch(
   () => dosyalar.match.veri,
-  (yeni) => (taslak.value = structuredClone(yeni ?? {})),
+  (yeni) => (taslak.value = kopya(yeni ?? {})),
   { deep: true },
 )
 
@@ -96,7 +97,7 @@ function _uygula(): void {
 }
 
 function geriAl(): void {
-  taslak.value = structuredClone(dosyalar.match.veri ?? {})
+  taslak.value = kopya(dosyalar.match.veri ?? {})
   mesaj.value = ''
 }
 

@@ -5,6 +5,7 @@
  * yalnızca boyut sınırını yükseltmek yeterlidir. Derinlik/düğüm sınırları normalde
  * dokunulmamalıdır: bozuk/zararlı veriye karşı koruma sağlarlar.
  */
+import { kopya } from '@/domain/kopya'
 import { computed, ref, watch } from 'vue'
 
 import { DOSYALAR } from '@/aws/config'
@@ -13,11 +14,11 @@ import { gruplar, tanim } from '@/domain/sema'
 import { useDosyalar, type AyarBelgesi } from '@/stores/dosyalar'
 
 const dosyalar = useDosyalar()
-const taslak = ref<AyarBelgesi>(structuredClone(dosyalar.ayarlarBelgesi))
+const taslak = ref<AyarBelgesi>(kopya(dosyalar.ayarlarBelgesi))
 
 watch(
   () => dosyalar.ayarlar.veri,
-  (yeni) => (taslak.value = structuredClone(yeni ?? {})),
+  (yeni) => (taslak.value = kopya(yeni ?? {})),
   { deep: true },
 )
 
