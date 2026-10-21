@@ -1,0 +1,93 @@
+{
+  "_aciklama": [
+    "KURULUM KULLANICISI için ASGARİ politika — yalnız ilk kurulumda kullanılır, sonra SİLİNİR.",
+    "Panel bu anahtarı KULLANMAZ: panel Cognito Identity Pool ile geçici anahtar alır.",
+    "KOVA_ADI / HESAP_ID yer tutucularını doldurun. S3 CreateBucket kaynakla sınırlandırılamaz (AWS kuralı).",
+    "Kurulum bitince: erişim anahtarını silin (IAM → kullanıcı → Security credentials → Deactivate/Delete)."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Kimlik",
+      "Effect": "Allow",
+      "Action": ["sts:GetCallerIdentity"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3KovaKurulumu",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:ListAllMyBuckets",
+        "s3:GetBucketLocation",
+        "s3:GetBucketPolicy",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:GetBucketCORS",
+        "s3:PutBucketCORS",
+        "s3:GetBucketLifecycleConfiguration",
+        "s3:PutBucketLifecycleConfiguration",
+        "s3:GetBucketVersioning",
+        "s3:PutBucketVersioning",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:GetBucketWebsite",
+        "s3:PutBucketWebsite",
+        "s3:GetBucketAcl"
+      ],
+      "Resource": ["arn:aws:s3:::KOVA_ADI"]
+    },
+    {
+      "Sid": "S3Nesneler",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket", "s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:HeadObject"],
+      "Resource": ["arn:aws:s3:::KOVA_ADI", "arn:aws:s3:::KOVA_ADI/*"]
+    },
+    {
+      "Sid": "IAMPanelKullanicisi",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetUser",
+        "iam:CreateUser",
+        "iam:CreatePolicy",
+        "iam:GetPolicy",
+        "iam:PutUserPolicy",
+        "iam:AttachUserPolicy",
+        "iam:ListAttachedUserPolicies",
+        "iam:CreateAccessKey",
+        "iam:ListAccessKeys",
+        "iam:UpdateAccessKey",
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:PutRolePolicy",
+        "iam:AttachRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:PassRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::HESAP_ID:user/yourkiosk-*",
+        "arn:aws:iam::HESAP_ID:policy/yourkiosk-*",
+        "arn:aws:iam::HESAP_ID:role/yourkiosk-*"
+      ]
+    },
+    {
+      "Sid": "CognitoPanelGirisi",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-identity:CreateIdentityPool",
+        "cognito-identity:DescribeIdentityPool",
+        "cognito-identity:GetIdentityPoolRoles",
+        "cognito-identity:SetIdentityPoolRoles",
+        "cognito-identity:ListIdentityPools",
+        "cognito-idp:CreateUserPool",
+        "cognito-idp:CreateUserPoolClient",
+        "cognito-idp:DescribeUserPool",
+        "cognito-idp:DescribeUserPoolClient",
+        "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminSetUserPassword",
+        "cognito-idp:ListUserPools"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
