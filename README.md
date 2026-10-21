@@ -92,6 +92,7 @@ yourkiosk/
 | [`web/CALISTIRMA.md`](web/CALISTIRMA.md) | Tarayıcı modunda adım adım çalıştırma + sorun giderme |
 | [`GITHUB-YUKLEME.md`](GITHUB-YUKLEME.md) | Bu depoyu GitHub'a güvenli yükleme rehberi |
 | [`GITHUB-TOKEN.md`](GITHUB-TOKEN.md) | GitHub token'ı oluşturma/verme + branch protection adımları |
+| [`otomasyon/README.md`](otomasyon/README.md) | Otomasyon komutları ve akış (kısa başvuru) |
 | [`otomasyon/IS-AKISI.md`](otomasyon/IS-AKISI.md) | Çok makineli iş akışı: ben + i5 (güvenlik) + i3 (karar) |
 | [`otomasyon/KURULUM.md`](otomasyon/KURULUM.md) | i5/i3 makinelerine kurulum (token, klon, cron) |
 | [`SIRADAKI-ISLER.md`](SIRADAKI-ISLER.md) | Bekleyen işler ve kabul ölçütleri |
