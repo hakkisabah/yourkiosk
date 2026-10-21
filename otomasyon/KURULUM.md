@@ -284,9 +284,31 @@ PR'daki **"Squash and merge"** tıklaması. Bunu da kaldırmanın seçenekleri:
 | Seçenek | İnsan işi | Risk | Gereken |
 |---|---|---|---|
 | **A. Elle merge** (bugün) | PR başına 1 tık | en az | — |
-| **B. i5 onayı → otomatik merge** (önerilen) | **0** | orta | i5 token'ına **Contents: Read and write** |
+| B. i5 onayı → otomatik merge | **0** | orta | i5 token'ına **Contents: Read and write** |
 | C. GitHub "auto-merge" | 0 | orta | depo ayarı + Contents R/W + GraphQL |
-| D. i5 + i3 çift onay → otomatik merge | 0 | en düşük | i3 token'ına Contents R/W + 2. zorunlu kontrol |
+| **D. i5 + i3 çift onay → otomatik merge** ✅ *seçildi* | **0** | **en düşük** | i3 token'ına **Contents R/W** + 2. zorunlu kontrol |
+
+### D modu (seçildi): çift onay
+
+| Kim | Ne yapar |
+|---|---|
+| **i5** | İnceleme + `guvenlik/inceleme` durumu (**birleştirme yapmaz**) |
+| **i3** | İkinci inceleme + `guvenlik/karar` durumu + koşullar tamamsa **squash merge** |
+| GitHub | İki durum da `success` olmadan birleştirmeye izin vermez (zorunlu kontroller) |
+
+Kurulum:
+
+```bash
+# 1) iki zorunlu kontrol (yönetici token'ı olan makinede)
+python3 otomasyon/betik/koruma-kur.py --uygula --kontrol "guvenlik/inceleme,guvenlik/karar"
+
+# 2) i3 makinesinde: yazma izni + ilk koşu
+python3 otomasyon/betik/ortam-kontrol.py --rol i3 --yazma-dene   # ✓ yazma izni (Contents): HTTP 201
+bash otomasyon/kur.sh i3 --cron
+hermes cron run <job_id>
+```
+
+i3'ün monitörü artık **tüm açık PR'ları** izler (`--imza-prlar`); i5 onayladığı anda i3 devreye girer.
 
 **B nasıl açılır (2 adım):**
 

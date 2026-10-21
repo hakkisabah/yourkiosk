@@ -124,7 +124,8 @@ def main() -> int:
     ap.add_argument("--dal", default="main")
     ap.add_argument("--token-dosya", default=str(Path.home() / ".config/hermes-secrets/github-yourkiosk.token"))
     ap.add_argument("--onay", type=int, default=0, help="zorunlu onay sayısı (tek kişilik depoda 0)")
-    ap.add_argument("--kontrol", default="guvenlik/inceleme", help="zorunlu durum kontrolü adı (boş: yok)")
+    ap.add_argument("--kontrol", default="guvenlik/inceleme",
+                    help="zorunlu kontrol(ler); virgülle birden fazla: 'guvenlik/inceleme,guvenlik/karar' (boş: yok)")
     ap.add_argument("--durum", action="store_true", help="yalnız OKU: mevcut koruma ve zorunlu kontroller")
     ap.add_argument("--zorla", action="store_true",
                     help="zorunlu kontrolü, son commit'te o kontrol YOKKEN de ekle (PR'lar kilitlenebilir)")
@@ -132,7 +133,8 @@ def main() -> int:
     ap.add_argument("--uygula", action="store_true", help="gerçekten uygula")
     a = ap.parse_args()
 
-    kontrol_listesi = [a.kontrol] if a.kontrol else []
+    # virgülle birden fazla kontrol: --kontrol "guvenlik/inceleme,guvenlik/karar"
+    kontrol_listesi = [k.strip() for k in a.kontrol.split(",") if k.strip()]
     koruma = {
         "required_status_checks": {"strict": True, "contexts": kontrol_listesi} if kontrol_listesi else None,
         "enforce_admins": True,

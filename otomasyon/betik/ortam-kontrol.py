@@ -85,6 +85,8 @@ def main() -> int:
     ap.add_argument("--depo", default="", help="depo yolu (boşsa otomatik)")
     ap.add_argument("--depo-adresi", default=VARSAYILAN_DEPO_ADI)
     ap.add_argument("--token-dosya", default=str(VARSAYILAN_TOKEN))
+    ap.add_argument("--yazma-dene", action="store_true",
+                    help="Contents yazma iznini zararsız bir blob ile dene (merge için gerekir)")
     a = ap.parse_args()
 
     print(f"=== yourkiosk ortam denetimi · rol: {a.rol} ===")
@@ -131,7 +133,27 @@ def main() -> int:
         kod3, _ = api(f"/repos/{a.depo_adresi}/labels", token)
         satir(kod3 == 200, "  etiket izni (Issues)", f"HTTP {kod3}",
               "Fine-grained token → Issues: Read and write")
-        bilgi("yazma izni (Commit statuses) burada denenmez; i5 ilk koşuda 'yaz.py' ile doğrular.")
+        if a.yazma_dene:
+            # Zararsız deneme: sahipsiz bir blob oluşturur (commit/tree YOK → depoda iz bırakmaz)
+            govde = json.dumps({"content": "yourkiosk izin denemesi", "encoding": "utf-8"}).encode()
+            istek = urllib.request.Request(
+                f"https://api.github.com/repos/{a.depo_adresi}/git/blobs",
+                data=govde,
+                method="POST",
+                headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
+                         "Content-Type": "application/json", "User-Agent": "yourkiosk-ortam-kontrol"},
+            )
+            try:
+                with urllib.request.urlopen(istek, timeout=20) as yanit:
+                    kod = yanit.status
+            except urllib.error.HTTPError as hata:
+                kod = hata.code
+            except (urllib.error.URLError, TimeoutError):
+                kod = 0
+            satir(kod in (200, 201), "  yazma izni (Contents)", f"HTTP {kod}",
+                  "Fine-grained token → Contents: Read and write (merge/otomatik birleştirme için ŞART)")
+        else:
+            bilgi("yazma izni: --yazma-dene ile sınanabilir (i3 için Contents: RW gerekir)")
     else:
         satir(False, "token dosyası", f"{token_yolu} yok",
               "KURULUM.md §1 (read -rsp ile dosyaya yazın; sohbete yazmayın)")

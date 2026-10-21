@@ -185,7 +185,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="i5/i3 için bağlam paketi")
     ap.add_argument("--depo", default="", help="git deposu (boşsa: KIOSK_YOLU → ~/calisma_konumun/yourkiosk → ~/yourkiosk)")
     ap.add_argument("--imza", action="store_true", help="yalnız uzak HEAD sha'sını yazdır (cron --monitor-script için)")
-    ap.add_argument("--imza-sorun", action="store_true", help="guvenlik/sorun etiketli PR'ların 'no:sha' listesi (i3 monitor)")
+    ap.add_argument("--imza-sorun", action="store_true", help="guvenlik/sorun etiketli PR'ların 'no:sha' listesi")
+    ap.add_argument("--imza-prlar", action="store_true",
+                    help="TÜM açık PR'ların 'no:sha:etiketler' listesi (i3 monitor — çift onay modu)")
     ap.add_argument("--durum", default=str(Path.home() / ".local/state/yourkiosk-otomasyon"))
     ap.add_argument("--token-dosya", default=str(Path.home() / ".config/hermes-secrets/github-yourkiosk.token"))
     ap.add_argument("--depo-adresi", default="hakkisabah/yourkiosk")
@@ -198,7 +200,7 @@ def main() -> int:
     durum = Path(a.durum).expanduser()
 
     # --- MONITOR MODLARI: deterministik çıktı (değişmediyse Hermes ajanı HİÇ çalışmaz)
-    if a.imza or a.imza_sorun:
+    if a.imza or a.imza_sorun or a.imza_prlar:
         git(depo, "fetch", "origin", "--prune", "--quiet", sessiz=True)
         dal = git(depo, "rev-parse", "--abbrev-ref", "origin/HEAD", kisa=True).strip().replace("origin/", "") or "main"
         if a.imza:
@@ -209,6 +211,16 @@ def main() -> int:
             print("[topla] uyarı: token yok → uyarı listesi boş", file=sys.stderr)
             print("")
             return 0
+        if a.imza_prlar:
+            prlar = api(f"/repos/{a.depo_adresi}/pulls?state=open&per_page=30", token)
+            satirlar = []
+            if isinstance(prlar, list):
+                for pr in prlar:
+                    etiketler = ",".join(sorted(e.get("name", "") for e in pr.get("labels", [])))
+                    satirlar.append(f"{pr.get('number')}:{(pr.get('head') or {}).get('sha', '')[:12]}:{etiketler}")
+            print("\n".join(sorted(satirlar)))
+            return 0
+
         kayitlar = api(f"/repos/{a.depo_adresi}/issues?state=open&labels=guvenlik/sorun&per_page=20", token)
         satirlar = []
         if isinstance(kayitlar, list):
