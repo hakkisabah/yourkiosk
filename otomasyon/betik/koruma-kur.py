@@ -142,7 +142,10 @@ def mevcut_durum(a, token: str) -> int:
         k = son["kontrol"][0]
         print(f"  i5 durumu       : {k.get('state')} · {k.get('updated_at', '')[:16]} ✓ (zorunlu kılınabilir)")
     else:
-        print("  i5 durumu       : YOK → bu commit'te zorunlu kontrol eklerseniz PR'lar kilitlenir")
+        if kontroller:
+            print("  i5 durumu       : bu commit'te yok (squash-merge commit'lerinde NORMAL — makineler PR başlığını inceler)")
+        else:
+            print("  i5 durumu       : YOK → bu commit'te zorunlu kontrol eklerseniz PR'lar kilitlenir")
     return 0
 
 
@@ -180,17 +183,19 @@ def main() -> int:
         "required_conversation_resolution": True,
     }
 
-    print(f"depo    : {a.depo_adresi}  dal: {a.dal}")
+    if not a.durum:  # --durum yalnız MEVCUT durumu yazar; "istenen yapılandırma" özeti kafa karıştırır
+        print(f"depo    : {a.depo_adresi}  dal: {a.dal}")
     if os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"):
         print("token   : ⚠ ORTAM DEĞİŞKENİ (GH_TOKEN/GITHUB_TOKEN) kullanılıyor — dosya değil!")
         print("          bu değişken başka bir token'a işaret ediyorsa 403 alırsınız; kaldırın: unset GH_TOKEN")
     else:
         print(f"token   : {a.token_dosya}")
-    print(f"koruma  : PR zorunlu={koruma['required_pull_request_reviews'] is not None}, "
-          f"onay={a.onay}, zorunlu kontrol={kontrol_listesi or 'yok'}, enforce_admins=True, "
-          f"force-push=False, silme=False, doğrusal geçmiş=True")
-    print(f"etiketler: {', '.join(e[0] for e in ETIKETLER)}")
-    print("dependabot uyarıları: açılacak")
+    if not a.durum:
+        print(f"koruma  : PR zorunlu={koruma['required_pull_request_reviews'] is not None}, "
+              f"onay={a.onay}, zorunlu kontrol={kontrol_listesi or 'yok'}, enforce_admins=True, "
+              f"force-push=False, silme=False, doğrusal geçmiş=True")
+        print(f"etiketler: {', '.join(e[0] for e in ETIKETLER)}")
+        print("dependabot uyarıları: açılacak")
 
     token = token_oku(a.token_dosya)
     if not token:
