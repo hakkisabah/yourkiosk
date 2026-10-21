@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -103,8 +104,15 @@ def main() -> int:
           "git clone https://github.com/" + a.depo_adresi + ".git ~/calisma_konumun/yourkiosk")
     if depo:
         kod, uzak = _calistir(["git", "-C", str(depo), "remote", "get-url", "origin"])
-        satir(kod == 0, "  uzak (origin)", uzak.splitlines()[0] if uzak else "yok",
+        uzak_metin = uzak.splitlines()[0] if uzak else "yok"
+        # GÜVENLİK: uzak adreste kimlik bilgisi varsa ASLA yazdırma (token terminale/sohbete sızmasın)
+        gizli_var = bool(re.search(r"://[^/@]+@", uzak_metin))
+        satir(kod == 0, "  uzak (origin)", re.sub(r"://[^/@]+@", "://***@", uzak_metin),
               f"git -C {depo} remote add origin https://github.com/{a.depo_adresi}.git")
+        if gizli_var:
+            satir(False, "  uzakta kimlik", "token URL içinde (git config'te düz metin!)",
+                  f"git -C {depo} remote set-url origin https://github.com/{a.depo_adresi}.git  "
+                  "(depo public → token'sız klon/fetch yeterli)")
         kod, _ = _calistir(["git", "-C", str(depo), "fetch", "origin", "--prune", "--quiet"], zaman=60)
         satir(kod == 0, "  git fetch", "başarılı" if kod == 0 else f"başarısız (kod {kod})",
               "ağ/HTTPS erişimi ya da uzak adresi kontrol edin")
@@ -134,8 +142,18 @@ def main() -> int:
         gerekli = ["i5-imza.sh", "i3-durum.sh", "otomasyon-topla.sh"]
         for ad in gerekli:
             yol = klasor / ad
-            satir(yol.is_file() and os.access(yol, os.X_OK), f"betik {ad}", str(yol) if yol.is_file() else "yok",
+            var = yol.is_file() and os.access(yol, os.X_OK)
+            satir(var, f"betik {ad}", str(yol) if yol.is_file() else "yok",
                   "bash otomasyon/kur.sh " + a.rol + "   (sarmalayıcıları kurar)")
+            if var:
+                # içindeki .py yolu gerçekten var mı? (bozuk/çiftlenmiş yol hatasını yakalar:
+                # ör. /home/kullanici/home/kullanici/... → python3: can't open file)
+                icerik = yol.read_text(encoding="utf-8", errors="ignore")
+                bulunan = re.findall(r"([/][\w./-]+\.py)", icerik)
+                if bulunan:
+                    hedef = bulunan[0]
+                    satir(os.path.exists(hedef), f"  {ad} yolu", hedef,
+                          "yol YOK → sarmalayıcı bozuk: bash otomasyon/kur.sh " + a.rol)
         hermes = shutil.which("hermes")
         satir(bool(hermes), "hermes CLI", hermes or "PATH'te yok",
               "Hermes kurulumunu/PATH'i kontrol edin (cron görevi bununla kurulur)")

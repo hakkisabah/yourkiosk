@@ -45,7 +45,15 @@ mkdir -p ~/calisma_konumun
 git clone https://github.com/hakkisabah/yourkiosk.git ~/calisma_konumun/yourkiosk
 ```
 
-Depo **public** olduğu için token'sız klon çalışır (i5/i3 yalnız **okur**; yazma API üzerinden).
+Depo **public** → **token'sız** klon/fetch yeterli (i5/i3 yalnız okur; yazma API üzerinden yapılır).
+
+> ⚠ **Token'ı uzak adrese gömmeyin** (`https://x-access-token:github_pat_…@github.com/…`): token
+> `.git/config` içine **düz metin** yazılır, `git remote -v` çıktısında ve günlüklerde görünür.
+> Yanlışlıkla yaptıysanız:
+> ```bash
+> git -C ~/calisma_konumun/yourkiosk remote set-url origin https://github.com/hakkisabah/yourkiosk.git
+> ```
+> Token bir yere sızdıysa GitHub → Settings → Developer settings → token → **Revoke** + yenisini üretin.
 
 ---
 

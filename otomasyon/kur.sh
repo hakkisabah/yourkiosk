@@ -30,17 +30,26 @@ echo
 
 # 2) sarmalayıcı betikler
 mkdir -p "$HOME/.hermes/scripts"
+[ -f "$BETIK/topla.py" ] || { echo "HATA: $BETIK/topla.py yok — depo yolu yanlış: $DEPO" >&2; exit 4; }
+
 cat > "$HOME/.hermes/scripts/i5-imza.sh" <<EOF
 #!/usr/bin/env bash
-exec python3 "$BETIK/topla.py" --depo "$DEPO" --imza
+# üretildi: kur.sh — $DEPO
+TOPLA="$BETIK/topla.py"
+[ -f "\$TOPLA" ] || { echo "HATA: \$TOPLA yok (sarmalayıcı bayat) — bash $DEPO/otomasyon/kur.sh ${ROL} ile yenileyin" >&2; exit 3; }
+exec python3 "\$TOPLA" --depo "$DEPO" --imza
 EOF
 cat > "$HOME/.hermes/scripts/i3-durum.sh" <<EOF
 #!/usr/bin/env bash
-exec python3 "$BETIK/topla.py" --depo "$DEPO" --imza-sorun
+TOPLA="$BETIK/topla.py"
+[ -f "\$TOPLA" ] || { echo "HATA: \$TOPLA yok (sarmalayıcı bayat) — bash $DEPO/otomasyon/kur.sh ${ROL} ile yenileyin" >&2; exit 3; }
+exec python3 "\$TOPLA" --depo "$DEPO" --imza-sorun
 EOF
 cat > "$HOME/.hermes/scripts/otomasyon-topla.sh" <<EOF
 #!/usr/bin/env bash
-exec python3 "$BETIK/topla.py" --depo "$DEPO" --cikti /tmp/otomasyon-paket.json
+TOPLA="$BETIK/topla.py"
+[ -f "\$TOPLA" ] || { echo "HATA: \$TOPLA yok (sarmalayıcı bayat) — bash $DEPO/otomasyon/kur.sh ${ROL} ile yenileyin" >&2; exit 3; }
+exec python3 "\$TOPLA" --depo "$DEPO" --cikti /tmp/otomasyon-paket.json
 EOF
 chmod +x "$HOME/.hermes/scripts/i5-imza.sh" "$HOME/.hermes/scripts/i3-durum.sh" "$HOME/.hermes/scripts/otomasyon-topla.sh"
 # İLK KOŞU: son nokta dosyasını sıfırla → i5 son commit'i de inceler.

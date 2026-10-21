@@ -42,6 +42,7 @@ MAKINE_AYARI = {
     "i5": ("guvenlik/inceleme", "guvenlik/onay", "guvenlik/sorun"),
     "i3": ("guvenlik/karar", "karar/verildi", "duzeltme/gerekli"),
 }
+GUNLUK_BASLIK = "i5/i3 güvenlik günlüğü (otomasyon)"
 ONAY_KARARLARI = {"onay", "kabul"}
 SORUN_KARARLARI = {"sorun", "red", "duzeltme"}
 
@@ -131,6 +132,35 @@ def yorum_govdesi(karar: dict, durum: str) -> str:
         "_yourkiosk otomasyonu · elle düzenlemeyin (sonraki koşuda üzerine yazılır)_",
     ]
     return "\n".join(satirlar)
+
+
+def gunluk_no(depo: str, token: str) -> int | None:
+    """PR'sız commit kararları için TEK bir günlük konusu (issue) bulur/oluşturur.
+
+    Neden: commit durumunun `description` alanı 140 karakterle sınırlı → gerekçe kayboluyordu.
+    PR yoksa (main'e düşen commit) tam rapor bu konuya yorum olarak yazılır.
+    """
+    kod, liste = istek(f"/repos/{depo}/issues?state=all&per_page=100", token)
+    if kod == 200 and isinstance(liste, list):
+        for konu in liste:
+            if str(konu.get("title", "")).startswith("i5/i3 güvenlik günlüğü"):
+                return int(konu["number"])
+    for etiket in ({"name": "otomasyon", "color": "5319e7"},):
+        istek(f"/repos/{depo}/labels", token, "POST", {**etiket, "description": "otomasyon kayıtları"})
+    kod, veri = istek(
+        f"/repos/{depo}/issues",
+        token,
+        "POST",
+        {
+            "title": GUNLUK_BASLIK,
+            "labels": ["otomasyon"],
+            "body": "Otomasyonun **PR'sız commit** kararları burada toplanır (i5/i3). Elle düzenlemeyin.",
+        },
+    )
+    if kod in (200, 201) and isinstance(veri, dict) and veri.get("number"):
+        print(f"[yaz] günlük konusu açıldı: #{veri['number']}")
+        return int(veri["number"])
+    return None
 
 
 def etiket_ekle(depo: str, token: str, no: int, eklenecek: list[str], cikarilacak: list[str], kuru: bool) -> None:
@@ -258,6 +288,18 @@ def main() -> int:
             kuru=False,
         )
         print("[yaz] etiketler güncellendi")
+    else:
+        # PR YOK (main'e düşen/rebase edilmiş commit): tam rapor günlük konusuna yazılır,
+        # aksi hâlde yalnız 140 karakterlik durum açıklaması kalır ve gerekçe kaybolur.
+        no = gunluk_no(a.depo_adresi, token)
+        if no:
+            baslik = f"#### `{sha[:12]}` · {karar.get('zaman') or ''} · {makine}\n\n"
+            kod, yanit = istek(
+                f"/repos/{a.depo_adresi}/issues/{no}/comments", token, "POST", {"body": baslik + govde}
+            )
+            print(f"[yaz] günlük #{no} yorumu: HTTP {kod}" + ("" if kod < 400 else f" → {yanit}"))
+        else:
+            print("[yaz] uyarı: günlük konusu bulunamadı/oluşturulamadı (PR'sız commit raporu kaydedilemedi)")
     return 0
 
 

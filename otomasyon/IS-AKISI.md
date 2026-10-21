@@ -19,7 +19,8 @@ karar versin, sonuç bana (geliştirici) **yapılandırılmış bir not** olarak
 | PR açma | ✅ (`Pull requests: write` eklendi) |
 | PR **birleştirme** (API) | ⏳ `Contents: Read and write` gerekiyor; şimdilik arayüzden 1 tık |
 | Dependabot | ✅ **0 açık uyarı** (vitest 4.1.12 ile 8 uyarı kapandı) |
-| i5 / i3 kurulumu | ⏳ token izinlerine `Pull requests: RW` eklenmeli, sonra cron |
+| i5 / i3 kurulumu | ✅ **i5 çalışıyor** (029d2886 → success, e09b7de → failure, otomatik cron) · i3 bekliyor |
+| PR'sız commit raporları | ✅ `#8 i5/i3 güvenlik günlüğü` konusu (commit durumu 140 karakterle sınırlı olduğu için tam rapor buraya yazılır) |
 
 ## 1. Neden GitHub "otobüs" olarak seçildi
 
