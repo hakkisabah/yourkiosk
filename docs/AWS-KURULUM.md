@@ -9,7 +9,19 @@ Bu belge **yapılan her AWS işlemini** komutuyla kaydeder (tekrar üretilebilir
 **IAM erişim anahtarı** (root DEĞİL, konsol şifresi/MFA gerekmiyor):
 
 1. AWS Konsol → **IAM → Policies → Create policy → JSON** → `panel/infra/kurulum-politikasi.json`
-   içeriğini yapıştır; `KOVA_ADI` ve `HESAP_ID` yer tutucularını doldur → ad: `yourkiosk-kurulum`.
+   içeriğini **olduğu gibi** yapıştır (yer tutucu YOK) → ad: `yourkiosk-kurulum`.
+   Politika kova adını `yourkiosk-*` deseniyle, IAM kaynaklarını `yourkiosk-*` önekiyle sınırlar;
+   bu yüzden kova adı **`yourkiosk-` ile başlamalı**.
+
+   Yapıştırmadan önce doğrula (AWS'nin resmî aksiyon listesine karşı, ağ gerekir):
+
+   ```bash
+   ./panel/infra/politika_dogrula.py panel/infra/kurulum-politikasi.json
+   # ✓ kurulum-politikasi.json: 6 ifade, tüm aksiyonlar geçerli
+   ```
+
+   > Aynı betik `panel/infra/iam-policy.json` (panel rolü) için de çalıştırılmalı — orada da
+   > `s3:HeadObject` ve `_aciklama` hataları vardı, düzeltildi.
 2. **IAM → Users → Create user** → ad: `yourkiosk-kurulum` → *Attach policies directly* →
    `yourkiosk-kurulum` → oluştur.
 3. Kullanıcı → **Security credentials → Create access key** → *Application running outside AWS* →
@@ -58,7 +70,9 @@ Kurulum bitince bu anahtarı **iptal edeceğiz** (panel Cognito ile geçici anah
 
 | Tarih | Adım | Komut | Sonuç |
 |---|---|---|---|
-| — | — | (anahtar bekleniyor) | — |
+| 21.10 | Politika doğrulama | `./panel/infra/politika_dogrula.py panel/infra/kurulum-politikasi.json` | ✓ 6 ifade |
+| 21.10 | İlk denemede bulunan hatalar | IAM konsolu | `s3:HeadObject` yok · `s3:*BucketLifecycleConfiguration` yok (doğrusu `s3:Get/PutLifecycleConfiguration`) · `HESAP_ID` ARN'de geçersiz · `_aciklama` alanı IAM'de geçersiz → hepsi düzeltildi |
+| — | Anahtar bekleniyor | — | — |
 
 ---
 

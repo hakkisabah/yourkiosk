@@ -1,16 +1,20 @@
 {
-  "_aciklama": [
-    "KURULUM KULLANICISI için ASGARİ politika — yalnız ilk kurulumda kullanılır, sonra SİLİNİR.",
-    "Panel bu anahtarı KULLANMAZ: panel Cognito Identity Pool ile geçici anahtar alır.",
-    "KOVA_ADI / HESAP_ID yer tutucularını doldurun. S3 CreateBucket kaynakla sınırlandırılamaz (AWS kuralı).",
-    "Kurulum bitince: erişim anahtarını silin (IAM → kullanıcı → Security credentials → Deactivate/Delete)."
-  ],
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "Kimlik",
+      "Sid": "KimlikDogrulama",
       "Effect": "Allow",
-      "Action": ["sts:GetCallerIdentity"],
+      "Action": [
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "KovaListeleme",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListAllMyBuckets"
+      ],
       "Resource": "*"
     },
     {
@@ -18,30 +22,40 @@
       "Effect": "Allow",
       "Action": [
         "s3:CreateBucket",
-        "s3:ListAllMyBuckets",
         "s3:GetBucketLocation",
         "s3:GetBucketPolicy",
         "s3:PutBucketPolicy",
         "s3:DeleteBucketPolicy",
         "s3:GetBucketCORS",
         "s3:PutBucketCORS",
-        "s3:GetBucketLifecycleConfiguration",
-        "s3:PutBucketLifecycleConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:PutLifecycleConfiguration",
         "s3:GetBucketVersioning",
         "s3:PutBucketVersioning",
         "s3:GetBucketPublicAccessBlock",
         "s3:PutBucketPublicAccessBlock",
         "s3:GetBucketWebsite",
         "s3:PutBucketWebsite",
+        "s3:DeleteBucketWebsite",
         "s3:GetBucketAcl"
       ],
-      "Resource": ["arn:aws:s3:::KOVA_ADI"]
+      "Resource": [
+        "arn:aws:s3:::yourkiosk-*"
+      ]
     },
     {
       "Sid": "S3Nesneler",
       "Effect": "Allow",
-      "Action": ["s3:ListBucket", "s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:HeadObject"],
-      "Resource": ["arn:aws:s3:::KOVA_ADI", "arn:aws:s3:::KOVA_ADI/*"]
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::yourkiosk-*",
+        "arn:aws:s3:::yourkiosk-*/*"
+      ]
     },
     {
       "Sid": "IAMPanelKullanicisi",
@@ -65,9 +79,9 @@
         "iam:PassRole"
       ],
       "Resource": [
-        "arn:aws:iam::HESAP_ID:user/yourkiosk-*",
-        "arn:aws:iam::HESAP_ID:policy/yourkiosk-*",
-        "arn:aws:iam::HESAP_ID:role/yourkiosk-*"
+        "arn:aws:iam::*:user/yourkiosk-*",
+        "arn:aws:iam::*:policy/yourkiosk-*",
+        "arn:aws:iam::*:role/yourkiosk-*"
       ]
     },
     {
