@@ -57,17 +57,13 @@ yapmazsın, dal açmazsın.
 5. Yayınla:
 
    ```bash
-   ~/calisma_konumun/yourkiosk/otomasyon/betik/yaz.py /tmp/karar.json --birlestir
+   ~/calisma_konumun/yourkiosk/otomasyon/betik/yaz.py /tmp/karar.json
    ```
    Bu, `guvenlik/inceleme` commit durumunu + PR yorumunu + `guvenlik/onay` / `guvenlik/sorun`
    etiketini yazar. Aynı commit için tekrar koşarsan yorum üzerine yazılır (sorun değil).
 
-   **`--birlestir`**: karar `onay` ise PR **otomatik** birleştirilir (insan tıklaması gerekmez).
-   Araç kendi kendini korur; şu durumlarda birleştirmez ve nedenini PR'a yazar:
-   PR taslak / çakışma var (`mergeable_state != clean`) / PR'ın head'i incelenen commit'ten farklı /
-   `guvenlik/sorun`, `duzeltme/gerekli` veya **`birlestirme/durdur`** etiketi var /
-   başka bir kontrol başarısız veya beklemede.
-   Otomatik birleştirmeyi tamamen kapatmak isterseniz bu bayrağı kaldırın.
+   **Birleştirmeyi SEN yapmıyorsun.** Çift onay modunda (`D`) birleştirmeyi **i3** yapar; senin
+   işin yalnız `guvenlik/inceleme` durumunu yazmak. `--birlestir` KULLANMA.
 
 ## Sınırlar
 

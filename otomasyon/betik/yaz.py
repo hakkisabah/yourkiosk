@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import time
 import os
 import sys
 import urllib.error
@@ -182,7 +183,7 @@ def etiket_ekle(depo: str, token: str, no: int, eklenecek: list[str], cikarilaca
         istek(f"/repos/{depo}/issues/{no}/labels/{urllib.parse.quote(etiket, safe='')}", token, "DELETE")
 
 
-def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool) -> tuple[bool, str]:
+def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay: bool = False) -> tuple[bool, str]:
     """PR'ı SQUASH ile birleştirir — yalnız güvenli koşullarda.
 
     Koruma katmanları (hepsi sağlanmazsa birleştirmez):
@@ -205,13 +206,24 @@ def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool) -> tuple[
     if engel:
         return False, f"engelleyici etiket: {', '.join(engel)}"
     if pr.get("mergeable_state") != "clean":
-        return False, f"birleştirilemez durum: {pr.get('mergeable_state')} (çakışma/eksik kontrol olabilir)"
+        # GitHub durum kontrolünü birkaç saniyede yeniden hesaplar (az önce yazdığımız kontrol dâhil)
+        for _ in range(4):
+            time.sleep(2)
+            kod2, pr2 = istek(f"/repos/{depo}/pulls/{pr_no}", token)
+            if kod2 == 200 and isinstance(pr2, dict) and pr2.get("mergeable_state") == "clean":
+                break
+        else:
+            return False, f"birleştirilemez durum: {pr.get('mergeable_state')} (çakışma/eksik kontrol olabilir)"
 
     kod, durum = istek(f"/repos/{depo}/commits/{sha}/status", token)
-    if kod == 200 and isinstance(durum, dict):
-        kotu = [s["context"] for s in durum.get("statuses", []) if s.get("state") in ("failure", "pending", "error")]
-        if kotu:
-            return False, f"başarısız/bekleyen kontroller: {', '.join(kotu)}"
+    kontroller = {s["context"]: s["state"] for s in (durum or {}).get("statuses", [])} if isinstance(durum, dict) else {}
+    kotu = [ad for ad, hal in kontroller.items() if hal in ("failure", "pending", "error")]
+    if kotu:
+        return False, f"başarısız/bekleyen kontroller: {', '.join(kotu)}"
+    if cift_onay:
+        eksik = [ad for ad in ("guvenlik/inceleme", "guvenlik/karar") if kontroller.get(ad) != "success"]
+        if eksik:
+            return False, f"çift onay tamam değil (eksik: {', '.join(eksik)})"
 
     if kuru:
         return True, "KURU: koşullar uygun, birleştirilecek (squash)"
@@ -236,6 +248,10 @@ def main() -> int:
     ap.add_argument("--depo-adresi", default="hakkisabah/yourkiosk")
     ap.add_argument("--token-dosya", default=str(Path.home() / ".config/hermes-secrets/github-yourkiosk.token"))
     ap.add_argument("--kuru", action="store_true", help="hiçbir istek atmadan göster")
+    ap.add_argument(
+        "--cift-onay", action="store_true",
+        help="birleştirme için 'guvenlik/inceleme' VE 'guvenlik/karar' success olmalı (D modu)",
+    )
     ap.add_argument(
         "--birlestir", action="store_true",
         help="karar 'onay' ise PR'ı otomatik birleştir (koruma: etiketler/çakışma/kontrol durumu)",
@@ -344,7 +360,7 @@ def main() -> int:
         print("[yaz] etiketler güncellendi")
 
         if a.birlestir and durum == "success":
-            basarili, neden = birlestir(a.depo_adresi, token, int(pr_no), sha, kuru=False)
+            basarili, neden = birlestir(a.depo_adresi, token, int(pr_no), sha, kuru=False, cift_onay=a.cift_onay)
             print(f"[yaz] otomatik birleştirme: {'✓' if basarili else '✗'} {neden}")
             if not basarili:
                 # nedeni PR'a yaz (görünür olsun, sessizce kalmasın)

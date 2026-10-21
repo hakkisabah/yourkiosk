@@ -18,7 +18,7 @@ BETIK="$DEPO/otomasyon/betik"
 PROMPT="$DEPO/otomasyon/prompt/i5-guvenlik.md"
 [ "$ROL" = "i3" ] && PROMPT="$DEPO/otomasyon/prompt/i3-karar.md"
 IZLE="$([ "$ROL" = "i3" ] && echo i3-durum.sh || echo i5-imza.sh)"
-ZAMAN="$([ "$ROL" = "i3" ] && echo 1h || echo 30m)"
+ZAMAN="30m"
 AD="$([ "$ROL" = "i3" ] && echo 'i3 karar' || echo 'i5 guvenlik')"
 
 echo "=== yourkiosk $ROL kurulumu ==="
@@ -43,7 +43,7 @@ cat > "$HOME/.hermes/scripts/i3-durum.sh" <<EOF
 #!/usr/bin/env bash
 TOPLA="$BETIK/topla.py"
 [ -f "\$TOPLA" ] || { echo "HATA: \$TOPLA yok (sarmalayıcı bayat) — bash $DEPO/otomasyon/kur.sh ${ROL} ile yenileyin" >&2; exit 3; }
-exec python3 "\$TOPLA" --depo "$DEPO" --imza-sorun
+exec python3 "\$TOPLA" --depo "$DEPO" --imza-prlar
 EOF
 cat > "$HOME/.hermes/scripts/otomasyon-topla.sh" <<EOF
 #!/usr/bin/env bash
