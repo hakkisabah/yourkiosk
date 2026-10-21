@@ -1,0 +1,23 @@
+{
+  "Rules": [
+    {
+      "ID": "iptal-mpu",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 7 }
+    },
+    {
+      "ID": "eski-surumler",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 30, "NewerNoncurrentVersions": 3 }
+    },
+    {
+      "ID": "yayin-gorselleri",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "kiosk/yayin-gorseller/" },
+      "Expiration": { "Days": 45 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 15 }
+    }
+  ]
+}

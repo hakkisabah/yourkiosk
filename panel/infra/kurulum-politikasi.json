@@ -1,0 +1,122 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "KimlikDogrulama",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "KovaListeleme",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListAllMyBuckets"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3KovaKurulumu",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:GetBucketLocation",
+        "s3:GetBucketPolicy",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:GetBucketCORS",
+        "s3:PutBucketCORS",
+        "s3:GetLifecycleConfiguration",
+        "s3:PutLifecycleConfiguration",
+        "s3:GetBucketVersioning",
+        "s3:PutBucketVersioning",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:GetBucketWebsite",
+        "s3:PutBucketWebsite",
+        "s3:DeleteBucketWebsite",
+        "s3:GetBucketAcl",
+        "s3:GetEncryptionConfiguration",
+        "s3:PutEncryptionConfiguration",
+        "s3:GetBucketOwnershipControls",
+        "s3:PutBucketOwnershipControls"
+      ],
+      "Resource": [
+        "arn:aws:s3:::yourkiosk-*"
+      ]
+    },
+    {
+      "Sid": "S3Nesneler",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::yourkiosk-*",
+        "arn:aws:s3:::yourkiosk-*/*"
+      ]
+    },
+    {
+      "Sid": "IAMPanelKullanicisi",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetUser",
+        "iam:CreateUser",
+        "iam:CreatePolicy",
+        "iam:GetPolicy",
+        "iam:PutUserPolicy",
+        "iam:AttachUserPolicy",
+        "iam:ListAttachedUserPolicies",
+        "iam:CreateAccessKey",
+        "iam:ListAccessKeys",
+        "iam:UpdateAccessKey",
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:PutRolePolicy",
+        "iam:AttachRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:PassRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:DeleteRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:user/yourkiosk-*",
+        "arn:aws:iam::*:policy/yourkiosk-*",
+        "arn:aws:iam::*:role/yourkiosk-*"
+      ]
+    },
+    {
+      "Sid": "CognitoPanelGirisi",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-identity:CreateIdentityPool",
+        "cognito-identity:DescribeIdentityPool",
+        "cognito-identity:GetIdentityPoolRoles",
+        "cognito-identity:SetIdentityPoolRoles",
+        "cognito-identity:ListIdentityPools",
+        "cognito-idp:CreateUserPool",
+        "cognito-idp:CreateUserPoolClient",
+        "cognito-idp:DescribeUserPool",
+        "cognito-idp:DescribeUserPoolClient",
+        "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminSetUserPassword",
+        "cognito-idp:ListUserPools",
+        "cognito-identity:UpdateIdentityPool",
+        "cognito-identity:DeleteIdentityPool",
+        "cognito-idp:UpdateUserPoolClient",
+        "cognito-idp:AdminGetUser",
+        "cognito-idp:DeleteUserPool",
+        "cognito-idp:DeleteUserPoolClient"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
