@@ -172,3 +172,60 @@ aws cognito-identity delete-identity-pool --identity-pool-id eu-central-1:67a2b8
 aws iam delete-role --role-name yourkiosk-panel-s3     # önce delete-role-policy
 aws iam delete-role --role-name yourkiosk-panel        # önce delete-role-policy
 ```
+
+---
+
+## 7. Panel yayını — CloudFront (22.10.2026)
+
+| Kaynak | Değer |
+|---|---|
+| Distribution | `EVR6YMP2UVX8A` |
+| Adres | **https://d308vfb9mn2991.cloudfront.net** |
+| OAC | `E31ZIOBD0HGXIP` (`sigv4`, `always`) — kovaya yalnız CloudFront erişir |
+| Origin | `yourkiosk-veri.s3.eu-central-1.amazonaws.com`, `OriginPath=/panel` |
+| PriceClass | `PriceClass_100` (en ucuz Avrupa/ABD) |
+| SPA yedeği | 403/404 → `/index.html` (200) |
+| Önbellek | varlıklar 1 yıl `immutable`; `index.html` `no-cache` |
+
+Komutlar (sırayla):
+
+```bash
+aws cloudfront create-origin-access-control --origin-access-control-config \
+  '{"Name":"yourkiosk-panel-oac","SigningProtocol":"sigv4","SigningBehavior":"always","OriginAccessControlOriginType":"s3"}'
+aws cloudfront create-distribution --distribution-config file:///tmp/aws-kur/cf-config.json
+aws s3api put-bucket-policy --bucket yourkiosk-veri --policy file:///tmp/aws-kur/bucket-policy.json   # Principal: cloudfront.amazonaws.com + SourceArn
+aws s3api put-bucket-cors --bucket yourkiosk-veri --cors-configuration file://panel/infra/s3-cors.json
+aws s3 sync panel/dist s3://yourkiosk-veri/panel/ --delete --exclude index.html \
+  --cache-control "public,max-age=31536000,immutable"
+aws s3 cp panel/dist/index.html s3://yourkiosk-veri/panel/index.html --cache-control "no-cache,must-revalidate"
+aws cloudfront create-invalidation --distribution-id EVR6YMP2UVX8A --paths "/*"
+```
+
+**Doğrulama (gerçek yanıtlar):**
+
+| Test | Sonuç |
+|---|---|
+| `GET /` | HTTP 200 · `text/html` · 1023 B |
+| `GET /veri` (SPA rotası) | HTTP 200 · `text/html` (index'e düşüyor) |
+| `GET /assets/index-*.js` | HTTP 200 · 618 KB · `cache-control: public,max-age=31536000,immutable` |
+| `http://…` | HTTP 301 → https |
+| Kova REST adresi (doğrudan) | **HTTP 403** (yalnız OAC üzerinden erişim) |
+
+## 8. Temizlik (tamamlandı)
+
+| Silinen | Durum |
+|---|---|
+| `yourkiosk-panel` rolü | ✓ silindi |
+| `yourkiosk-panel-s3` rolü | ✓ silindi |
+| identity pool `eu-central-1:67a2b8af-…` (sağlayıcısız) | ✓ silindi |
+
+Kalan tek artık: **kurulum erişim anahtarı** — kurulum bitince iptal edilecek (Bölüm 9).
+
+## 9. Kapanış kontrol listesi
+
+1. `panel` yayında mı → https://d308vfb9mn2991.cloudfront.net (giriş: `contact@yourkiosk.io`)
+2. Cihaz verisi: cihazlar kovaya doğrudan erişemez (403). Canlı veri için ya ikinci bir cache
+   behavior (`kiosk/*` → aynı kova, OAC) açılacak ya da cihazlar panelin yayınladığı yerel dosyayı
+   kullanmaya devam edecek.
+3. Kurulum anahtarını iptal et: IAM → Users → `yourkiosk-kurulum` → Security credentials →
+   Access key → Deactivate → Delete. Sonra `aws sts get-caller-identity` **hata vermeli**.
