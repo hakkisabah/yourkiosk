@@ -43,6 +43,8 @@ MAKINE_AYARI = {
     "i3": ("guvenlik/karar", "karar/verildi", "duzeltme/gerekli"),
 }
 GUNLUK_BASLIK = "i5/i3 güvenlik günlüğü (otomasyon)"
+#: Otomatik birleştirmeyi durduran etiketler (kill-switch)
+ENGELLEYEN_ETIKETLER = ("guvenlik/sorun", "duzeltme/gerekli", "birlestirme/durdur")
 ONAY_KARARLARI = {"onay", "kabul"}
 SORUN_KARARLARI = {"sorun", "red", "duzeltme"}
 
@@ -180,6 +182,52 @@ def etiket_ekle(depo: str, token: str, no: int, eklenecek: list[str], cikarilaca
         istek(f"/repos/{depo}/issues/{no}/labels/{urllib.parse.quote(etiket, safe='')}", token, "DELETE")
 
 
+def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool) -> tuple[bool, str]:
+    """PR'ı SQUASH ile birleştirir — yalnız güvenli koşullarda.
+
+    Koruma katmanları (hepsi sağlanmazsa birleştirmez):
+      · PR açık, taslak değil, `mergeable_state == clean`,
+      · PR'ın head sha'sı kararın işaretlediği sha ile AYNI (incelenen kod birleşsin),
+      · engelleyici etiket yok (`guvenlik/sorun`, `duzeltme/gerekli`, `birlestirme/durdur`),
+      · head sha üzerindeki tüm durum kontrolleri başarılı (pending/failure varsa bekle).
+    """
+    kod, pr = istek(f"/repos/{depo}/pulls/{pr_no}", token)
+    if kod != 200 or not isinstance(pr, dict):
+        return False, f"PR okunamadı (HTTP {kod})"
+    if pr.get("state") != "open":
+        return False, "PR açık değil"
+    if pr.get("draft"):
+        return False, "PR taslak (draft)"
+    if (pr.get("head") or {}).get("sha") != sha:
+        return False, "PR'ın head sha'sı değişmiş (yeni commit var) — yeniden inceleme gerekir"
+    etiketler = [e.get("name") for e in pr.get("labels", [])]
+    engel = [e for e in etiketler if e in ENGELLEYEN_ETIKETLER]
+    if engel:
+        return False, f"engelleyici etiket: {', '.join(engel)}"
+    if pr.get("mergeable_state") != "clean":
+        return False, f"birleştirilemez durum: {pr.get('mergeable_state')} (çakışma/eksik kontrol olabilir)"
+
+    kod, durum = istek(f"/repos/{depo}/commits/{sha}/status", token)
+    if kod == 200 and isinstance(durum, dict):
+        kotu = [s["context"] for s in durum.get("statuses", []) if s.get("state") in ("failure", "pending", "error")]
+        if kotu:
+            return False, f"başarısız/bekleyen kontroller: {', '.join(kotu)}"
+
+    if kuru:
+        return True, "KURU: koşullar uygun, birleştirilecek (squash)"
+
+    kod, yanit = istek(
+        f"/repos/{depo}/pulls/{pr_no}/merge",
+        token,
+        "PUT",
+        {"merge_method": "squash", "sha": sha, "commit_title": f"{pr.get('title', '')} (#{pr_no})"},
+    )
+    if kod in (200, 201) and isinstance(yanit, dict) and yanit.get("merged"):
+        return True, f"birleştirildi: {str(yanit.get('sha', ''))[:12]}"
+    mesaj = (yanit or {}).get("message") if isinstance(yanit, dict) else ""
+    return False, f"birleştirme başarısız (HTTP {kod}): {mesaj}"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="i5/i3 kararını GitHub'a yaz")
     ap.add_argument("karar", nargs="?", default="", help="karar.json yolu")
@@ -188,6 +236,10 @@ def main() -> int:
     ap.add_argument("--depo-adresi", default="hakkisabah/yourkiosk")
     ap.add_argument("--token-dosya", default=str(Path.home() / ".config/hermes-secrets/github-yourkiosk.token"))
     ap.add_argument("--kuru", action="store_true", help="hiçbir istek atmadan göster")
+    ap.add_argument(
+        "--birlestir", action="store_true",
+        help="karar 'onay' ise PR'ı otomatik birleştir (koruma: etiketler/çakışma/kontrol durumu)",
+    )
     a = ap.parse_args()
 
     # --- şablon üret (JSON elle yazmak hataya açık; bu komut her zaman geçerli dosya üretir)
@@ -246,6 +298,8 @@ def main() -> int:
         if karar.get("pr"):
             print(f"POST /repos/{a.depo_adresi}/issues/{karar['pr']}/comments")
         print(f"etiketler: +{[onay_etiketi if durum == 'success' else sorun_etiketi]}")
+        if a.birlestir and durum == "success" and karar.get("pr"):
+            print(f"[KURU] otomatik birleştirme denenecek: PR #{karar['pr']} (squash)")
         return 0
 
     token = token_oku(a.token_dosya)
@@ -288,6 +342,20 @@ def main() -> int:
             kuru=False,
         )
         print("[yaz] etiketler güncellendi")
+
+        if a.birlestir and durum == "success":
+            basarili, neden = birlestir(a.depo_adresi, token, int(pr_no), sha, kuru=False)
+            print(f"[yaz] otomatik birleştirme: {'✓' if basarili else '✗'} {neden}")
+            if not basarili:
+                # nedeni PR'a yaz (görünür olsun, sessizce kalmasın)
+                istek(
+                    f"/repos/{a.depo_adresi}/issues/{pr_no}/comments",
+                    token,
+                    "POST",
+                    {"body": f"⚙️ **Otomatik birleştirme yapılmadı:** {neden}\n\n"
+                             "Düzeltme gerekmiyorsa PR'ı elle birleştirebilirsiniz; "
+                             "yeniden denemek için `hermes cron run <job_id>`."},
+                )
     else:
         # PR YOK (main'e düşen/rebase edilmiş commit): tam rapor günlük konusuna yazılır,
         # aksi hâlde yalnız 140 karakterlik durum açıklaması kalır ve gerekçe kaybolur.

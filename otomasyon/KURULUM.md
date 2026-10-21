@@ -273,3 +273,38 @@ Zorunlu kontrolü **erken** eklemek bütün PR'ları kilitler; bu yüzden komut 
    (`python3 otomasyon/betik/koruma-kur.py --uygula --kontrol guvenlik/inceleme`).
    Şu an bilinçli olarak **ekli değil**: i5 hiç çalışmadan eklersem hiçbir PR birleşemez.
 4. i5 "sorun" derse i3 ≤ 1 saat içinde karar + plan yazar; ben düzeltirim.
+
+---
+
+## 8. İnsanı tamamen çıkarmak (otomatik birleştirme)
+
+Bugünkü durum: branch protection **onay sayısı 0** → insan *onayı* gerekmiyor; kalan tek insan işi
+PR'daki **"Squash and merge"** tıklaması. Bunu da kaldırmanın seçenekleri:
+
+| Seçenek | İnsan işi | Risk | Gereken |
+|---|---|---|---|
+| **A. Elle merge** (bugün) | PR başına 1 tık | en az | — |
+| **B. i5 onayı → otomatik merge** (önerilen) | **0** | orta | i5 token'ına **Contents: Read and write** |
+| C. GitHub "auto-merge" | 0 | orta | depo ayarı + Contents R/W + GraphQL |
+| D. i5 + i3 çift onay → otomatik merge | 0 | en düşük | i3 token'ına Contents R/W + 2. zorunlu kontrol |
+
+**B nasıl açılır (2 adım):**
+
+1. i5 token'ına `Contents: Read and write` ekleyin (merge içerik yazımıdır).
+2. i5 prompt'u zaten `yaz.py … --birlestir` çağırıyor → bir sonraki koşudan itibaren onay verdiği
+   PR'lar otomatik birleşir.
+
+**Koruma katmanları** (biri bile bozulsa birleşmez, nedenini PR'a yazar):
+
+- PR taslak değil, çakışma yok (`mergeable_state == clean`),
+- PR'ın head'i **incelenen commit** ile aynı (incelenmemiş kod birleşmesin),
+- `guvenlik/sorun`, `duzeltme/gerekli` veya **`birlestirme/durdur`** etiketi yok — istediğiniz PR'ı
+  bu etiketle durdurabilirsiniz (kill-switch),
+- başka bir durum kontrolü başarısız/beklemede değil.
+
+**Tamamen durdurmak:** i5 cron görevini duraklatın (`hermes cron pause <job_id>`) ya da PR'a
+`birlestirme/durdur` etiketi ekleyin. İnceleme sürsün ama birleşmesin istiyorsanız prompt'taki
+`--birlestir` bayrağını kaldırın.
+
+**Öneri:** ilk 1–2 hafta B'yi açık tutup i5'in kararlarını (günlük konusu + PR yorumları) gözden
+geçirin; yanlış onay oranı düşükse C/D'ye geçmeniz gerekmez.
