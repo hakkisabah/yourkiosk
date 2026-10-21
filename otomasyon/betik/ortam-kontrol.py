@@ -54,7 +54,7 @@ def depo_bul(verilen: str) -> Path | None:
         adaylar.append(Path(verilen).expanduser())
     if os.environ.get("KIOSK_YOLU"):
         adaylar.append(Path(os.environ["KIOSK_YOLU"]).expanduser())
-    adaylar += [Path.home() / "calisma_konumun" / "yourkiosk", Path.home() / "yourkiosk", Path.cwd()]
+    adaylar += [Path.home() / "calisma_konumun" / "yourkiosk", Path.home() / "projeler" / "yourkiosk", Path.home() / "yourkiosk", Path.cwd()]
     for aday in adaylar:
         if (aday / ".git").exists() or (aday / ".git").is_file():
             return aday
