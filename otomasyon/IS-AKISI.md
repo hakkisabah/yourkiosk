@@ -10,7 +10,7 @@ karar versin, sonuç bana (geliştirici) **yapılandırılmış bir not** olarak
 |---|---|
 | Depo görünürlüğü | **public** (private'da branch protection ve secret scanning ücretli) |
 | Branch protection (`main`) | ✅ PR zorunlu, force-push/silme kapalı, doğrusal geçmiş, `enforce_admins` |
-| Zorunlu kontroller | ✅ `guvenlik/inceleme` (i5) + `guvenlik/karar` (i3) — D modu |
+| Zorunlu kontroller | ✅ `guvenlik/inceleme` (i5) + `guvenlik/karar` (i3) — GitHub'da zorunlu |
 | Secret scanning + push protection | ✅ açık |
 | Dependabot | ✅ alerts + security updates açık (8 uyarı raporlandı — token'da *Dependabot alerts: Read* yok, triyaj bekliyor) |
 | Etiketler | ✅ 4 etiket hazır |
@@ -19,7 +19,7 @@ karar versin, sonuç bana (geliştirici) **yapılandırılmış bir not** olarak
 | PR açma | ✅ (`Pull requests: write` eklendi) |
 | PR **birleştirme** (API) | ⏳ `Contents: Read and write` gerekiyor; şimdilik arayüzden 1 tık |
 | Dependabot | ✅ **0 açık uyarı** (vitest 4.1.12 ile 8 uyarı kapandı) |
-| i5 / i3 kurulumu | ✅ i5 çalışıyor · ⏳ i3 (D modu: ikinci onay + merge) kuruluyor |
+| i5 / i3 kurulumu | ✅ i5 çalışıyor · ✅ **D modu**: i3 ikinci onay + birleştirme (kurulum: `bash otomasyon/kur.sh i3 --cron`) |
 | PR'sız commit raporları | ✅ `#8 i5/i3 güvenlik günlüğü` konusu (commit durumu 140 karakterle sınırlı olduğu için tam rapor buraya yazılır) |
 
 ## 1. Neden GitHub "otobüs" olarak seçildi

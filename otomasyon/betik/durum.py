@@ -65,7 +65,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="i5/i3 haberleşme durumu")
     ap.add_argument("--depo-adresi", default="hakkisabah/yourkiosk")
     ap.add_argument("--token-dosya", default=str(Path.home() / ".config/hermes-secrets/github-yourkiosk.token"))
-    ap.add_argument("--son", type=int, default=3, help="son kaç commit gösterilsin")
+    ap.add_argument("--son", type=int, default=10, help="son kaç commit incelensin (varsayılan 10)")
     a = ap.parse_args()
 
     token = token_oku(Path(a.token_dosya))
@@ -118,21 +118,34 @@ def main() -> int:
 
     print()
     print("YORUM")
-    son_sha = commits[0]["sha"]
-    son_kontroller = durumlar.get(son_sha, [])
-    son_i5 = next((k for k in son_kontroller if k.get("context") == "guvenlik/inceleme"), None)
-    if son_i5:
-        print(f"  i5 SON commit'i incelemiş ✓  ({son_i5.get('state')} · {son_i5.get('updated_at', '')[:16]})")
-        print("  haberleşme ÇALIŞIYOR: i5 makinesi GitHub'a yazıyor.")
+    # Not: `main`in ucundaki commit genellikle squash-merge commit'idir ve makineler onu İNCELEMEZ
+    # (i5/i3 PR başlıklarını inceler). Bu yüzden "son commit'te durum yok" normaldir; doğru ölçüt
+    # son N commit + AÇIK PR'lar.
+    tum = [k for liste in durumlar.values() for k in liste]
+    i5_say = sum(1 for k in tum if k.get("context") == "guvenlik/inceleme")
+    i3_say = sum(1 for k in tum if k.get("context") == "guvenlik/karar")
+    pr_i5 = pr_i3 = 0
+    for pr in (prlar if kod == 200 and isinstance(prlar, list) else []):
+        kh, ham_h = api(f"/repos/{a.depo_adresi}/commits/{(pr.get('head') or {}).get('sha', '')}/status", token)
+        if kh != 200 or not isinstance(ham_h, dict):
+            continue
+        for k in ham_h.get("statuses", []):
+            if k.get("context") == "guvenlik/inceleme":
+                pr_i5 += 1
+            elif k.get("context") == "guvenlik/karar":
+                pr_i3 += 1
+
+    print(f"  i5 (`guvenlik/inceleme`): son {a.son} commit'te {i5_say} · açık PR'larda {pr_i5}")
+    print(f"  i3 (`guvenlik/karar`)   : son {a.son} commit'te {i3_say} · açık PR'larda {pr_i3}")
+    if i5_say or i3_say or pr_i5 or pr_i3:
+        print("  haberleşme ÇALIŞIYOR ✓ (makineler GitHub'a yazıyor)")
+        if i3_say == 0 and pr_i3 == 0:
+            print("  NOT: i3 henüz `guvenlik/karar` yazmamış → D modunda PR'lar birleşemez.")
+            print("       i3 makinesi: bash otomasyon/kur.sh i3 --cron")
     else:
-        eskiler = [k for sha, liste in durumlar.items() if sha != son_sha for k in liste
-                   if k.get("context") == "guvenlik/inceleme"]
-        print("  i5 SON commit'i İNCELEMEMİŞ — haberleşme henüz başlamadı.")
-        if eskiler:
-            print(f"  (daha eski commit'lerde {len(eskiler)} durum var; bunlar geçmiş/elle koşular olabilir)")
-        print("  i5 makinesinde: hermes cron list   → görev var mı?")
-        print("  kurulum: bash otomasyon/kur.sh i5 --cron")
-        print("  denetim: python3 otomasyon/betik/ortam-kontrol.py --rol i5")
+        print("  haberleşme HENÜZ BAŞLAMADI — hiçbir makine durum yazmamış.")
+        print("  i5: bash otomasyon/kur.sh i5 --cron  ·  i3: bash otomasyon/kur.sh i3 --cron")
+        print("  denetim: python3 otomasyon/betik/ortam-kontrol.py --rol i5 --yazma-dene")
     return 0
 
 

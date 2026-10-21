@@ -11,7 +11,15 @@ liste, tek seferlik, hem Qt hem tarayıcı modu, 23 yeni test). Kalan: cihazda *
 
 ---
 
-### 21 Ekim (3) — cihaz verisi kazası ve koruma
+#### D modu (çift onay) aktif · 21 Ekim
+
+* Branch protection: **iki zorunlu kontrol** — `guvenlik/inceleme` (i5) + `guvenlik/karar` (i3).
+* Birleştirmeyi **i3** yapar (`yaz.py --birlestir --cift-onay`), insan tıklaması yok.
+* Uçtan uca doğrulandı: i3 önce → `blocked`; i5 onayı → i3 → **birleşti** (PR #12).
+* `koruma-kur` freni artık yazım hatasını yakalar; kanıt yokluğu yalnız uyarı (squash-merge gerçeği).
+* i5/i3 makinelerinde: `ortam-kontrol --rol i3 --yazma-dene` → `Contents: RW` şart.
+
+## 21 Ekim (3) — cihaz verisi kazası ve koruma
 
 * **Ne oldu:** `fetch_nobet.py` bir kez `--cihaz-bolge` verilmeden (varsayılan `İzmit-2`)
   çalıştırıldı → cihazın verisi İzmit-2 ile yeniden üretildi, `match.json` cihazı yanlış bölgeye
