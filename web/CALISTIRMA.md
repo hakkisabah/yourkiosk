@@ -233,3 +233,7 @@ python3 tools/fetch_nobet.py --kontrol
 # ya da eski kurulumdan kopyala:
 cp /eski/kurulum/kiosk/{lastupdate,lastSystemData,match,makinebilgileri}.json kiosk/
 ```
+
+**Koruma:** `fetch_nobet.py`, cihazın **görünen bölgesini** değiştirecek bir çalıştırmada
+durur (`DURDURULDU: … mevcut: X / yeni: Y`, çıkış 6) — yanlış bölge, yanlış eczaneler demektir.
+Bilerek yapıyorsanız `--zorla`. Doğrusu, cihazın gerçek bölgesini vermektir.

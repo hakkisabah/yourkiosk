@@ -68,3 +68,39 @@ def test_clientid_bossa_hata(tmp_path, capsys) -> None:
         modul.makine_bilgisi(None, kok=tmp_path)
     assert hata.value.code == 3
     assert "clientID" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------ bölge koruması
+def _eski_kurulum(tmp_path, bolge_adi="Çayırova 2.Bölge", bolge_id="B1", cihaz="CIHAZ-1"):
+    (tmp_path / "data").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "match.json").write_text(
+        json.dumps({"I1": [{bolge_id: [cihaz]}]}, ensure_ascii=False), encoding="utf-8"
+    )
+    (tmp_path / "data" / "id_eslesme.json").write_text(
+        json.dumps({"bolgeler": {bolge_adi: bolge_id}, "ilceler": {"ÇAYIROVA": "I1"}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def test_bolge_degisimi_uyarir(tmp_path) -> None:
+    """Varsayılan --cihaz-bolge ile çalıştırmak cihazı sessizce başka bölgeye taşımamalı."""
+    modul = _modul()
+    _eski_kurulum(tmp_path)
+    fark = modul.bolge_degisikligi({"clientID": "CIHAZ-1"}, "İzmit-2", None, tmp_path)
+    assert fark is not None
+    assert "Çayırova 2.Bölge" in fark[0] and fark[1] == "İzmit-2"
+
+
+def test_ayni_bolge_uyari_vermez(tmp_path) -> None:
+    modul = _modul()
+    _eski_kurulum(tmp_path)
+    assert modul.bolge_degisikligi({"clientID": "CIHAZ-1"}, "Çayırova 2.Bölge", None, tmp_path) is None
+    # büyük/küçük harf ve fazla boşluk farkı uyarı sayılmaz
+    assert modul.bolge_degisikligi({"clientID": "CIHAZ-1"}, "  çayırova   2.bölge ", None, tmp_path) is None
+
+
+def test_baska_cihaz_veya_match_yoksa_uyari_yok(tmp_path) -> None:
+    modul = _modul()
+    assert modul.bolge_degisikligi({"clientID": "CIHAZ-1"}, "İzmit-2", None, tmp_path) is None  # match yok
+    _eski_kurulum(tmp_path)
+    assert modul.bolge_degisikligi({"clientID": "BASKASI"}, "İzmit-2", None, tmp_path) is None

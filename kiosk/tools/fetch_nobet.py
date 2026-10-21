@@ -328,6 +328,55 @@ def makine_bilgisi(cihaz_id: str | None = None, kok: Path | None = None) -> dict
     raise SystemExit(3)
 
 
+def bolge_degisikligi(makine: dict, cihaz_bolge: str, cihaz_ilce: str | None, cikti: Path) -> tuple[str, str] | None:
+    """Mevcut `match.json`daki cihaz bölgesi ile yeni seçilen bölge farklıysa (eski, yeni) döner.
+
+    Kazayı önler: `--cihaz-bolge` verilmeden çalıştırılan bir komut (varsayılan "İzmit-2")
+    cihazı sessizce başka bölgeye taşıyor ve yanlış eczaneler gösteriliyordu.
+    """
+    eski_yol = Path(cikti) / "match.json"
+    ad_yolu = Path(cikti) / "data" / "id_eslesme.json"
+    if not eski_yol.is_file():
+        return None
+    client = str(makine.get("clientID", "")).strip()
+    if not client:
+        return None
+    try:
+        eski = json.loads(eski_yol.read_text(encoding="utf-8-sig"))
+        eslesme = json.loads(ad_yolu.read_text(encoding="utf-8-sig")) if ad_yolu.is_file() else {}
+    except (OSError, ValueError):
+        return None
+
+    eski_id = ""
+    for _ilce_id, ilce_listesi in (eski or {}).items():
+        if not isinstance(ilce_listesi, list):
+            continue
+        for bolge_kutusu in ilce_listesi:
+            for bolge_id, makineler in bolge_kutusu.items():
+                if client in (makineler or []):
+                    eski_id = str(bolge_id)
+    if not eski_id:
+        return None
+
+    eski_ad = ""
+    for ad, kimlik in ((eslesme or {}).get("bolgeler") or {}).items():
+        if str(kimlik) == eski_id:
+            eski_ad = ad
+    if not eski_ad:
+        for ad, kimlik in ((eslesme or {}).get("ilceler") or {}).items():
+            if str(kimlik) == eski_id:
+                eski_ad = ad
+    if not eski_ad:
+        return None
+
+    yeni_ad = (cihaz_bolge or cihaz_ilce or "").strip()
+    if not yeni_ad:
+        return None
+    if " ".join(eski_ad.casefold().split()) == " ".join(yeni_ad.casefold().split()):
+        return None
+    return (f"{eski_ad} ({eski_id})", yeni_ad)
+
+
 def on_denetim(ayarlar) -> int:
     """`--kontrol`: hiçbir şey yazmadan ortamı denetler (uzaktan destek için)."""
     sorun = 0
@@ -373,8 +422,9 @@ def main() -> int:
     except SystemExit:
         raise
     except FileNotFoundError as hata:
-        print(f"HATA: dosya bulunamadı: {hata.filename or hata}", file=sys.stderr)
-        print("  çözüm: python3 tools/fetch_nobet.py --kontrol", file=sys.stderr)
+        print(f"HATA: dosya/klasör bulunamadı: {hata.filename or hata}", file=sys.stderr)
+        print("  çözüm: yolu kontrol edin; eksik klasörler otomatik oluşturulur.", file=sys.stderr)
+        print("         kimlik dosyası eksikse: --cihaz-id <clientID>", file=sys.stderr)
         return 3
     except PermissionError as hata:
         print(f"HATA: yazma izni yok: {hata.filename or hata}", file=sys.stderr)
@@ -416,6 +466,10 @@ def _calistir() -> int:
         help="cihaz kimliği (clientID); makinebilgileri.json yoksa bu değerle oluşturulur",
     )
     ayristirici.add_argument("--kontrol", action="store_true", help="yalnız ortam/kimlik denetimi yap, çık")
+    ayristirici.add_argument(
+        "--zorla", action="store_true",
+        help="cihazın bölgesi değişiyorsa yine de yaz (varsayılan: dur ve uyar)",
+    )
     ayarlar = ayristirici.parse_args()
 
     logging.basicConfig(level=getattr(logging, ayarlar.log_seviyesi), format="%(levelname)-7s %(message)s")
@@ -448,13 +502,24 @@ def _calistir() -> int:
     yayinlar = yayinlari_cogalt(sablon.get("Yayinlar", {}), 30, baslangic, aralik=yayin_araligi)
 
     makine = makine_bilgisi(ayarlar.cihaz_id)
+    fark = bolge_degisikligi(makine, ayarlar.cihaz_bolge, ayarlar.cihaz_ilce, ayarlar.cikti_dizin)
+    if fark and not ayarlar.zorla:
+        print("DURDURULDU: bu komut cihazın GÖRÜNEN BÖLGESİNİ değiştiriyor.", file=sys.stderr)
+        print(f"  mevcut : {fark[0]}", file=sys.stderr)
+        print(f"  yeni   : {fark[1]}", file=sys.stderr)
+        print("  Yanlış bölge, cihazda yanlış eczanelerin görünmesi demektir.", file=sys.stderr)
+        print("  Bilerek yapıyorsanız: --zorla", file=sys.stderr)
+        print('  Doğrusu: --cihaz-bolge "<cihazın gerçek bölgesi>"', file=sys.stderr)
+        return 6
     client_id = str(makine.get("clientID", "")).strip()
     match = match_uret(agac, client_id, ayarlar.cihaz_ilce, ayarlar.cihaz_bolge)
 
     simdi = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     last_system = {"Nobetler": agac, "Yayinlar": yayinlar, "lastUpdate": simdi}
 
-    cikti = ayarlar.cikti_dizin
+    cikti = Path(ayarlar.cikti_dizin)
+    # çıktı klasörü (ve data/) yoksa oluştur: --cikti-dizin ile yeni klasör verilebilsin
+    (cikti / "data").mkdir(parents=True, exist_ok=True)
     (cikti / "lastSystemData.json").write_text(
         json.dumps(last_system, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
