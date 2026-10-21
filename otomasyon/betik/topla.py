@@ -186,6 +186,8 @@ def main() -> int:
     ap.add_argument("--depo", default="", help="git deposu (boşsa: KIOSK_YOLU → ~/calisma_konumun/yourkiosk → ~/yourkiosk)")
     ap.add_argument("--imza", action="store_true", help="yalnız uzak HEAD sha'sını yazdır (cron --monitor-script için)")
     ap.add_argument("--imza-sorun", action="store_true", help="guvenlik/sorun etiketli PR'ların 'no:sha' listesi")
+    ap.add_argument("--prlar", action="store_true", help="açık PR'ları listele (no, head sha, başlık) ve çık")
+    ap.add_argument("--pr", type=int, default=0, help="YALNIZ bu PR'ı paketle (refs/pull/N/head)")
     ap.add_argument("--imza-prlar", action="store_true",
                     help="TÜM açık PR'ların 'no:sha:etiketler' listesi (i3 monitor — çift onay modu)")
     ap.add_argument("--durum", default=str(Path.home() / ".local/state/yourkiosk-otomasyon"))
@@ -235,6 +237,85 @@ def main() -> int:
         return 0
 
     durum.mkdir(parents=True, exist_ok=True)
+
+    # ---- YALNIZ PR PAKETİ (i5/i3 PR BAŞLIĞINI inceler, main ucunu değil)
+    if a.pr:
+        token = token_oku(a.token_dosya)
+        if not token:
+            print("[topla] HATA: --pr için token gerekli", file=sys.stderr)
+            return 3
+        pr = api(f"/repos/{a.depo_adresi}/pulls/{a.pr}", token)
+        if not isinstance(pr, dict):
+            print(f"[topla] HATA: PR #{a.pr} okunamadı", file=sys.stderr)
+            return 4
+        bas_dal = str((pr.get("base") or {}).get("ref", "main"))
+        head_sha = str((pr.get("head") or {}).get("sha", ""))
+        git(depo, "fetch", "origin", f"+refs/pull/{a.pr}/head:refs/remotes/origin/pr/{a.pr}", "--quiet", sessiz=True)
+        git(depo, "fetch", "origin", bas_dal, "--quiet", sessiz=True)
+        kok = git(depo, "merge-base", f"origin/{bas_dal}", f"refs/remotes/origin/pr/{a.pr}", kisa=True).strip()
+        if not kok:
+            print(f"[topla] HATA: merge-base bulunamadı (PR #{a.pr})", file=sys.stderr)
+            return 4
+        ham_diff = git(depo, "diff", "--no-color", "-U3", f"{kok}..refs/remotes/origin/pr/{a.pr}", "--", ".")
+        dosyalar = [s for s in git(depo, "diff", "--name-status", f"{kok}..refs/remotes/origin/pr/{a.pr}").splitlines() if s.strip()][:200]
+        commitler = []
+        for satir in git(depo, "log", f"{kok}..refs/remotes/origin/pr/{a.pr}", "--format=%h%x09%an%x09%s", "--no-merges").splitlines():
+            parca = satir.split("\t")
+            if len(parca) >= 3:
+                commitler.append({"sha": parca[0], "yazar": parca[1], "baslik": parca[2]})
+        paket = {
+            "zaman": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "mod": "pr",
+            "depo": str(depo),
+            "pr": a.pr,
+            "baslik": pr.get("title"),
+            "yazar": (pr.get("user") or {}).get("login"),
+            "dallar": f"{(pr.get('head') or {}).get('ref')} → {bas_dal}",
+            "head_sha": head_sha,
+            "taban_sha": kok,
+            "degisiklik": bool(ham_diff.strip()),
+            "commitler": commitler,
+            "degisen_dosyalar": dosyalar,
+            "diff": "",
+            "diff_kisaltildi": False,
+            "taramalar": {"sirlar": [], "riskli_kod": []},
+            "prlar": [],
+            "uyarilar": [],
+        }
+        # atlanan dosyaları çıkar + kırp
+        parcalar, tutulan = re.split(r"(?m)^diff --git ", ham_diff), []
+        for parca in parcalar[1:]:
+            yol = on_ek_kes(parca.split(" ")[0], "a/")
+            if ATLANAN_DOSYALAR.search(yol) or Path(yol).suffix.lower() in IKILI_UZANTILAR:
+                continue
+            tutulan.append("diff --git " + parca)
+        temiz = "".join(tutulan)
+        if len(temiz.encode()) > a.sinir_bayt:
+            paket["diff_kisaltildi"] = True
+            paket["diff"] = temiz.encode()[: a.sinir_bayt].decode("utf-8", "ignore") + "\n… (kırpıldı)"
+        else:
+            paket["diff"] = temiz
+        paket["taramalar"] = tara(temiz)
+        cikti_ver(paket, a.cikti)
+        return 0
+
+    if a.prlar:
+        token = token_oku(a.token_dosya)
+        if not token:
+            print("[topla] HATA: --prlar için token gerekli", file=sys.stderr)
+            return 3
+        liste = api(f"/repos/{a.depo_adresi}/pulls?state=open&per_page=30", token)
+        kapak = {"zaman": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "mod": "prlar", "prlar": []}
+        for pr in (liste if isinstance(liste, list) else []):
+            kapak["prlar"].append({
+                "no": pr.get("number"), "baslik": pr.get("title"),
+                "head_sha": (pr.get("head") or {}).get("sha", ""),
+                "dallar": f"{(pr.get('head') or {}).get('ref')} → {(pr.get('base') or {}).get('ref')}",
+                "etiketler": [e.get("name") for e in pr.get("labels", [])],
+                "taslak": pr.get("draft", False),
+            })
+        cikti_ver(kapak, a.cikti)
+        return 0
 
     # 1) uzak değişiklikleri çek (uzağın adı 'origin' varsayılır)
     git(depo, "fetch", "origin", "--prune", "--quiet")
