@@ -194,8 +194,13 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
       const damga = await secenekler.kaynak.lastupdate()
       const sistem = await secenekler.kaynak.sistemVerisi(damga, zorla)
       if (!sistem) {
-        durum.hata = 'Veri okunamadı (lastSystemData.json).'
-        log('HATA: veri okunamadı')
+        // Cihaz verisi depoda YOK (cihaza özgü, .gitignore). Kullanıcıya ne yapacağını yaz:
+        durum.hata =
+          'Nöbet verisi bulunamadı: lastSystemData.json. ' +
+          'Bu cihazda veri dosyaları yok (depoya girmez). Düzeltme: cihazda bir kez ' +
+          '`python3 tools/fetch_nobet.py` çalıştırın ya da eski kurulumdan ' +
+          'lastupdate.json, lastSystemData.json, match.json, makinebilgileri.json dosyalarını kiosk/ klasörüne kopyalayın.'
+        log('HATA: lastSystemData.json yok (cihaz verisi eksik)')
         return false
       }
       durum.damga = damga
@@ -203,7 +208,9 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
       const clientId = secenekler.kaynak.secenekler.clientID
       const konumHam = cihazKonumunuBul(match, clientId)
       if (!konumHam.bulundu) {
-        durum.hata = `Cihaz kimliği (${clientId || '?'}) match.json içinde bulunamadı.`
+        durum.hata =
+          `Cihaz kimliği (${clientId || '?'}) match.json içinde bulunamadı. ` +
+          'match.json bu cihaza ait değil ya da eksik — cihazda `python3 tools/fetch_nobet.py` ile yeniden üretin.'
         log(`HATA: cihaz kimliği match.json'da yok (clientID=${clientId})`)
         return false
       }

@@ -49,3 +49,9 @@ __pycache__/
 web/.vite/
 panel/.vite/
 .karantina/
+
+# --- otomasyon: üretilen geçici dosyalar ---
+karar-ornek.json
+karar.json
+otomasyon-paket.json
+komut-gonderilecek.json

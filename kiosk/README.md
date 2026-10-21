@@ -563,6 +563,11 @@ bellek aynı kalır — bellek farkı yaratması beklenmez, çünkü kazanç **t
 
 ## 8. Tarayıcı (Chromium kiosk) gösterim modu — alternatif
 
+> **Temiz klonda cihaz verisi yoktur:** `lastSystemData.json`, `match.json`, `lastupdate.json`,
+> `makinebilgileri.json` depoya girmez. Eksikse başlangıçta terminal uyarısı, `--tani` raporunda
+> "cihaz verisi : EKSİK" ve arayüzde ne yapılacağını söyleyen bir kart çıkar
+> (`python3 tools/fetch_nobet.py`).
+
 Aynı veriyi, **aynı görünüm ve davranışla** gösteren HTML/JS arayüzü (`../web/`) tarayıcının
 kiosk modunda çalıştırılabilir. Cihaza özgü tek bilgi adresteki **cihaz kimliğidir**:
 

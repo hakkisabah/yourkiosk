@@ -606,3 +606,21 @@ def test_tarayici_kapaninca_yeniden_baslatma_ve_sinir(monkeypatch, capsys) -> No
 def test_tarayici_yoksa_hata_kodu(capsys) -> None:
     kod = tarayici.baslat("C1", tarayici="/yok/boyle/bir/tarayici", port=0)
     assert kod == 2
+
+def test_tani_raporu_cihaz_verisi_eksikse_cozum_yazar(tmp_path, monkeypatch) -> None:
+    """Temiz klon senaryosu: cihaz verisi yoksa --tani raporu dosyaları VE çözümü yazar.
+
+    Kullanıcı "kaynak json bulunamadı" ekranıyla kalmasın; rapor `fetch_nobet.py`
+    ve eski kurulumdan kopyalama yolunu göstermeli.
+    """
+    monkeypatch.setattr(tarayici, "KOK", tmp_path)  # boş klasör: veri dosyaları yok
+    monkeypatch.setattr(tarayici, "derlenmis_mi", lambda: True)
+    monkeypatch.setattr(tarayici, "tarayici_bul", lambda: None)
+
+    satirlar = tarayici.tani_raporu("CIHAZ-TEST")
+    metin = "\n".join(satirlar)
+    assert "cihaz verisi    : EKSİK" in metin
+    assert "lastSystemData.json" in metin
+    assert "fetch_nobet.py" in metin
+    assert "cp /eski/kurulum" in metin
+

@@ -57,18 +57,49 @@ IKILI_UZANTILAR = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".
 
 
 # ---------------------------------------------------------------- yardımcılar
-def git(depo: Path, *arg: str, kisa: bool = False) -> str:
-    """git komutunu çalıştırır (hata → boş metin; betik durmaz)."""
+def git(depo: Path, *arg: str, kisa: bool = False, sessiz: bool = False) -> str:
+    """git komutunu çalıştırır (hata → boş metin; betik durmaz).
+
+    `sessiz=True` → hata mesajı stderr'e yazılmaz (monitor modunda gürültü olmasın).
+    """
     try:
         sonuc = subprocess.run(
             ["git", "-C", str(depo), *arg], capture_output=True, text=True, timeout=180, check=False
         )
     except (OSError, subprocess.SubprocessError) as hata:
-        print(f"[topla] git hatası: {hata}", file=sys.stderr)
+        if not sessiz:
+            print(f"[topla] git hatası: {hata}", file=sys.stderr)
         return ""
-    if sonuc.returncode != 0 and sonuc.stderr.strip():
+    if sonuc.returncode != 0 and sonuc.stderr.strip() and not sessiz:
         print(f"[topla] git {' '.join(arg)}: {sonuc.stderr.strip()[:200]}", file=sys.stderr)
     return sonuc.stdout if not kisa else (sonuc.stdout or sonuc.stderr)
+
+
+def depo_bul(verilen: str) -> Path:
+    """Depo yolunu bul: --depo → KIOSK_YOLU → ~/calisma_konumun/yourkiosk → ~/yourkiosk → cwd.
+
+    Yanlış yolda sessizce "0 commit / 0 dosya" demek yerine açık hata verir (KURULUM.md'de
+    anlatılan "bulunamadı ama sonuçlar sıfır" durumunun nedeni buydu).
+    """
+    adaylar: list[Path] = []
+    if verilen:
+        aday = Path(verilen).expanduser()
+        if not ((aday / ".git").exists() or (aday / ".git").is_file()):
+            print(f"[topla] HATA: --depo verilen yol bir git deposu değil: {aday}", file=sys.stderr)
+            print("[topla] ipucu: depo kökünü verin (içinde .git olan klasör) ya da KIOSK_YOLU ayarlayın", file=sys.stderr)
+            raise SystemExit(2)
+        adaylar.append(aday)
+    if os.environ.get("KIOSK_YOLU"):
+        adaylar.append(Path(os.environ["KIOSK_YOLU"]).expanduser())
+    adaylar += [Path.home() / "calisma_konumun" / "yourkiosk", Path.home() / "yourkiosk", Path.cwd()]
+    for aday in adaylar:
+        if (aday / ".git").exists() or (aday / ".git").is_file():
+            return aday
+    print("[topla] HATA: git deposu bulunamadı. Denenen yollar:", file=sys.stderr)
+    for aday in adaylar:
+        print(f"         · {aday}", file=sys.stderr)
+    print("[topla] çözüm: --depo /yol/yourkiosk  ya da  export KIOSK_YOLU=/yol/yourkiosk", file=sys.stderr)
+    raise SystemExit(2)
 
 
 def maskele(metin: str) -> str:
@@ -147,7 +178,9 @@ def cikti_ver(paket: dict, cikti: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="i5/i3 için bağlam paketi")
-    ap.add_argument("--depo", default=str(Path.home() / "yourkiosk"))
+    ap.add_argument("--depo", default="", help="git deposu (boşsa: KIOSK_YOLU → ~/calisma_konumun/yourkiosk → ~/yourkiosk)")
+    ap.add_argument("--imza", action="store_true", help="yalnız uzak HEAD sha'sını yazdır (cron --monitor-script için)")
+    ap.add_argument("--imza-sorun", action="store_true", help="guvenlik/sorun etiketli PR'ların 'no:sha' listesi (i3 monitor)")
     ap.add_argument("--durum", default=str(Path.home() / ".local/state/yourkiosk-otomasyon"))
     ap.add_argument("--token-dosya", default=str(Path.home() / ".config/hermes-secrets/github-yourkiosk.token"))
     ap.add_argument("--depo-adresi", default="hakkisabah/yourkiosk")
@@ -156,8 +189,34 @@ def main() -> int:
     ap.add_argument("--cikti", default="", help="paketi bu dosyaya da yaz")
     a = ap.parse_args()
 
-    depo = Path(a.depo).expanduser()
+    depo = depo_bul(a.depo)
     durum = Path(a.durum).expanduser()
+
+    # --- MONITOR MODLARI: deterministik çıktı (değişmediyse Hermes ajanı HİÇ çalışmaz)
+    if a.imza or a.imza_sorun:
+        git(depo, "fetch", "origin", "--prune", "--quiet", sessiz=True)
+        dal = git(depo, "rev-parse", "--abbrev-ref", "origin/HEAD", kisa=True).strip().replace("origin/", "") or "main"
+        if a.imza:
+            print(git(depo, "rev-parse", f"origin/{dal}", kisa=True).strip())
+            return 0
+        token = token_oku(a.token_dosya)
+        if not token:
+            print("[topla] uyarı: token yok → uyarı listesi boş", file=sys.stderr)
+            print("")
+            return 0
+        kayitlar = api(f"/repos/{a.depo_adresi}/issues?state=open&labels=guvenlik/sorun&per_page=20", token)
+        satirlar = []
+        if isinstance(kayitlar, list):
+            for kayit in kayitlar:
+                satirlar.append(f"{kayit.get('number')}:{(kayit.get('head') or {}).get('sha', '')[:12] or kayit.get('updated_at', '')}")
+        guncel = api(f"/repos/{a.depo_adresi}/pulls?state=open&per_page=20", token)
+        if isinstance(guncel, list):
+            for pr in guncel:
+                if "guvenlik/sorun" in [e.get("name") for e in pr.get("labels", [])]:
+                    satirlar.append(f"{pr.get('number')}:{(pr.get('head') or {}).get('sha', '')[:12]}")
+        print("\n".join(sorted(set(satirlar))))
+        return 0
+
     durum.mkdir(parents=True, exist_ok=True)
 
     # 1) uzak değişiklikleri çek (uzağın adı 'origin' varsayılır)
@@ -189,7 +248,9 @@ def main() -> int:
     if not bas:
         paket.update({"degisiklik": False, "uyarilar": ["depo/dal okunamadı (git fetch başarısız?)"]})
         cikti_ver(paket, a.cikti)
-        return 1
+        print("[topla] HATA: 'origin/<dal>' okunamadı. Kontrol: git -C "
+              f"{depo} remote -v && git -C {depo} fetch origin", file=sys.stderr)
+        return 2
 
     if son == bas:
         paket["degisiklik"] = False

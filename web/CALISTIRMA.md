@@ -217,3 +217,17 @@ cd ../web && npm run test                                    # 86 test (arayüz)
 * Veri kuralları Qt ile aynıdır: `lastupdate` değişmediyse büyük dosya indirilmez; süresi geçen
   görseller (yayının `end` + `onbellek.gorsel_saklama_gun`) cihazdan silinir. Yayın verisi
   sunulurken önbellek bakımı otomatik çalışır.
+
+### Veri dosyaları yok (temiz klon) — "Nöbet verisi bulunamadı: lastSystemData.json"
+
+Depo cihaz verisini **içermez** (`lastSystemData.json`, `match.json`, `lastupdate.json`,
+`makinebilgileri.json` `.gitignore`'da). Temiz klonda tarayıcı modu açılır ama veri kartı çıkar;
+`--tani` raporu da "cihaz verisi : EKSİK" der. Düzeltme:
+
+```bash
+# cihazda bir kez: veriyi kaynaktan üret (cihaz kimliği makinebilgileri.json'dan gelir)
+python3 tools/fetch_nobet.py
+
+# ya da eski kurulumdan kopyala:
+cp /eski/kurulum/kiosk/{lastupdate,lastSystemData,match,makinebilgileri}.json kiosk/
+```

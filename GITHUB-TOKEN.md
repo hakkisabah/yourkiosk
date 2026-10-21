@@ -1,5 +1,31 @@
 # GitHub token'ı: bana nasıl verirsiniz (veya kendiniz nasıl yaparsınız)
 
+> ## ✅ DURUM (uygulandı — 21 Ekim 2026)
+>
+> Token `~/.config/hermes-secrets/github-yourkiosk.token` ile kurulum yapıldı:
+>
+> | Ayar | Sonuç |
+> |---|---|
+> | Depo görünürlüğü | **public** (aşağıdaki nota bakın) |
+> | Branch protection (`main`) | ✅ PR zorunlu, force-push ❌, silme ❌, doğrusal geçmiş ✅, `enforce_admins` ✅ |
+> | Zorunlu durum kontrolü | ⏳ **henüz eklenmedi** — i5 ilk kez çalıştıktan sonra eklenecek |
+> | Secret scanning + push protection | ✅ açık (public depoda ücretsiz) |
+> | Dependabot alerts + security updates | ✅ açık |
+> | Etiketler | ✅ `guvenlik/onay`, `guvenlik/sorun`, `karar/verildi`, `duzeltme/gerekli` |
+> | Yazma yolu | ✅ `yaz.py` gerçek durum yazdı (`guvenlik/inceleme=success`, HTTP 201, API'den doğrulandı) |
+>
+> **Neden public?** GitHub, **private** depolarda branch protection ve ruleset'leri ücretsiz hesapta
+> **kapalı** tutuyor (`403: Upgrade to GitHub Pro or make this repository public`). Secret scanning +
+> push protection de private depoda ücretli. Public yapınca üçü de ücretsiz açıldı. Proje zaten
+> GPL-3.0 açık kaynak hedefiyle yazıldı ve depoda sır/cihaz verisi yok (tarandı: yalnız belge
+> örnekleri). **Geri almak isterseniz:** Settings → General → Danger Zone → *Change visibility* →
+> Private (o anda protection ve secret scanning kapanır).
+>
+> **Bilinmesi gereken:** commit yazarı e-postanız (`hakkihelyanwe@gmail.com`) public geçmişte görünür.
+> İsterseniz geçmiş yeniden yazılabilir (`git filter-repo` + force-push) — bu tüm SHA'ları değiştirir,
+> bilinçli karar gerektirir.
+
+
 Branch protection ve iş akışı etiketleri **API** ister; deploy key yalnız git taşımasına yarar.
 İki yol var — ikisi de geçerli, birincisi daha az tıklama.
 
@@ -73,6 +99,8 @@ Token'ı **depoya, commit'e, günlüğe yazmam**; iş bitince `shred -u` ile sil
 ## Yol B — Kendiniz yapın (arayüzden, tıklama tıklama)
 
 ### Branch protection
+
+> Not: **private** depoda bu ekran "Upgrade to GitHub Pro" der; public depoda açıktır.
 
 1. `https://github.com/hakkisabah/yourkiosk` → **Settings** (depo sekmesi, profil değil)
 2. Sol menü → **Branches** → *Branch protection rules* → **Add branch protection rule**
