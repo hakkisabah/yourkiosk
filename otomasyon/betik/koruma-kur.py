@@ -23,6 +23,8 @@ import urllib.request
 from pathlib import Path
 
 TABAN = "https://api.github.com"
+#: Tanınan durum kontrolleri (yazım hatasını yakalamak için). Yeni bir makine eklerseniz buraya da ekleyin.
+BILINEN_KONTROLLER = {"guvenlik/inceleme", "guvenlik/karar"}
 ETIKETLER = [
     ("guvenlik/onay", "0e8a16", "i5 incelemesi temiz"),
     ("guvenlik/sorun", "b60205", "i5 güvenlik sorunu buldu"),
@@ -202,19 +204,30 @@ def main() -> int:
         print("\n(KURU — uygulamak için --uygula)")
         return 0
 
-    # FREN: hiç üretilmemiş bir kontrolü zorunlu kılmak TÜM PR'ları kilitler
+    # FREN (yazım hatası): tanınmayan kontrol adı → hiçbir makine yazmaz, PR'lar kilitlenir
     if kontrol_listesi and not a.zorla:
-        kanit = kontrol_kanitlari(a, token)
-        eksik = [k for k in kontrol_listesi if kanit.get(k, 0) == 0]
-        if eksik:
-            print("DURDURULDU: şu kontrol(ler) son 10 commit'te HİÇ üretilmemiş: " + ", ".join(eksik))
-            print("  Zorunlu kılınırsa, o kontrolü yazan makine çalışana kadar HİÇBİR PR birleştirilemez.")
-            print("  Sıra: ilgili makinede (i5 → guvenlik/inceleme, i3 → guvenlik/karar) cron çalışsın,")
-            print("        bir PR'ı inceleyip durumu yazsın; sonra bu komut.")
-            print("  Kontrol: python3 otomasyon/betik/durum.py")
+        bilinmeyen = [k for k in kontrol_listesi if k not in BILINEN_KONTROLLER]
+        if bilinmeyen:
+            print("DURDURULDU: tanınmayan kontrol adı: " + ", ".join(bilinmeyen))
+            print("  Bu adı hiçbir makine yazmıyor → zorunlu kılınırsa HİÇBİR PR birleşemez.")
+            print("  Bilinenler: " + ", ".join(sorted(BILINEN_KONTROLLER)))
             print("  Bilerek yapıyorsanız: --zorla")
             return 7
-        print(f"[fren] kanıt var: " + ", ".join(f"{k}×{kanit[k]}" for k in kontrol_listesi))
+
+        # BİLGİ: kanıt taraması yalnız uyarıdır. (Squash-merge'de durumlar dal commit'lerinde kalır,
+        # main geçmişine girmez → "kanıt yok" normaldir; engellemek yanlış olur.)
+        kanit = kontrol_kanitlari(a, token)
+        if kanit:
+            print("[bilgi] son 10 main commit'inde görülen kontroller: "
+                  + ", ".join(f"{k}×{v}" for k, v in sorted(kanit.items())))
+        else:
+            print("[bilgi] main geçmişinde durum kontrolü görünmüyor (squash-merge'de normal)")
+        for k in kontrol_listesi:
+            if kanit.get(k, 0) == 0:
+                print(f"[uyarı] '{k}' main geçmişinde görülmedi → ilgili makine (i5/i3) henüz bu commit'te"
+                      " yazmamış olabilir; ilk PR'lar o kontrol yazılana kadar bekletici olur.")
+                print("        Kontrol: python3 otomasyon/betik/durum.py · Geri almak:"
+                      " --uygula --kontrol guvenlik/inceleme")
 
     kod, govde = istek(f"/repos/{a.depo_adresi}", token)
     if kod != 200:
