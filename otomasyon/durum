@@ -1,0 +1,5 @@
+#!/bin/sh
+# Sarmalayıcı — `sh otomasyon/durum …` ya da `./otomasyon/durum …` (doğru yorumlayıcıyı seçer).
+# Python dosyasını doğrudan `sh` ile çalıştırmak "line 2: main: command not found" hatası verir.
+BETIK_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec python3 "$BETIK_DIR/betik/durum.py" "$@"

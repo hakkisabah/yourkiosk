@@ -70,11 +70,25 @@ bash otomasyon/kur.sh i5 --cron   # ayrıca görevi 'hermes cron create' ile olu
 Tek tek denetlemek isterseniz:
 
 ```bash
-python3 otomasyon/betik/ortam-kontrol.py --rol i5
+./otomasyon/kontrol --rol i5
 ```
 
 Çıktıda her satır ✓/✗ ve **çözüm** içerir (python sürümü, git/curl, depo, token + izinleri, sarmalayıcı
 betikler, `hermes` CLI, durum klasörü). Rol seçenekleri: `i5`, `i3`, `kiosk`, `dev`.
+
+### Komutlar (kısa yol)
+
+| Komut | Ne yapar |
+|---|---|
+| `./otomasyon/durum` | i5/i3 haberleşmesi: son commit'ler, açık PR'lar, kararlar |
+| `./otomasyon/kontrol --rol i3 --yazma-dene` | ortam + izin denetimi (Contents yazma dahil) |
+| `./otomasyon/koruma --durum` | branch protection'ın mevcut hâli (salt okuma) |
+| `./otomasyon/koruma --uygula --kontrol "guvenlik/inceleme,guvenlik/karar"` | korumayı uygula (yönetici token) |
+| `./otomasyon/topla --cikti /tmp/paket.json` | bağlam paketi (diff + tarama + PR'lar) |
+| `./otomasyon/yaz /tmp/karar.json [--birlestir]` | kararı GitHub'a yaz / birleştir |
+
+> Bu dosyalar `sh` ile de çalışır (`sh otomasyon/durum`). **Python dosyalarını** doğrudan
+> `sh otomasyon/betik/durum.py` diye çalıştırmayın — `line 2: main: command not found` alırsınız.
 
 ## 3. Betikleri dene (hiçbir şey yayınlamadan)
 
@@ -82,15 +96,15 @@ betikler, `hermes` CLI, durum klasörü). Rol seçenekleri: `i5`, `i3`, `kiosk`,
 cd ~/calisma_konumun/yourkiosk
 
 # a) monitor çıktısı: uzak HEAD sha'sı (tek satır, deterministik)
-python3 otomasyon/betik/topla.py --imza
+./otomasyon/topla --imza
 
 # b) bağlam paketi
-python3 otomasyon/betik/topla.py --cikti /tmp/paket.json
+./otomasyon/topla --cikti /tmp/paket.json
 python3 -c "import json;p=json.load(open('/tmp/paket.json'));print('değişiklik:',p['degisiklik'],'| commit:',len(p['commitler']),'| sır:',len(p['taramalar']['sirlar']))"
 
 # c) karar dosyası ŞABLONU (elle JSON yazmayın — bu komut her zaman geçerli dosya üretir)
-python3 otomasyon/betik/yaz.py --ornek
-python3 otomasyon/betik/yaz.py karar-ornek.json --kuru     # yayınlamadan göster
+./otomasyon/yaz --ornek
+./otomasyon/yaz karar-ornek.json --kuru     # yayınlamadan göster
 ```
 
 > **Not (kiosk cihazı):** `fetch_nobet.py` **cihaz** verisi üretir ve `makinebilgileri.json`
@@ -214,7 +228,7 @@ Aksi hâlde "değişiklik yok" deyip hiçbir şey yazmaz ve haberleşme başlama
 **Haberleşme başladı mı?** tek komut:
 
 ```bash
-python3 otomasyon/betik/durum.py
+./otomasyon/durum
 ```
 
 Son commit'lerin `guvenlik/inceleme` durumunu, açık PR'ları, etiketleri ve son i5/i3 kararını
@@ -243,13 +257,14 @@ Yeniden incelemek için: `rm ~/.local/state/yourkiosk-otomasyon/son-sha` (sonra 
 | Cron hiç koşmuyor | `hermes cron list` (job var mı, paused mı?), `hermes cron status`, `hermes cron doctor` |
 | Ajan hiç çalışmıyor ama job koşuyor | `monitor` çıktısı değişmemiş → normal (tasarım gereği) |
 | Yorum iki kez | Aynı commit'e iki kez karar yazılmış; son yazan geçerli |
+| `line 2: main: command not found` | `.py` dosyasını `sh` ile çalıştırdınız → `./otomasyon/durum` (sarmalayıcı) veya `python3 otomasyon/betik/durum.py` |
 
 ---
 
 ## 6b. Branch protection durumu ve doğru sıra
 
 ```bash
-python3 otomasyon/betik/koruma-kur.py --durum    # salt okuma: ne kurulu, son commit'te i5 var mı
+./otomasyon/koruma --durum    # salt okuma: ne kurulu, son commit'te i5 var mı
 ```
 
 Zorunlu kontrolü **erken** eklemek bütün PR'ları kilitler; bu yüzden komut kendini frenler:
@@ -270,7 +285,7 @@ Zorunlu kontrolü **erken** eklemek bütün PR'ları kilitler; bu yüzden komut 
 1. Ben bir düzeltme commit'i push ederim (artık `main`'e doğrudan değil, **dal + PR**).
 2. i5 ≤ 30 dk içinde PR yorumu + `guvenlik/inceleme` durumu yazar.
 3. Ondan sonra `guvenlik/inceleme` **zorunlu kontrol** olarak branch protection'a eklenir
-   (`python3 otomasyon/betik/koruma-kur.py --uygula --kontrol guvenlik/inceleme`).
+   (`./otomasyon/koruma --uygula --kontrol guvenlik/inceleme`).
    Şu an bilinçli olarak **ekli değil**: i5 hiç çalışmadan eklersem hiçbir PR birleşemez.
 4. i5 "sorun" derse i3 ≤ 1 saat içinde karar + plan yazar; ben düzeltirim.
 
@@ -300,10 +315,10 @@ Kurulum:
 
 ```bash
 # 1) iki zorunlu kontrol (yönetici token'ı olan makinede)
-python3 otomasyon/betik/koruma-kur.py --uygula --kontrol "guvenlik/inceleme,guvenlik/karar"
+./otomasyon/koruma --uygula --kontrol "guvenlik/inceleme,guvenlik/karar"
 
 # 2) i3 makinesinde: yazma izni + ilk koşu
-python3 otomasyon/betik/ortam-kontrol.py --rol i3 --yazma-dene   # ✓ yazma izni (Contents): HTTP 201
+./otomasyon/kontrol --rol i3 --yazma-dene   # ✓ yazma izni (Contents): HTTP 201
 bash otomasyon/kur.sh i3 --cron
 hermes cron run <job_id>
 ```
