@@ -117,6 +117,29 @@
         "cognito-idp:DeleteUserPoolClient"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "CloudFrontPanelYayini",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateDistribution",
+        "cloudfront:GetDistribution",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:UpdateDistribution",
+        "cloudfront:DeleteDistribution",
+        "cloudfront:ListDistributions",
+        "cloudfront:CreateOriginAccessControl",
+        "cloudfront:GetOriginAccessControl",
+        "cloudfront:ListOriginAccessControls",
+        "cloudfront:UpdateOriginAccessControl",
+        "cloudfront:DeleteOriginAccessControl",
+        "cloudfront:CreateInvalidation",
+        "cloudfront:GetInvalidation",
+        "cloudfront:ListInvalidations",
+        "cloudfront:ListCachePolicies",
+        "cloudfront:GetCachePolicy"
+      ],
+      "Resource": "*"
     }
   ]
 }

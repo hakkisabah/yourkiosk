@@ -14,14 +14,26 @@ if [ "$ROL" != "i5" ] && [ "$ROL" != "i3" ]; then
   exit 2
 fi
 KIP="kur"
+CRON_KALDIR=0
 for a in "$@"; do
   case "$a" in
-    --cron-kaldir) KIP="cron-kaldir" ;;
+    # --cron-kaldir EK bir işlemdir: servisi kurmayı ENGELLEMEZ (ilk sürümde engelliyordu)
+    --cron-kaldir) CRON_KALDIR=1 ;;
     --durum) KIP="durum" ;;
     --kaldir) KIP="kaldir" ;;
     --kuru) KIP="kuru" ;;
   esac
 done
+
+cron_kaldir() {
+  local id
+  id="$(hermes cron list 2>/dev/null | grep -B1 -E "Name:.*(i5|i3) [gG]uvenlik" | grep -oE '^[[:space:]]*[0-9a-f]{12}' | head -1 | tr -d ' ')"
+  if [ -n "$id" ]; then
+    hermes cron remove "$id" >/dev/null 2>&1 && echo "eski cron görevi silindi: $id"
+  else
+    echo "silinecek cron görevi yok (zaten temiz)"
+  fi
+}
 
 DEPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT_ADI="yourkiosk-nobetci.service"
@@ -63,14 +75,6 @@ case "$KIP" in
     rm -f "$UNIT_YOL"; systemctl --user daemon-reload
     echo "servis kaldırıldı: $UNIT_ADI"
     ;;
-  cron-kaldir)
-    ID="$(hermes cron list 2>/dev/null | grep -B1 -E "Name:.*(i5|i3) guvenlik" | grep -oE '^[[:space:]]*[0-9a-f]{12}' | head -1 | tr -d ' ')"
-    if [ -n "$ID" ]; then
-      hermes cron remove "$ID" && echo "eski cron görevi silindi: $ID"
-    else
-      echo "silinecek cron görevi bulunamadı (zaten temiz)"
-    fi
-    ;;
   kuru)
     echo "--- $UNIT_YOL ---"; unit_metni
     ;;
@@ -87,6 +91,6 @@ case "$KIP" in
     echo
     echo "canlı günlük: journalctl --user -u $UNIT_ADI -f"
     echo "             tail -f $HOME/.local/state/yourkiosk-otomasyon/nobetci-$ROL.log"
-    echo "cron'u kaldırmak için: $0 $ROL --cron-kaldir"
+    if [ "$CRON_KALDIR" -eq 1 ]; then cron_kaldir; else echo "cron'u kaldırmak için: $0 $ROL --cron-kaldir"; fi
     ;;
 esac
