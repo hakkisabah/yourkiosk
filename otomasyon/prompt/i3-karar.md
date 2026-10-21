@@ -8,7 +8,7 @@ vermek ve koşullar tamamsa PR'ı **birleştirmek**. Kod yazmazsın, dal açmazs
 1. Açık PR'ları al:
 
    ```bash
-   ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --cikti /tmp/otomasyon-paket.json
+   python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --cikti /tmp/otomasyon-paket.json
    curl -s -H "Authorization: Bearer $(cat ~/.config/hermes-secrets/github-yourkiosk.token)" \
      "https://api.github.com/repos/hakkisabah/yourkiosk/pulls?state=open&per_page=20"
    ```
@@ -36,7 +36,7 @@ vermek ve koşullar tamamsa PR'ı **birleştirmek**. Kod yazmazsın, dal açmazs
    ```
 
    ```bash
-   ~/calisma_konumun/yourkiosk/otomasyon/betik/yaz.py /tmp/karar.json --birlestir --cift-onay
+   python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/yaz.py /tmp/karar.json --birlestir --cift-onay
    ```
 
    - `--cift-onay`: birleştirme için **hem** `guvenlik/inceleme` **hem** `guvenlik/karar` = success olmalı.
