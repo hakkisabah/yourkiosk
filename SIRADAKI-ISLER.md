@@ -3,13 +3,27 @@
 Bu dosya, oturum aralarında kaybolmaması için **bekleyen işleri kök neden + kabul ölçütü** ile
 listeler. Her iş bitince "Durum" sütunu güncellenir.
 
-**Bugünkü durum (özet):** kiosk **353** test ✓ · web **108** test ✓ · panel **104** test ✓ ·
+**Bugünkü durum (özet):** kiosk **358** test ✓ · web **108** test ✓ · panel **104** test ✓ ·
 `vue-tsc` ve üç derleme temiz ✓. **İş 1 bitti** (kökteki iki neden + 10 yeni test, gerçek veriyle
 uçtan uca doğrulandı, `--geri-al` parmak izi birebir). **İş 3 bitti** (uzaktan komut: imza, beyaz
 liste, tek seferlik, hem Qt hem tarayıcı modu, 23 yeni test). Kalan: cihazda **canlı** doğrulamalar
 (İş 1 kabul ölçütü + İş 2 adımları) ve panel `komut.json` gösterimi (tasarım onayı bekliyor).
 
 ---
+
+## 21 Ekim (2) — kurulum sağlamlaştırma  ✅ (PR #5 açık)
+
+* **`fetch_nobet.py`**: temiz klonda ham traceback atıyordu → artık `--kontrol`, `--cihaz-id`
+  (kimlik dosyasını oluşturur), beklenen hatalar için çözüm + çıkış kodu, Python sürüm kontrolü.
+  **Temiz klon + venv yok** ortamda uçtan uca doğrulandı (16 gün / 404 kayıt / 4 dosya).
+* **`otomasyon/kur.sh`** (yeni): tek komut → ortam denetimi + `~/.hermes/scripts` sarmalayıcıları +
+  cron komutu (`--cron` ile görev oluşturma). i5 ve i3 için ayrı ayrı denendi.
+* **`otomasyon/betik/ortam-kontrol.py`** (yeni): `--rol i5|i3|kiosk|dev`; her ✗ için çözüm.
+* **`topla.py`**: Python 3.8 uyumu; sarmalayıcılar `--depo` mutlak yolu geçiriyor.
+* **i5 akışı uçtan uca**: PR #5'te `guvenlik/inceleme=success` + yorum + `guvenlik/onay` etiketi
+  (API'den doğrulandı). **Dependabot: 0 açık uyarı.**
+* **Blokaj**: PR #5'in API'den birleştirilmesi `Contents: Read and write` istiyor →
+  arayüzden "Squash and merge" ya da token'a bu izin.
 
 ## 21 Ekim — temiz klon, cron, GitHub koruması  ✅ (1 blokaj)
 
