@@ -43,6 +43,12 @@ cat > "$HOME/.hermes/scripts/otomasyon-topla.sh" <<EOF
 exec python3 "$BETIK/topla.py" --depo "$DEPO" --cikti /tmp/otomasyon-paket.json
 EOF
 chmod +x "$HOME/.hermes/scripts/i5-imza.sh" "$HOME/.hermes/scripts/i3-durum.sh" "$HOME/.hermes/scripts/otomasyon-topla.sh"
+# İLK KOŞU: son nokta dosyasını sıfırla → i5 son commit'i de inceler.
+# (Aksi hâlde "değişiklik yok" deyip hiç yorum/durum yazmaz; kullanıcı "konuşmadı" sanır.)
+mkdir -p "$HOME/.local/state/yourkiosk-otomasyon"
+rm -f "$HOME/.local/state/yourkiosk-otomasyon/son-sha"
+echo "ilk koşu son commit'i inceleyecek (son nokta sıfırlandı)"
+
 echo "sarmalayıcılar kuruldu: $HOME/.hermes/scripts/{i5-imza,i3-durum,otomasyon-topla}.sh"
 
 # 3) izleme betiği tek satır üretiyor mu? (cron monitor için kritik)

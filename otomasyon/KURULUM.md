@@ -199,6 +199,10 @@ kapanırsa çalışmaz. Buna gerek yok: gece commit atmıyorsanız i5'in koşmas
 
 ## 5. Durum ve günlükler
 
+**İlk koşu:** `kur.sh` son nokta dosyasını (`~/.local/state/yourkiosk-otomasyon/son-sha`)
+sıfırlar; böylece i5 ilk turda **son commit'i de** inceler ve `guvenlik/inceleme` durumunu yazar.
+Aksi hâlde "değişiklik yok" deyip hiçbir şey yazmaz ve haberleşme başlamamış görünür.
+
 **Haberleşme başladı mı?** tek komut:
 
 ```bash
@@ -233,6 +237,25 @@ Yeniden incelemek için: `rm ~/.local/state/yourkiosk-otomasyon/son-sha` (sonra 
 | Yorum iki kez | Aynı commit'e iki kez karar yazılmış; son yazan geçerli |
 
 ---
+
+## 6b. Branch protection durumu ve doğru sıra
+
+```bash
+python3 otomasyon/betik/koruma-kur.py --durum    # salt okuma: ne kurulu, son commit'te i5 var mı
+```
+
+Zorunlu kontrolü **erken** eklemek bütün PR'ları kilitler; bu yüzden komut kendini frenler:
+
+* son commit'te `guvenlik/inceleme` **yoksa** → `DURDURULDU … --zorla` (çıkış 7),
+* varsa → `--uygula --kontrol guvenlik/inceleme` güvenle çalışır.
+
+**403 alırsanız** (bu komut yönetici yetkisi ister):
+
+1. Token'da `Administration: Read and write` yok,
+2. ya da komut **i5/i3** makinesinde çalışıyor (o token'larda Administration bilinçli olarak YOK —
+   bu komut yalnız geliştirici makinesinde çalışır),
+3. ya da depo private (ücretsiz hesapta protection kapalı),
+4. ya da `GH_TOKEN`/`GITHUB_TOKEN` ortam değişkeni başka bir token'a işaret ediyor.
 
 ## 7. İlk gerçek koşu
 
