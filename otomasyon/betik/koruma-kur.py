@@ -53,11 +53,69 @@ def istek(yol: str, token: str, yontem: str = "GET", govde: dict | None = None) 
     )
     try:
         with urllib.request.urlopen(istek_nesnesi, timeout=25) as yanit:
-            return yanit.status, yanit.read().decode("utf-8", "ignore")[:400]
+            return yanit.status, yanit.read().decode("utf-8", "ignore")
     except urllib.error.HTTPError as hata:
-        return hata.code, hata.read().decode("utf-8", "ignore")[:400]
+        return hata.code, hata.read().decode("utf-8", "ignore")
     except (urllib.error.URLError, TimeoutError) as hata:
         return 0, str(hata)[:200]
+
+
+def _json(metin: object) -> dict:
+    """`istek()` metin döndürür; güvenli JSON çözümü."""
+    if isinstance(metin, dict):
+        return metin
+    try:
+        veri = json.loads(str(metin or ""))
+    except ValueError:
+        return {}
+    return veri if isinstance(veri, dict) else {}
+
+
+def son_commit_durumlari(a, token: str) -> dict:
+    """Son commit'te `guvenlik/inceleme` durumu var mı? (fren ve --durum için)"""
+    kod, ham = istek(f"/repos/{a.depo_adresi}/commits/{a.dal}", token)
+    veri = _json(ham)
+    sha = str(veri.get("sha", ""))
+    if kod != 200 or not sha:
+        return {"var": None, "sha": "", "durumlar": [], "hata": f"HTTP {kod}"}
+    kod, ham2 = istek(f"/repos/{a.depo_adresi}/commits/{sha}/status", token)
+    kontroller = _json(ham2).get("statuses", [])
+    aranan = [k for k in kontroller if k.get("context") == "guvenlik/inceleme"]
+    return {"var": bool(aranan), "sha": sha, "durumlar": kontroller, "kontrol": aranan}
+
+
+def mevcut_durum(a, token: str) -> int:
+    """`--durum`: hiçbir şeyi değiştirmeden mevcut koruma durumunu yazar (salt okuma)."""
+    print()
+    print("=== MEVCUT DURUM (salt okuma) ===")
+    kod, ham = istek(f"/repos/{a.depo_adresi}/branches/{a.dal}/protection", token)
+    veri = _json(ham)
+    if kod == 200 and veri:
+        pr = veri.get("required_pull_request_reviews") or {}
+        kontroller = (veri.get("required_status_checks") or {}).get("contexts") or []
+        print(f"  koruma          : AKTİF")
+        print(f"  PR zorunlu      : {bool(pr)} (onay: {pr.get('required_approving_review_count', 0)})")
+        print(f"  zorunlu kontrol : {kontroller or '(yok)'}")
+        print(f"  force-push      : {veri.get('allow_force_pushes', {}).get('enabled')}")
+        print(f"  silme           : {veri.get('allow_deletions', {}).get('enabled')}")
+        print(f"  enforce_admins  : {veri.get('enforce_admins', {}).get('enabled')}")
+    elif kod == 404:
+        print("  koruma          : YOK (henüz kurulmamış)")
+    else:
+        print(f"  koruma okunamadı: HTTP {kod} — token'da 'Administration: Read' yok olabilir")
+        return 6
+
+    son = son_commit_durumlari(a, token)
+    if son.get("var") is None:
+        print(f"  son commit      : okunamadı ({son.get('hata')})")
+        return 6
+    print(f"  son commit      : {son['sha'][:12]}")
+    if son["var"]:
+        k = son["kontrol"][0]
+        print(f"  i5 durumu       : {k.get('state')} · {k.get('updated_at', '')[:16]} ✓ (zorunlu kılınabilir)")
+    else:
+        print("  i5 durumu       : YOK → bu commit'te zorunlu kontrol eklerseniz PR'lar kilitlenir")
+    return 0
 
 
 def main() -> int:
@@ -67,6 +125,9 @@ def main() -> int:
     ap.add_argument("--token-dosya", default=str(Path.home() / ".config/hermes-secrets/github-yourkiosk.token"))
     ap.add_argument("--onay", type=int, default=0, help="zorunlu onay sayısı (tek kişilik depoda 0)")
     ap.add_argument("--kontrol", default="guvenlik/inceleme", help="zorunlu durum kontrolü adı (boş: yok)")
+    ap.add_argument("--durum", action="store_true", help="yalnız OKU: mevcut koruma ve zorunlu kontroller")
+    ap.add_argument("--zorla", action="store_true",
+                    help="zorunlu kontrolü, son commit'te o kontrol YOKKEN de ekle (PR'lar kilitlenebilir)")
     ap.add_argument("--kuru", action="store_true", help="yalnız göster")
     ap.add_argument("--uygula", action="store_true", help="gerçekten uygula")
     a = ap.parse_args()
@@ -90,30 +151,61 @@ def main() -> int:
     }
 
     print(f"depo    : {a.depo_adresi}  dal: {a.dal}")
+    if os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"):
+        print("token   : ⚠ ORTAM DEĞİŞKENİ (GH_TOKEN/GITHUB_TOKEN) kullanılıyor — dosya değil!")
+        print("          bu değişken başka bir token'a işaret ediyorsa 403 alırsınız; kaldırın: unset GH_TOKEN")
+    else:
+        print(f"token   : {a.token_dosya}")
     print(f"koruma  : PR zorunlu={koruma['required_pull_request_reviews'] is not None}, "
           f"onay={a.onay}, zorunlu kontrol={kontrol_listesi or 'yok'}, enforce_admins=True, "
           f"force-push=False, silme=False, doğrusal geçmiş=True")
     print(f"etiketler: {', '.join(e[0] for e in ETIKETLER)}")
     print("dependabot uyarıları: açılacak")
 
-    if a.kuru or not a.uygula:
-        print("\n(KURU — uygulamak için --uygula)")
-        return 0
-
     token = token_oku(a.token_dosya)
     if not token:
         print("token yok: --token-dosya ya da GH_TOKEN", file=sys.stderr)
         return 3
 
+    if a.durum:
+        return mevcut_durum(a, token)
+
+    if a.kuru or not a.uygula:
+        print("\n(KURU — uygulamak için --uygula)")
+        return 0
+
+    # FREN: son commit'te kontrol yoksa zorunlu kılmak TÜM PR'ları kilitler
+    if kontrol_listesi and not a.zorla:
+        son = son_commit_durumlari(a, token)
+        if not son.get("var"):
+            print("DURDURULDU: bu commit'te `%s` durumu YOK." % kontrol_listesi[0])
+            print("  Zorunlu kontrol eklerseniz, i5 o kontrolü yazana kadar HİÇBİR PR birleştirilemez.")
+            print("  Sıra: önce i5 makinesinde cron çalışsın (bir commit'i incelesin), sonra bu komut.")
+            print("  Kontrol: python3 otomasyon/betik/durum.py")
+            print("  Bilerek yapıyorsanız: --zorla")
+            return 7
+
     kod, govde = istek(f"/repos/{a.depo_adresi}", token)
     if kod != 200:
-        print(f"depo doğrulanamadı: HTTP {kod} {govde}", file=sys.stderr)
+        print(f"depo doğrulanamadı: HTTP {kod} {govde[:300]}", file=sys.stderr)
         return 4
     print("[1/4] depo erişimi OK")
 
     kod, govde = istek(f"/repos/{a.depo_adresi}/branches/{a.dal}/protection", token, "PUT", koruma)
     if kod not in (200, 201):
-        print(f"[2/4] branch protection HATA: HTTP {kod} {govde}", file=sys.stderr)
+        print(f"[2/4] branch protection HATA: HTTP {kod} {govde[:300]}", file=sys.stderr)
+        if kod == 403:
+            print("", file=sys.stderr)
+            print("  NEDEN 403? Bu işlem YÖNETİCİ yetkisi ister. Kontrol listesi:", file=sys.stderr)
+            print("   1) Token'da 'Administration: Read and write' var mı?", file=sys.stderr)
+            print("      github.com/settings/personal-access-tokens → token → Edit → Repository permissions", file=sys.stderr)
+            print("   2) Komut YÖNETİCİ makinesinde mi çalışıyor? i5/i3 token'larında Administration", file=sys.stderr)
+            print("      BİLİNÇLİ olarak yoktur → bu komut yalnız geliştirici makinesinde çalışır.", file=sys.stderr)
+            print("   3) Depo PRIVATE ise ücretsiz hesapta branch protection kapalıdır", file=sys.stderr)
+            print("      ('Upgrade to GitHub Pro' der) → depo public olmalı ya da Pro gerekir.", file=sys.stderr)
+            print("   4) GH_TOKEN/GITHUB_TOKEN ortam değişkeni başka (zayıf) bir token'a işaret ediyor olabilir.", file=sys.stderr)
+            print("   Arayüzden yapmak isterseniz: Settings → Branches → 'main' →", file=sys.stderr)
+            print("     Require status checks → guvenlik/inceleme (i5 bir kez yazdıktan sonra)", file=sys.stderr)
         return 5
     print("[2/4] branch protection uygulandı")
 
