@@ -64,15 +64,68 @@ Kurulum bitince bu anahtarı **iptal edeceğiz** (panel Cognito ile geçici anah
 
 ---
 
+## 2b. S3 maliyet optimizasyonu — uygulanan ayarlar ve beklenti
+
+İşlemlere başlamadan **önce** kovanın maliyet ayarları kuruldu (sıra: kova → public block → sürümleme →
+yaşam döngüsü → CORS). Uygulanan üç kural:
+
+| Kural | Ayar | Neyi engeller |
+|---|---|---|
+| `iptal-mpu` | 7 günde yarım kalan çok parçalı yükleme iptali | Görünmeyen, silinemeyen depolama şişmesi |
+| `eski-surumler` | Eski sürümler 30 günde silinir, **son 3 sürüm saklanır** | Sürümleme açıkken sınırsız büyüme |
+| `yayin-gorselleri` | `kiosk/yayin-gorseller/` 45 günde silinir (eski sürümler 15 gün) | Panelin silmediği artık görseller |
+
+Ayrıca: **public erişim tamamen kapalı** (4 ayar `true`) → yanlışlıkla herkese açık nesne olmaz; erişim
+yalnız Cognito rolüyle ve `kiosk/*` ön ekiyle.
+
+**Bilinçli olarak YAPILMAYANLAR (gerekçeli):**
+
+| Yapılmadı | Neden |
+|---|---|
+| Intelligent-Tiering | Nesne sayısı az (yüzler); izleme ücreti (1000 nesne başına $0,0025) tasarrufu aşar |
+| Standard-IA / Glacier | Kiosk verisi **sık okunuyor**; IA'da geri getirme ücreti + 30 gün alt sınır zarar ettirir |
+| Sürümlemeyi kapatmak | Yedekleme değeri yüksek; yerine ucuz çözüm: eski sürümleri 30 günde sil |
+| CloudFront | Şu an cihaz sayısı az; 1 TB/ay ücretsiz kota ilk 12 ay. Cihaz sayısı artınca açılacak (panel yayını için zaten gerekli) |
+
+**Beklenen aylık maliyet (3 cihaz, günde ~20 veri güncellemesi, ~10 görsel):**
+
+| Kalem | Hesap | Aylık |
+|---|---|---|
+| Depolama | ~0,5 GB (sürümler dahil) × $0,0245/GB | ≈ $0,01 |
+| GET isteği | `lastupdate.json` 20 sn'de bir → 3 cihaz ≈ 390 bin istek × $0,0004/1000 | ≈ $0,16 |
+| PUT isteği | ~600 yazma/ay | ≈ $0,003 |
+| Dışa aktarım | ~200 MB/ay × $0,09/GB | ≈ $0,02 |
+| **Toplam** | | **≈ $0,20/ay** |
+
+En büyük kalem **istek sayısı**: cihaz yerel önbellek kullandığı için yalnız `lastupdate.json` yoklanıyor
+(42 bayt). Yoklama sıklığı `kiosk/ayarlar.json` → `TETIK_ARALIK_SN` ile düşürülebilir.
+
+---
+
 ## 3. Komut günlüğü
 
 > Her adım buraya **çalıştırılan komut + sonuç** olarak eklenecek.
 
 | Tarih | Adım | Komut | Sonuç |
 |---|---|---|---|
-| 21.10 | Politika doğrulama | `./panel/infra/politika_dogrula.py panel/infra/kurulum-politikasi.json` | ✓ 6 ifade |
-| 21.10 | İlk denemede bulunan hatalar | IAM konsolu | `s3:HeadObject` yok · `s3:*BucketLifecycleConfiguration` yok (doğrusu `s3:Get/PutLifecycleConfiguration`) · `HESAP_ID` ARN'de geçersiz · `_aciklama` alanı IAM'de geçersiz → hepsi düzeltildi |
-| — | Anahtar bekleniyor | — | — |
+| 21.10 | Politika doğrulama | `./panel/infra/politika_dogrula.py …` | ✓ 6 ifade |
+| 21.10 | İlk denemede bulunan hatalar | IAM konsolu | `s3:HeadObject` yok · `s3:*BucketLifecycleConfiguration` yok · `HESAP_ID` geçersiz · `_aciklama` geçersiz → düzeltildi |
+| 21.10 | AWS CLI v2 (sudo'suz) | `./aws/install -i ~/.local/aws-cli -b ~/.local/bin` | ✓ aws-cli/2.38.3 (`zipfile` ile açıldı; `chmod +x`) |
+| 21.10 | Kimlik | `aws sts get-caller-identity` | ✓ hesap **321255536632**, kullanıcı `yourkiosk-kurulum` |
+| 21.10 | Kova | `aws s3api create-bucket --bucket yourkiosk-veri --create-bucket-configuration LocationConstraint=eu-central-1` | ✓ `arn:aws:s3:::yourkiosk-veri` |
+| 21.10 | Public erişim | `put-public-access-block` (4 ayar `true`) | ✓ |
+| 21.10 | Sürümleme | `put-bucket-versioning Status=Enabled` | ✓ |
+| 21.10 | Yaşam döngüsü | `put-bucket-lifecycle-configuration file://panel/infra/s3-lifecycle.json` | ✓ 3 kural |
+| 21.10 | CORS | `put-bucket-cors file://panel/infra/s3-cors.json` (`{"CORSRules": […]}`, düz dizi DEĞİL) | ✓ localhost:5173/4173 |
+| 21.10 | Şifreleme/ACL | `put-bucket-encryption`, `put-bucket-ownership-controls` | ⚠ `AccessDenied` → **gerek yok**: yeni kovalarda AWS varsayılanı SSE-S3 + BucketOwnerEnforced |
+| 21.10 | Panel rolü | `iam create-role yourkiosk-panel-s3-v2` (aud = identity pool) + `put-role-policy` (iam-policy.json) | ✓ |
+| 21.10 | Identity pool | `cognito-identity create-identity-pool --cognito-identity-providers …` + `set-identity-pool-roles` | ✓ `eu-central-1:b787f617-…` |
+| 21.10 | User pool | `cognito-idp create-user-pool` (e-posta girişi, admin-only, 12 karakter parola) | ✓ `eu-central-1_y4Zlp17ZR` |
+| 21.10 | App client | `create-user-pool-client --no-generate-secret` + USER_PASSWORD_AUTH | ✓ `6n7eo6o0acc1fbg6vjr00sbj94` |
+| 21.10 | Yönetici | `admin-create-user contact@yourkiosk.io --message-action SUPPRESS` + `admin-set-user-password --permanent` | ✓ (parola: `~/.config/hermes-secrets/cognito-panel.parola`, 0600) |
+| 21.10 | **Uçtan uca doğrulama** | InitiateAuth → GetId → GetCredentialsForIdentity → S3 | ✓ giriş · geçici anahtar · `kiosk/*` yazma/okuma/silme · **ön ek dışı yazma reddedildi** |
+| 21.10 | Panel | `.env.local` + `npm test` | ✓ 104/104 |
+
 
 ---
 
@@ -93,3 +146,29 @@ aws cognito-idp delete-user-pool --user-pool-id …
 - S3: depolama + istek ücreti (birkaç GB veri için aylık ≈ 0,1–1 USD).
 - Cognito: 10.000 MAU/ay ücretsiz — tek yönetici kullanıcı için **0**.
 - CloudFront (opsiyonel): 1 TB/ay ücretsiz kota (ilk 12 ay).
+
+---
+
+## 6. Kurulan kaynaklar (özet)
+
+| Kaynak | Değer |
+|---|---|
+| Kova | `yourkiosk-veri` (eu-central-1, sürümleme açık, 3 yaşam döngüsü kuralı) |
+| Panel rolü | `arn:aws:iam::321255536632:role/yourkiosk-panel-s3-v2` (yalnız `kiosk/*`, GetObject/PutObject/DeleteObject) |
+| Identity pool | `eu-central-1:b787f617-a4a0-4169-bb0e-28892d5f6481` |
+| User pool | `eu-central-1_y4Zlp17ZR` (e-posta girişi, yalnız yönetici hesap oluşturabilir) |
+| App client | `6n7eo6o0acc1fbg6vjr00sbj94` (secret yok — SPA) |
+| Yönetici | `contact@yourkiosk.io` — parola `~/.config/hermes-secrets/cognito-panel.parola` (0600) |
+
+### Temizlenecek artıklar (kurulum sırasında oluştu)
+
+İlk denemelerde oluşan ve **kullanılmayan** kaynaklar (silme izinleri politikaya eklendi, yeniden
+denenecek): `yourkiosk-panel` rolü, `yourkiosk-panel-s3` rolü, `eu-central-1:67a2b8af-…` identity pool.
+
+```bash
+export PATH="$HOME/.local/bin:$PATH" AWS_DEFAULT_REGION=eu-central-1
+export AWS_SHARED_CREDENTIALS_FILE="$HOME/.config/hermes-secrets/aws-yourkiosk.credentials"
+aws cognito-identity delete-identity-pool --identity-pool-id eu-central-1:67a2b8af-750d-47d9-b81d-a74df364929a
+aws iam delete-role --role-name yourkiosk-panel-s3     # önce delete-role-policy
+aws iam delete-role --role-name yourkiosk-panel        # önce delete-role-policy
+```

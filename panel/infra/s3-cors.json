@@ -1,17 +1,14 @@
-[
-  {
-    "_aciklama": [
-      "Kiosk veri kovasının CORS ayarı (AWS CLI):",
-      "  aws s3api put-bucket-cors --bucket KOVA_ADI --cors-configuration file://infra/s3-cors.json",
-      "AllowedOrigins: panelin yayınlandığı adres(ler). Panel yerelde çalışırken http://localhost:5173 de eklenmelidir.",
-      "Yalnızca gereken yöntemler/başlıklar verilir; kovayı genel erişime AÇMAYIN (block public access açık kalsın)."
-    ]
-  },
-  {
-    "AllowedHeaders": ["*"],
-    "AllowedMethods": ["GET", "HEAD", "PUT"],
-    "AllowedOrigins": ["https://panel.example.com", "http://localhost:5173"],
-    "ExposeHeaders": ["ETag", "Last-Modified", "Content-Length"],
-    "MaxAgeSeconds": 3000
-  }
-]
+{
+  "CORSRules": [
+    {
+      "AllowedHeaders": ["*"],
+      "AllowedMethods": ["GET", "HEAD", "PUT"],
+      "AllowedOrigins": [
+        "http://localhost:5173",
+        "http://localhost:4173"
+      ],
+      "ExposeHeaders": ["ETag", "Last-Modified", "Content-Length"],
+      "MaxAgeSeconds": 3000
+    }
+  ]
+}

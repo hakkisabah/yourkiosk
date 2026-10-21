@@ -37,7 +37,11 @@
         "s3:GetBucketWebsite",
         "s3:PutBucketWebsite",
         "s3:DeleteBucketWebsite",
-        "s3:GetBucketAcl"
+        "s3:GetBucketAcl",
+        "s3:GetEncryptionConfiguration",
+        "s3:PutEncryptionConfiguration",
+        "s3:GetBucketOwnershipControls",
+        "s3:PutBucketOwnershipControls"
       ],
       "Resource": [
         "arn:aws:s3:::yourkiosk-*"
@@ -76,7 +80,12 @@
         "iam:PutRolePolicy",
         "iam:AttachRolePolicy",
         "iam:ListAttachedRolePolicies",
-        "iam:PassRole"
+        "iam:PassRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:DeleteRole"
       ],
       "Resource": [
         "arn:aws:iam::*:user/yourkiosk-*",
@@ -99,7 +108,13 @@
         "cognito-idp:DescribeUserPoolClient",
         "cognito-idp:AdminCreateUser",
         "cognito-idp:AdminSetUserPassword",
-        "cognito-idp:ListUserPools"
+        "cognito-idp:ListUserPools",
+        "cognito-identity:UpdateIdentityPool",
+        "cognito-identity:DeleteIdentityPool",
+        "cognito-idp:UpdateUserPoolClient",
+        "cognito-idp:AdminGetUser",
+        "cognito-idp:DeleteUserPool",
+        "cognito-idp:DeleteUserPoolClient"
       ],
       "Resource": "*"
     }
