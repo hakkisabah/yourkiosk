@@ -199,6 +199,15 @@ kapanırsa çalışmaz. Buna gerek yok: gece commit atmıyorsanız i5'in koşmas
 
 ## 5. Durum ve günlükler
 
+**Haberleşme başladı mı?** tek komut:
+
+```bash
+python3 otomasyon/betik/durum.py
+```
+
+Son commit'lerin `guvenlik/inceleme` durumunu, açık PR'ları, etiketleri ve son i5/i3 kararını
+(yorumdaki JSON bloğu) gösterir; son commit incelenmemişse "haberleşme henüz başlamadı" der.
+
 ```bash
 ~/.local/state/yourkiosk-otomasyon/son-sha    # en son incelenen commit
 hermes cron runs <job_id>                     # son koşular + çıktı
