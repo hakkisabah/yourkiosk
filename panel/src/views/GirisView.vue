@@ -2,9 +2,12 @@
 /** Giriş ekranı — Cognito modunda e-posta+şifre, Lambda modunda yalnızca şifre. */
 import { computed, ref } from 'vue'
 
+import { useRouter } from 'vue-router'
+
 import { useBaglanti } from '@/stores/baglanti'
 
 const baglanti = useBaglanti()
+const yonlendirici = useRouter()
 const eposta = ref('')
 const sifre = ref('')
 const sifreGorunur = ref(false)
@@ -22,7 +25,10 @@ async function gonder(): Promise<void> {
     yerelHata.value = 'Şifre gerekli.'
     return
   }
-  await baglanti.giris(eposta.value, sifre.value)
+  const basarili = await baglanti.giris(eposta.value, sifre.value)
+  // Giriş sonrası yönlendirme ŞART: guard yalnız gezinmede çalışır. Yönlendirme olmadan
+  // oturum açılsa bile kullanıcı giriş ekranında kalıyordu (sayfa yenilenince düzeliyordu).
+  if (basarili) await yonlendirici.replace({ name: 'durum' })
 }
 </script>
 

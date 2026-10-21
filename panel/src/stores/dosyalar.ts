@@ -5,6 +5,7 @@
 import { defineStore } from 'pinia'
 
 import { DOSYALAR } from '@/aws/config'
+import { okumaPlani } from '@/domain/dosyaSecimi'
 import type { VeriKaynagi } from '@/aws/veriKaynagi'
 import type { KapsamBelgesi } from '@/domain/kapsam'
 import type { SistemVerisi } from '@/domain/veri'
@@ -92,15 +93,30 @@ export const useDosyalar = defineStore('dosyalar', {
       this.sonUyari = null
       this.sonBasari = null
       try {
-        await Promise.all([
-          this.dosyaYukle<AyarBelgesi>('ayarlar', DOSYALAR.ayarlar),
-          this.dosyaYukle<KapsamBelgesi>('kapsam', DOSYALAR.kapsam),
-          this.dosyaYukle<SistemVerisi>('sistem', DOSYALAR.sistem),
-          this.dosyaYukle<Record<string, unknown>>('sablon', DOSYALAR.sablon),
-          this.dosyaYukle<Record<string, unknown>>('match', DOSYALAR.match),
-          this.dosyaYukle<Record<string, unknown>>('lastupdate', DOSYALAR.lastupdate),
-          this.dosyaYukle<Record<string, unknown>>('makine', DOSYALAR.makine),
-        ])
+        // TEK liste isteği: kovada olmayan dosya için GET atmayız (boş kovada 7 × 404 üretiyordu).
+        // Liste alınamazsa eski davranışa düşeriz (tek tek dene).
+        let anahtarlar: string[] | null = null
+        try {
+          anahtarlar = (await baglan.kaynak.liste()).map((e) => e.anahtar)
+        } catch {
+          anahtarlar = null
+        }
+        const plan = new Map(okumaPlani(anahtarlar, baglan.baglanti.onEk).map((k) => [k.ad, k.varMi]))
+        const adlar = Object.entries(DOSYALAR) as Array<[keyof Durum, string]>
+        await Promise.all(
+          adlar.map(async ([anahtar, ad]) => {
+            if (plan.get(ad) === false) {
+              const hedef = this[anahtar] as unknown as DosyaDurumu<unknown>
+              hedef.veri = null
+              hedef.etag = undefined
+              hedef.boyut = undefined
+              hedef.sonDegisiklik = undefined
+              hedef.yuklendi = true
+              return
+            }
+            await this.dosyaYukle(anahtar, ad)
+          }),
+        )
       } catch (hata) {
         this.sonUyari = baglan.baglanti.hataAyikla(hata)
       } finally {

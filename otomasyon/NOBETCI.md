@@ -80,7 +80,7 @@ journalctl --user -u yourkiosk-nobetci -f
 | "iş yok" ama PR bekliyor | `./otomasyon/nobetci --rol i5 --bir-kez --kuru` → iş listesi |
 | Oturum açılıyor ama durum yazılmıyor | `nobetci-i5.log` sonunda oturum çıktısı; `hermes chat -q` çalışıyor mu |
 | Aynı PR'a tekrar tekrar oturum | i5 durumu yazamıyor olabilir; `yaz.py` çıktısına bak |
-| Oturum kapanınca duruyor | `loginctl enable-linger $USER` |
+| Oturum kapanınca duruyor | `loginctl enable-linger $USER` — bazı sistemlerde polkit onayı ister: `sudo loginctl enable-linger $USER` (kurulum betiği uyarı verir, hata değil) |
 
 ## Sınırlar
 
