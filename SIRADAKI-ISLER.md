@@ -3,13 +3,39 @@
 Bu dosya, oturum aralarında kaybolmaması için **bekleyen işleri kök neden + kabul ölçütü** ile
 listeler. Her iş bitince "Durum" sütunu güncellenir.
 
-**Bugünkü durum (özet):** kiosk **353** test ✓ · web **108** test ✓ · panel **104** test ✓ ·
+**Bugünkü durum (özet):** kiosk **361** test ✓ · web **108** test ✓ · panel **104** test ✓ ·
 `vue-tsc` ve üç derleme temiz ✓. **İş 1 bitti** (kökteki iki neden + 10 yeni test, gerçek veriyle
 uçtan uca doğrulandı, `--geri-al` parmak izi birebir). **İş 3 bitti** (uzaktan komut: imza, beyaz
 liste, tek seferlik, hem Qt hem tarayıcı modu, 23 yeni test). Kalan: cihazda **canlı** doğrulamalar
 (İş 1 kabul ölçütü + İş 2 adımları) ve panel `komut.json` gösterimi (tasarım onayı bekliyor).
 
 ---
+
+### 21 Ekim (3) — cihaz verisi kazası ve koruma
+
+* **Ne oldu:** `fetch_nobet.py` bir kez `--cihaz-bolge` verilmeden (varsayılan `İzmit-2`)
+  çalıştırıldı → cihazın verisi İzmit-2 ile yeniden üretildi, `match.json` cihazı yanlış bölgeye
+  bağladı (log: `T20261021 · İZMİT / İzmit-2 · 5 nöbetçi`).
+* **Onarım:** veri cihazın gerçek bölgesiyle (`Çayırova 2.Bölge`, `73154087615041151`) yeniden
+  üretildi; doğrulandı: `T20261021 · ÇAYIROVA / Çayırova 2.Bölge · 1 kayıt`.
+* **Koruma (yeni):** araç, cihazın görünen bölgesini değiştirecek çalıştırmada **durur**
+  (`DURDURULDU … --zorla`, çıkış 6); `--cikti-dizin` ile verilen yeni klasörler otomatik oluşturulur.
+  3 yeni test (`bolge_degisikligi`).
+* **Ders:** cihaz verisi üreten araçlarda "varsayılan değer" sessizce kimlik/konum değiştirmemeli.
+
+## 21 Ekim (2) — kurulum sağlamlaştırma  ✅ (PR #5 açık)
+
+* **`fetch_nobet.py`**: temiz klonda ham traceback atıyordu → artık `--kontrol`, `--cihaz-id`
+  (kimlik dosyasını oluşturur), beklenen hatalar için çözüm + çıkış kodu, Python sürüm kontrolü.
+  **Temiz klon + venv yok** ortamda uçtan uca doğrulandı (16 gün / 404 kayıt / 4 dosya).
+* **`otomasyon/kur.sh`** (yeni): tek komut → ortam denetimi + `~/.hermes/scripts` sarmalayıcıları +
+  cron komutu (`--cron` ile görev oluşturma). i5 ve i3 için ayrı ayrı denendi.
+* **`otomasyon/betik/ortam-kontrol.py`** (yeni): `--rol i5|i3|kiosk|dev`; her ✗ için çözüm.
+* **`topla.py`**: Python 3.8 uyumu; sarmalayıcılar `--depo` mutlak yolu geçiriyor.
+* **i5 akışı uçtan uca**: PR #5'te `guvenlik/inceleme=success` + yorum + `guvenlik/onay` etiketi
+  (API'den doğrulandı). **Dependabot: 0 açık uyarı.**
+* **Blokaj**: PR #5'in API'den birleştirilmesi `Contents: Read and write` istiyor →
+  arayüzden "Squash and merge" ya da token'a bu izin.
 
 ## 21 Ekim — temiz klon, cron, GitHub koruması  ✅ (1 blokaj)
 

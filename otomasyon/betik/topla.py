@@ -102,6 +102,11 @@ def depo_bul(verilen: str) -> Path:
     raise SystemExit(2)
 
 
+def on_ek_kes(metin: str, on_ek: str) -> str:
+    """`str.removeprefix` yerine (Python 3.8 uyumu: i5/i3 makineleri eski olabilir)."""
+    return metin[len(on_ek):] if on_ek and metin.startswith(on_ek) else metin
+
+
 def maskele(metin: str) -> str:
     """Sır örneğini maskeler: ilk 4 karakter + *** (ham sır hiçbir yere yazılmaz)."""
     metin = metin.strip()
@@ -115,7 +120,7 @@ def tara(diff: str) -> dict:
     dosya, satir_no = "?", 0
     for satir in diff.splitlines():
         if satir.startswith("+++ "):
-            dosya = satir[4:].strip().removeprefix("b/")
+            dosya = on_ek_kes(satir[4:].strip(), "b/")
             satir_no = 0
             continue
         if satir.startswith("@@"):
@@ -285,7 +290,7 @@ def main() -> int:
     # atlanan dosyaları diff'ten çıkar (kilit dosyası/ikili gürültüsü)
     parcalar, tutulan = re.split(r"(?m)^diff --git ", tam_diff), []
     for parca in parcalar[1:]:
-        yol = parca.split(" ")[0].removeprefix("a/")
+        yol = on_ek_kes(parca.split(" ")[0], "a/")
         if ATLANAN_DOSYALAR.search(yol) or Path(yol).suffix.lower() in IKILI_UZANTILAR:
             continue
         tutulan.append("diff --git " + parca)

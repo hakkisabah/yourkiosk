@@ -15,6 +15,10 @@ karar versin, sonuç bana (geliştirici) **yapılandırılmış bir not** olarak
 | Dependabot | ✅ alerts + security updates açık (8 uyarı raporlandı — token'da *Dependabot alerts: Read* yok, triyaj bekliyor) |
 | Etiketler | ✅ 4 etiket hazır |
 | `yaz.py` yazma yolu | ✅ gerçek yazma doğrulandı (HTTP 201) |
+| **Uçtan uca i5 denemesi** | ✅ PR #5 üzerinde: commit durumu `guvenlik/inceleme=success`, PR yorumu, `guvenlik/onay` etiketi — hepsi API'den doğrulandı |
+| PR açma | ✅ (`Pull requests: write` eklendi) |
+| PR **birleştirme** (API) | ⏳ `Contents: Read and write` gerekiyor; şimdilik arayüzden 1 tık |
+| Dependabot | ✅ **0 açık uyarı** (vitest 4.1.12 ile 8 uyarı kapandı) |
 | i5 / i3 kurulumu | ⏳ token izinlerine `Pull requests: RW` eklenmeli, sonra cron |
 
 ## 1. Neden GitHub "otobüs" olarak seçildi

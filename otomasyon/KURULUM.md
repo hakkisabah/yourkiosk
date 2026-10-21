@@ -49,6 +49,25 @@ Depo **public** olduğu için token'sız klon çalışır (i5/i3 yalnız **okur*
 
 ---
 
+## 2b. TEK KOMUT (önerilen): `otomasyon/kur.sh`
+
+Denetim + sarmalayıcı betikler + cron komutu tek adımda:
+
+```bash
+cd ~/calisma_konumun/yourkiosk
+bash otomasyon/kur.sh i5          # denetler, ~/.hermes/scripts'i kurar, cron komutunu YAZDIRIR
+bash otomasyon/kur.sh i5 --cron   # ayrıca görevi 'hermes cron create' ile oluşturur
+```
+
+Tek tek denetlemek isterseniz:
+
+```bash
+python3 otomasyon/betik/ortam-kontrol.py --rol i5
+```
+
+Çıktıda her satır ✓/✗ ve **çözüm** içerir (python sürümü, git/curl, depo, token + izinleri, sarmalayıcı
+betikler, `hermes` CLI, durum klasörü). Rol seçenekleri: `i5`, `i3`, `kiosk`, `dev`.
+
 ## 3. Betikleri dene (hiçbir şey yayınlamadan)
 
 ```bash
@@ -66,6 +85,11 @@ python3 otomasyon/betik/yaz.py --ornek
 python3 otomasyon/betik/yaz.py karar-ornek.json --kuru     # yayınlamadan göster
 ```
 
+> **Not (kiosk cihazı):** `fetch_nobet.py` **cihaz** verisi üretir ve `makinebilgileri.json`
+> (clientID) ister. Temiz klonda bu dosya yoktur; artık traceback yerine ne yapılacağını söylüyor:
+> `python3 tools/fetch_nobet.py --cihaz-id <clientID>` (dosyayı oluşturur) ya da `--kontrol`.
+> **i5/i3 makinelerinde `fetch_nobet.py` çalıştırmaya gerek yoktur.**
+>
 > **Dünkü hata:** KURULUM.md'deki heredoc (`<<'JSON'` içinde `"$(git rev-parse HEAD)"`) geçersiz JSON
 > üretiyordu → `yaz.py` "Expecting ',' delimiter" diyordu. Artık `--ornek` ile üretiliyor; ayrıca
 > `yaz.py` bozuk JSON'da satır/kolon ve "şablon üret" ipucu veriyor.

@@ -225,9 +225,15 @@ Depo cihaz verisini **içermez** (`lastSystemData.json`, `match.json`, `lastupda
 `--tani` raporu da "cihaz verisi : EKSİK" der. Düzeltme:
 
 ```bash
-# cihazda bir kez: veriyi kaynaktan üret (cihaz kimliği makinebilgileri.json'dan gelir)
-python3 tools/fetch_nobet.py
+# cihazda bir kez: veriyi kaynaktan üret (kimlik yoksa --cihaz-id ile oluşturulur)
+python3 tools/fetch_nobet.py --cihaz-id <clientID>
+# ortamı denetle (traceback yerine ne yapılacağını söyler):
+python3 tools/fetch_nobet.py --kontrol
 
 # ya da eski kurulumdan kopyala:
 cp /eski/kurulum/kiosk/{lastupdate,lastSystemData,match,makinebilgileri}.json kiosk/
 ```
+
+**Koruma:** `fetch_nobet.py`, cihazın **görünen bölgesini** değiştirecek bir çalıştırmada
+durur (`DURDURULDU: … mevcut: X / yeni: Y`, çıkış 6) — yanlış bölge, yanlış eczaneler demektir.
+Bilerek yapıyorsanız `--zorla`. Doğrusu, cihazın gerçek bölgesini vermektir.
