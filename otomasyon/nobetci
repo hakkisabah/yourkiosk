@@ -1,0 +1,4 @@
+#!/bin/sh
+# Nöbetçi sarmalayıcı (uzantısız): doğru yorumlayıcıyı seçer. `sh nobetci.py` YAPMAYIN.
+DIZIN=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$DIZIN/betik/nobetci.py" "$@"
