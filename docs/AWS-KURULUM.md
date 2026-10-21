@@ -229,3 +229,35 @@ Kalan tek artık: **kurulum erişim anahtarı** — kurulum bitince iptal edilec
    kullanmaya devam edecek.
 3. Kurulum anahtarını iptal et: IAM → Users → `yourkiosk-kurulum` → Security credentials →
    Access key → Deactivate → Delete. Sonra `aws sts get-caller-identity` **hata vermeli**.
+
+### 7b. Cihaz verisi için ikinci dağıtım (23.10.2026)
+
+Panel dağıtımı SPA olduğu için **403/404 → `/index.html`** kuralına sahip; bu yüzden olmayan bir
+`kiosk/*.json` isteği **200 + HTML** dönüyordu (cihaz JSON sanıp ayrıştırma hatası verirdi).
+Veri için ayrı dağıtım açıldı:
+
+| | Panel | Veri |
+|---|---|---|
+| Dağıtım | `EVR6YMP2UVX8A` | **`E9PU19DSTTWRM`** |
+| Adres | https://d308vfb9mn2991.cloudfront.net | **https://d2dnrvsx5eevod.cloudfront.net** |
+| Origin | `s3://yourkiosk-veri/panel` | `s3://yourkiosk-veri/kiosk` |
+| Yol | `/`, `/veri`, … (SPA) | `/lastupdate.json`, `/match.json`, … |
+| Hata | 403/404 → `index.html` (200) | **403** (doğru: dosya yok) |
+| Önbellek | varlık 1 yıl, index no-cache | **kapalı** (cihaz güncel veriyi görmeli) |
+
+Cihaz ayarı (`kiosk/ayarlar.json`):
+
+```json
+"veri": { "dosya_adresi": "https://d2dnrvsx5eevod.cloudfront.net/" },
+"calistirma": { "web_veri_modu": "https" }
+```
+
+Doğrulama (gerçek): `lastupdate.json` 200 · `lastSystemData.json` 200 (263.634 B) · `yok.json` **403** ·
+panel dağıtımı etkilenmedi (/, /veri → 200).
+
+### 7c. Yeniden yayınlama
+
+```bash
+./panel/infra/yayinla.sh          # derle + yükle + invalidation
+./panel/infra/yayinla.sh --kuru   # yalnız derle
+```
