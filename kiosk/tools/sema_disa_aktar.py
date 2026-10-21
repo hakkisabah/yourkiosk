@@ -134,7 +134,6 @@ def sema() -> dict:
                 "gelismis.max_gorsel_piksel",
                 "ag.izinli_hostlar",
                 "ag.izinli_portlar",
-                "veri.dosya_adresi",
             },
         }
         g = gruplar.setdefault(
