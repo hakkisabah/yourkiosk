@@ -199,6 +199,10 @@ kapanırsa çalışmaz. Buna gerek yok: gece commit atmıyorsanız i5'in koşmas
 
 ## 5. Durum ve günlükler
 
+**İlk koşu:** `kur.sh` son nokta dosyasını (`~/.local/state/yourkiosk-otomasyon/son-sha`)
+sıfırlar; böylece i5 ilk turda **son commit'i de** inceler ve `guvenlik/inceleme` durumunu yazar.
+Aksi hâlde "değişiklik yok" deyip hiçbir şey yazmaz ve haberleşme başlamamış görünür.
+
 **Haberleşme başladı mı?** tek komut:
 
 ```bash
