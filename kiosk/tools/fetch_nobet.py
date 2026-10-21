@@ -27,6 +27,12 @@ KULLANIM
     python3 tools/fetch_nobet.py --baslangic 2026-10-14 --gun 16
     python3 tools/fetch_nobet.py --cihaz-bolge "İzmit-2"   # cihazın konulacağı bölge
     python3 tools/fetch_nobet.py --yerel /tmp/nobet.json   # ağa çıkmadan dosyadan
+    python3 tools/fetch_nobet.py --kontrol                 # yalnız ortam/kimlik denetimi
+    python3 tools/fetch_nobet.py --cihaz-id 123456789      # makinebilgileri.json yoksa oluştur
+
+ÖNEMLİ: bu araç **kiosk CİHAZI** içindir; `makinebilgileri.json` (cihaz kimliği) depoda
+bulunmaz. Kimlik yoksa araç traceback basmaz, ne yapılacağını söyler.
+i5/i3 gibi **ajan** makinelerinde nöbet verisi üretmeye gerek yoktur (orada `otomasyon/` kullanılır).
 """
 
 from __future__ import annotations
@@ -35,7 +41,9 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import sys
+import urllib.error
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -272,7 +280,124 @@ def ham_veriyi_cek(baslangic: date, gun: int, yerel: Path | None = None) -> dict
     return json_yukle(govde, etiket=url, en_buyuk_bayt=ayarlar.en_buyuk_bayt, en_buyuk_dugum=500_000)
 
 
+EN_AZ_PYTHON = (3, 9)
+
+
+def surum_yeterli() -> bool:
+    return sys.version_info >= EN_AZ_PYTHON
+
+
+def makine_bilgisi(cihaz_id: str | None = None, kok: Path | None = None) -> dict:
+    """`makinebilgileri.json`u okur; yoksa `--cihaz-id` ile oluşturur; yoksa ANLAŞILIR hata verir.
+
+    Bu dosya **cihaza özgüdür** (clientID) ve depoya girmez → temiz klonda yoktur. Ham
+    `FileNotFoundError` traceback'i yerine ne yapılacağını yazıyoruz.
+    """
+    kok = kok or KOK
+    yol = kok / "makinebilgileri.json"
+    if yol.is_file():
+        try:
+            veri = json.loads(yol.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as hata:
+            print(f"HATA: {yol} okunamadı ({hata}).", file=sys.stderr)
+            print("      Dosyayı düzeltin ya da silip --cihaz-id ile yeniden oluşturun.", file=sys.stderr)
+            raise SystemExit(3)
+        if not str((veri or {}).get("clientID", "")).strip():
+            print(f"HATA: {yol} içinde 'clientID' yok.", file=sys.stderr)
+            raise SystemExit(3)
+        return veri
+
+    if cihaz_id:
+        veri = {"clientID": str(cihaz_id).strip()}
+        yol.write_text(json.dumps(veri, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(f"oluşturuldu      : {yol} (clientID={veri['clientID']})")
+        return veri
+
+    print("HATA: makinebilgileri.json yok — bu dosya CİHAZ KİMLİĞİNİ taşır (depoya girmez).", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("  Nereden bulunur?", file=sys.stderr)
+    print("    · panel → Cihazlar (clientID) gösterir", file=sys.stderr)
+    print("    · S3'teki makinebilgileri.json (cihazın kendi dosyası)", file=sys.stderr)
+    print("    · eski kurulum: kiosk/makinebilgileri.json", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("  Ya da bu komutla oluşturun (kimliği biliyorsanız):", file=sys.stderr)
+    print("    python3 tools/fetch_nobet.py --cihaz-id <clientID>", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("  Not: i5/i3 gibi AJAN makinelerinde nöbet verisi üretmeye gerek yoktur;", file=sys.stderr)
+    print("       orada otomasyon/ betikleri kullanılır (topla.py, yaz.py).", file=sys.stderr)
+    raise SystemExit(3)
+
+
+def on_denetim(ayarlar) -> int:
+    """`--kontrol`: hiçbir şey yazmadan ortamı denetler (uzaktan destek için)."""
+    sorun = 0
+    print("=== fetch_nobet.py ortam denetimi ===")
+    print(f"python           : {sys.version.split()[0]} " + ("✓" if surum_yeterli() else "✗ (3.9+ gerekli)"))
+    sorun += 0 if surum_yeterli() else 1
+    print(f"proje kökü       : {KOK}")
+    sablon = KOK / "sablon.json"
+    print(f"sablon.json      : {'✓' if sablon.is_file() else '✗ EKSİK'}")
+    sorun += 0 if sablon.is_file() else 1
+    makine = KOK / "makinebilgileri.json"
+    if makine.is_file():
+        try:
+            kimlik = str(json.loads(makine.read_text(encoding="utf-8-sig")).get("clientID", "")).strip()
+            print(f"cihaz kimliği    : {'✓ ' + kimlik if kimlik else '✗ clientID boş'}")
+            sorun += 0 if kimlik else 1
+        except (OSError, ValueError):
+            print("cihaz kimliği    : ✗ makinebilgileri.json bozuk")
+            sorun += 1
+    else:
+        print("cihaz kimliği    : ✗ makinebilgileri.json yok → --cihaz-id <clientID> ile oluşturun")
+        sorun += 1
+    cikti = Path(ayarlar.cikti_dizin)
+    yazilabilir = os.access(cikti, os.W_OK)
+    print(f"çıktı klasörü    : {cikti} {'✓' if yazilabilir else '✗ yazılamıyor'}")
+    sorun += 0 if yazilabilir else 1
+    print(f"ağ (hedef host)  : www.kocaelieo.org.tr (yalnız https/443)")
+    print("sonuç            : " + ("HAZIR ✓" if sorun == 0 else f"{sorun} sorun → yukarıdaki çözümler"))
+    return 0 if sorun == 0 else 2
+
+
 def main() -> int:
+    """Kullanıcıya düzgün mesaj veren sarmalayıcı: beklenen hatalar traceback basmaz."""
+    if not surum_yeterli():
+        print(
+            f"HATA: Python {'.'.join(map(str, EN_AZ_PYTHON))}+ gerekli (bulunan {sys.version.split()[0]}).\n"
+            "  Ubuntu 20.04 varsayılanı 3.8'dir → 'sudo apt install -y python3.10' + 'python3.10 tools/fetch_nobet.py …'",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        return _calistir()
+    except SystemExit:
+        raise
+    except FileNotFoundError as hata:
+        print(f"HATA: dosya bulunamadı: {hata.filename or hata}", file=sys.stderr)
+        print("  çözüm: python3 tools/fetch_nobet.py --kontrol", file=sys.stderr)
+        return 3
+    except PermissionError as hata:
+        print(f"HATA: yazma izni yok: {hata.filename or hata}", file=sys.stderr)
+        print("  çözüm: --cikti-dizin ile yazılabilir bir klasör verin", file=sys.stderr)
+        return 3
+    except (urllib.error.URLError, TimeoutError) as hata:
+        print(f"HATA: ağ erişimi başarısız ({hata}).", file=sys.stderr)
+        print("  kontrol: internet/DNS, kurumsal proxy, güvenlik duvarı (yalnız https/443).", file=sys.stderr)
+        print("  ağ yoksa: --yerel <dosya.json> ile eldeki veriyi kullanabilirsiniz.", file=sys.stderr)
+        return 4
+    except ValueError as hata:
+        print(f"HATA: veri biçimi beklenmedik ({hata}).", file=sys.stderr)
+        print("  kaynak değişmiş olabilir; --yerel ile kaydedilmiş bir dosyayla deneyin.", file=sys.stderr)
+        return 5
+    except KeyboardInterrupt:
+        return 130
+    except Exception:  # noqa: BLE001 - son çare: traceback yerine anlaşılır mesaj + günlük
+        log.error("beklenmeyen hata", exc_info=True)
+        print("HATA: beklenmeyen bir sorun oluştu (ayrıntı yukarıda).", file=sys.stderr)
+        return 1
+
+
+def _calistir() -> int:
     ayristirici = argparse.ArgumentParser(description="Nöbet verisini çeker ve şablonu doldurur")
     ayristirici.add_argument("--baslangic", help="aralığın ilk günü (YYYY-AA-GG); varsayılan bugün")
     ayristirici.add_argument("--gun", type=int, default=16, help=f"gün sayısı (en fazla {EN_FAZLA_GUN})")
@@ -286,9 +411,17 @@ def main() -> int:
     ayristirici.add_argument("--yerel", type=Path, help="ağa çıkmadan bu JSON dosyasını kullan")
     ayristirici.add_argument("--cikti-dizin", type=Path, default=KOK)
     ayristirici.add_argument("--log-seviyesi", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    ayristirici.add_argument(
+        "--cihaz-id", default=os.environ.get("KIOSK_CIHAZ_ID", ""),
+        help="cihaz kimliği (clientID); makinebilgileri.json yoksa bu değerle oluşturulur",
+    )
+    ayristirici.add_argument("--kontrol", action="store_true", help="yalnız ortam/kimlik denetimi yap, çık")
     ayarlar = ayristirici.parse_args()
 
     logging.basicConfig(level=getattr(logging, ayarlar.log_seviyesi), format="%(levelname)-7s %(message)s")
+
+    if ayarlar.kontrol:
+        return on_denetim(ayarlar)
 
     if ayarlar.baslangic:
         baslangic = date.fromisoformat(ayarlar.baslangic)
@@ -314,7 +447,7 @@ def main() -> int:
         yayin_araligi = (parcalar[0].strip(), parcalar[1].strip())
     yayinlar = yayinlari_cogalt(sablon.get("Yayinlar", {}), 30, baslangic, aralik=yayin_araligi)
 
-    makine = json.loads((KOK / "makinebilgileri.json").read_text(encoding="utf-8"))
+    makine = makine_bilgisi(ayarlar.cihaz_id)
     client_id = str(makine.get("clientID", "")).strip()
     match = match_uret(agac, client_id, ayarlar.cihaz_ilce, ayarlar.cihaz_bolge)
 
