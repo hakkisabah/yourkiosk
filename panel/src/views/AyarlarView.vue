@@ -3,6 +3,7 @@
  * GENEL AYARLAR (ayarlar.json) — tüm cihazlar için varsayılanlar.
  * İlçe/bölge/cihaz bazında farklılık için "Kapsam Ayarları" ekranını kullanın.
  */
+import { kopya } from '@/domain/kopya'
 import { computed, ref, watch } from 'vue'
 
 import AyarFormu from '@/components/AyarFormu.vue'
@@ -12,11 +13,11 @@ import { useDosyalar, type AyarBelgesi } from '@/stores/dosyalar'
 
 const dosyalar = useDosyalar()
 const sekme = ref(gruplar[0]?.ad ?? 'ozellikler')
-const taslak = ref<AyarBelgesi>(structuredClone(dosyalar.ayarlarBelgesi))
+const taslak = ref<AyarBelgesi>(kopya(dosyalar.ayarlarBelgesi))
 
 watch(
   () => dosyalar.ayarlar.veri,
-  (yeni) => (taslak.value = structuredClone(yeni ?? {})),
+  (yeni) => (taslak.value = kopya(yeni ?? {})),
   { deep: true },
 )
 
@@ -46,7 +47,7 @@ function guncelle(tam: string, deger: unknown): void {
 }
 
 function sifirla(): void {
-  taslak.value = structuredClone(dosyalar.ayarlarBelgesi)
+  taslak.value = kopya(dosyalar.ayarlarBelgesi)
 }
 
 async function kaydet(): Promise<void> {

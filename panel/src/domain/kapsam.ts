@@ -6,6 +6,7 @@
  * En özel kapsam kazanır; yalnızca verilen anahtar geçersiz kılınır.
  * Ortak test verisi: kiosk/tests/veri/kapsam_ornek.json (iki tarafta da doğrulanır).
  */
+import { kopya } from '@/domain/kopya'
 import { dogrula, kapsamGruplari, tanim } from './sema'
 
 export interface KapsamSecimi {
@@ -143,7 +144,7 @@ export function kapsamYaz(
   id: string,
   degisiklikler: Record<string, unknown>,
 ): KapsamBelgesi {
-  const yeni: KapsamBelgesi = structuredClone(ham ?? {})
+  const yeni: KapsamBelgesi = kopya(ham ?? {})
   const hedef: GrupBelgesi = _kapsam_grubu(yeni, tur, id, true)!
   for (const [tam, deger] of Object.entries(degisiklikler)) {
     const [grup, anahtar] = tam.split('.')
@@ -161,7 +162,7 @@ export function kapsamSil(
   id: string,
   anahtarlar: string[],
 ): KapsamBelgesi {
-  const yeni: KapsamBelgesi = structuredClone(ham ?? {})
+  const yeni: KapsamBelgesi = kopya(ham ?? {})
   const grup = _kapsam_grubu(yeni, tur, id, false)
   for (const tam of anahtarlar) {
     const [g, a] = tam.split('.')

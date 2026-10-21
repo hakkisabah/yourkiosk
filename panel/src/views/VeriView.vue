@@ -4,6 +4,7 @@
  * Nöbet kayıtları düzenlenebilir: eczane, telefon, adres, adres tarifi ve nöbet penceresi.
  * Pencere kuralı kiosk ile aynıdır: kayıt, kendi `start`–`end` aralığı boyunca gösterilir.
  */
+import { kopya } from '@/domain/kopya'
 import { computed, ref, watch } from 'vue'
 
 import { DOSYALAR } from '@/aws/config'
@@ -24,7 +25,7 @@ import { silinecekYayinlar } from '@/domain/temizlik'
 
 const dosyalar = useDosyalar()
 const baglanti = useBaglanti()
-const taslak = ref<SistemVerisi>(structuredClone(dosyalar.sistemVerisi))
+const taslak = ref<SistemVerisi>(kopya(dosyalar.sistemVerisi))
 const sekme = ref<'nobet' | 'yayin'>('nobet')
 const seciliGun = ref('')
 const hata = ref('')
@@ -34,7 +35,7 @@ const ekSaat = ref(2)
 watch(
   () => dosyalar.sistem.veri,
   (yeni) => {
-    taslak.value = structuredClone(yeni ?? {})
+    taslak.value = kopya(yeni ?? {})
     seciliGun.value = Object.keys(gunBloklari(taslak.value)).sort()[0] ?? ''
   },
   { deep: true, immediate: true },
@@ -119,7 +120,7 @@ function kayitEkle(): void {
 }
 
 function geriAl(): void {
-  taslak.value = structuredClone(dosyalar.sistemVerisi)
+  taslak.value = kopya(dosyalar.sistemVerisi)
   hata.value = ''
 }
 
