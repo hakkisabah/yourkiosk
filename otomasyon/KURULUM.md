@@ -120,6 +120,11 @@ python3 -c "import json;p=json.load(open('/tmp/paket.json'));print('değişiklik
 
 ## 4. Hermes cron görevi (doğru arayüz)
 
+> **ÖNEMLİ (güncel):** Cron artık **önerilmez**. Yerine nöbetçi servisi kurulur (15 sn gecikme,
+> boşta 0 oturum): `bash otomasyon/nobetci-kur.sh i5`. Ayrıntı: `otomasyon/NOBETCI.md`.
+> Eski cron görevini kaldır: `bash otomasyon/nobetci-kur.sh i5 --cron-kaldir`.
+
+
 Hermes'te zamanlanmış görev = **`cronjob_manage` aracı** (`hermes cron create|list|edit|run`).
 Önemli alanlar:
 
