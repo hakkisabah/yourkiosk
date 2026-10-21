@@ -102,8 +102,8 @@ def mevcut_durum(a, token: str) -> int:
     elif kod == 404:
         print("  koruma          : YOK (henüz kurulmamış)")
     else:
-        print(f"  koruma okunamadı: HTTP {kod} — token'da 'Administration: Read' yok olabilir")
-        return 6
+        print(f"  koruma okunamadı: HTTP {kod} — token'da 'Administration: Read' yok (i5/i3 normal)")
+        print("  (aşağıdaki commit bilgisi yine de okunur; yalnız koruma alanları görünmez)")
 
     son = son_commit_durumlari(a, token)
     if son.get("var") is None:
