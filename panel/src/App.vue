@@ -1,13 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { hatayiTemizle, uygulamaHatasi } from '@/hata'
 import { MENU } from '@/router'
+
 import { useBaglanti } from '@/stores/baglanti'
 import { useDosyalar } from '@/stores/dosyalar'
 
 const baglanti = useBaglanti()
+const yonlendirici = useRouter()
+
+// Emniyet kemeri: oturum herhangi bir yoldan açılırsa (Cognito/Lambda, başka sekme) giriş ekranında kalma.
+watch(
+  () => baglanti.girisYapildi,
+  (acik) => {
+    if (acik && yonlendirici.currentRoute.value.name === 'giris') void yonlendirici.replace({ name: 'durum' })
+  },
+)
 const dosyalar = useDosyalar()
 const router = useRouter()
 const cekmece = ref(true)
