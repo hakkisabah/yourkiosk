@@ -225,3 +225,23 @@ yeniden başlat), yedekleme (S3 sürümleme), cihaz durumunun panelde izlenmesi.
 * **Temizlik + GitHub hazırlığı**: 156 MB Qt karantinası, önbellekler, günlükler silindi; `.gitignore`
   kök düzeyinde sıkılaştırıldı (`__pycache__` kaçağı kapatıldı); kök `README.md`, `LICENSE` (GPL-3.0),
   `GITHUB-YUKLEME.md` eklendi; yerel `git init -b main` yapıldı (commit yok).
+
+---
+
+## 22 Ekim — biriken işler (öncelik sırasıyla)
+
+| # | İş | Durum / not |
+|---|---|---|
+| 1 | **Lightsail + Mosquitto** ($5) | Kurulum betiği hazır (`deploy/mosquitto/`); IP + DNS A kaydı bekliyor |
+| 2 | Panel `.env.local` → `VITE_MQTT_*` + yayın | Mosquitto kurulduktan sonra |
+| 3 | Cihazlarda `pip install paho-mqtt` + `tetik.push_*` ayarları | Push devreye girince `kontrol_ms=300000` |
+| 4 | **Kullanıcı testleri (2–3)** | Panel yayını → cihaz anında yenilenme; `tetik.aktif=false` negatif testi |
+| 5 | **Telegram** entegrasyonu | Sistem oturdu; nöbetçi + PR bildirimleri için bağlanacak |
+| 6 | Panel MFA (TOTP) | Ücretsiz, tek yönetici hesabı için ciddi sertleştirme |
+| 7 | `ayarlar.json` **tam belge mi, sparse mi?** | Şu an yalnız değişen anahtarlar yazılıyor; cihaz varsayılanlarla birleştiriyor. Karar bekliyor |
+| 8 | Görsel optimizasyonu (panel yükleme) | 2,4 MB yayın görselleri → WebP/küçültme (depolama + egress) |
+| 9 | CloudWatch/fatura alarmı | Yayın anahtarında izin yok; gerekirse ayrı anahtar |
+| 10 | 600 cihaz izleme (çevrimiçi/çevrimdışı) | MQTT `$SYS` ya da basit "son görülme" alanı; ölçek testi sonrası |
+| 11 | Yedekten geri dönme provası | S3 sürümleme açık; bir nesneyi eski sürümden geri alma tatbikatı |
+
+**Tamamlananlar (bu oturum):** panel CloudFront yayını · cihaz verisi ikinci dağıtım · giriş/404/structuredClone hataları · `veri.dosya_adresi` görünürlüğü · oto tetikleme (aktif+modlar) · anlık tetik (yoklama) · MQTT push altyapısı · panel yayın anahtarı · kiosk 370+ / web 111 / panel 114 test.
