@@ -1,0 +1,3 @@
+#!/bin/sh
+DIZIN=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$DIZIN/betik/oturum_denetim.py" "$@"

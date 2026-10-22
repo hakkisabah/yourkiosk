@@ -110,6 +110,31 @@ def yorum_govdesi(karar: dict, durum: str) -> str:
         if len(bulgular) > 25:
             satirlar.append(f"| … | | | (+{len(bulgular) - 25} bulgu daha) |")
         satirlar.append("")
+    denetlenen = karar.get("denetlenen") or []
+    if denetlenen:
+        satirlar += ["**Denetlenen alanlar:** " + ", ".join(f"`{d}`" for d in denetlenen[:20]), ""]
+
+    dogrulama = karar.get("i5_dogrulama") or []
+    if dogrulama:
+        satirlar += ["#### i5 bulgularının doğrulanması", "", "| i5 bulgusu | Sonuç | Kanıt |", "|---|---|---|"]
+        for d in dogrulama[:25]:
+            durum_simge = {"dogrulandi": "✅", "yanlis": "❌", "eksik_kanit": "⚠️"}.get(str(d.get("durum")), "•")
+            satirlar.append(
+                f"| {str(d.get('bulgu', '')).replace('|', '\\|')[:120]} | {durum_simge} {d.get('durum', '')} "
+                f"| {str(d.get('kanit', '')).replace('|', '\\|')[:160]} |"
+            )
+        satirlar.append("")
+
+    eksikler = karar.get("eksikler") or []
+    if eksikler:
+        satirlar += ["#### i5'in kaçırdığı bulgular (i3)", "", "| Dosya | Satır | Önem | Bulgu |", "|---|---|---|---|"]
+        for e in eksikler[:25]:
+            satirlar.append(
+                f"| `{e.get('dosya', '?')}` | {e.get('satir', '')} | {e.get('onem', '')} "
+                f"| {str(e.get('aciklama', '')).replace('|', '\\|')[:200]} |"
+            )
+        satirlar.append("")
+
     if karar.get("not"):
         satirlar += [f"**Geliştiriciye not:** {karar['not']}", ""]
 
