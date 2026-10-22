@@ -92,3 +92,62 @@ ufw delete allow 8883/tcp; ufw delete allow 8084/tcp
 ```
 
 Cihazlar `tetik.push_aktif=false` yapılınca yoklama emniyet ağına döner (kesinti olmaz).
+
+---
+
+## 7. Nerede çalıştırmalı: ev bilgisayarı mı, VPS mi?
+
+| | Ev bilgisayarı (Asrock FX-6100 / 4 GB) | En ucuz VPS |
+|---|---|---|
+| Donanım yeterli mi | **Fazlasıyla** (600 TLS bağlantısı ≈ 20 MB RAM) | 1 vCPU / 1 GB yeter |
+| Elektrik | FX-6100 boşta ~90–110 W → ayda ~70 kWh ≈ **$6–8** | yok |
+| Sabit IP | Genelde **yok**; CGNAT varsa dışarıdan erişilemez | var |
+| Erişim | Router'da **80/8883/8084 port yönlendirme** gerekir | hazır |
+| Kesinti | Elektrik/internet kesilince **tüm tetikler durur** (cihazlar yoklamaya düşer) | veri merkezi |
+| Kurulum | aynı `kur.sh` (Ubuntu/Debian gerekir) | aynı `kur.sh` |
+
+**Öneri:** 600 cihaz hedefiyle **VPS**. Ev bilgisayarı pilot/1–20 cihaz için mantıklı; 600 cihazda
+elektrik + kesinti riski VPS fiyatını zaten geçiyor.
+
+### CGNAT kontrolü (ev sunucusu için şart)
+
+```bash
+# Router arayüzündeki "WAN IP" ile karşılaştır:
+curl -s https://ifconfig.me ; echo
+```
+
+Aynı değilse **CGNAT** var → port yönlendirme çalışmaz, ev sunucusu dışarıdan erişilemez.
+Çözüm: VPS, ya da bir tünel (cloudflared/ngrok) — MQTT için tünel önerilmez.
+
+### En ucuz VPS seçenekleri (2026, ~)
+
+| Sağlayıcı | Paket | Fiyat | Not |
+|---|---|---|---|
+| **Hetzner** (Falkenstein/Nürnberg) | CX22 (2 vCPU, 4 GB) | **~€3,79/ay** | En iyi fiyat/performans, TR'ye ~50 ms |
+| Contabo | VPS S | ~€4,50/ay | Daha yavaş disk, çok RAM |
+| Netcup | VPS 1000 G11 | ~€4/ay | EU |
+| Oracle Cloud | **Always Free** (ARM 4 çekirdek/24 GB) | **$0** | Kapasite/hesap onayı sorunlu olabilir |
+| AWS Lightsail | 1 GB | ~$5/ay | AWS faturasına eklenir |
+| TR sağlayıcı (Turhost/Natro/Vargonen) | 1 vCPU/1 GB | ~₺150–250/ay | TR'ye ~10–20 ms gecikme |
+
+> 600 cihaz için hepsi yeterli; seçim gecikme (TR DC) ve fatura para birimi meselesi.
+
+## 8. Alan adı ve sertifika (ACM hakkında)
+
+- **AWS ACM sertifikası burada KULLANILAMAZ**: ACM sertifikaları **dışa aktarılamaz**, yalnız
+  ALB / CloudFront / API Gateway gibi AWS kaynaklarına takılır. Kendi sunucunuzda çalışan Mosquitto
+  için **Let's Encrypt** kullanılır (script otomatik alır ve yeniler).
+- `yourkiosk.hakkisabah.com` kullanmak için DNS'te **A kaydı** yeterli:
+
+```
+Tip: A   Ad: yourkiosk   Değer: <VPS IP>   TTL: 300
+```
+
+- Kayıt yayıldıktan sonra (kontrol: `dig +short yourkiosk.hakkisabah.com`):
+
+```bash
+sudo bash kur.sh --host yourkiosk.hakkisabah.com --eposta siz@example.com
+```
+
+- Sonuç: `wss://yourkiosk.hakkisabah.com:8084/mqtt` (panel) ve `yourkiosk.hakkisabah.com:8883`
+  (cihazlar) — ücretsiz ve otomatik yenilenen gerçek sertifika. `nip.io` yalnız domain yoksa pratiktir.
