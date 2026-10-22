@@ -261,3 +261,37 @@ panel dağıtımı etkilenmedi (/, /veri → 200).
 ./panel/infra/yayinla.sh          # derle + yükle + invalidation
 ./panel/infra/yayinla.sh --kuru   # yalnız derle
 ```
+
+---
+
+## 10. Panel yayını için ayrı anahtar (kurulum anahtarı iptal edildikten sonra)
+
+Kurulum anahtarı iptal edildi; artık paneli yayınlamak için **yalnız yayına yetkili** ayrı bir
+kullanıcı gerekir. Bu kullanıcı veri yazamaz, Cognito'yu değiştiremez — sadece `panel/` klasörünü
+yükler ve CloudFront önbelleğini temizler.
+
+1. IAM → Policies → Create policy → JSON → `panel/infra/yayin-politikasi.json` (doğrulayıcıdan geçti:
+   3 ifade geçerli) → ad: `yourkiosk-yayin`
+2. IAM → Users → `yourkiosk-yayin` → politikayı ekle → **Create access key**
+3. Anahtarı dosyaya koy (sohbete yazma):
+
+```bash
+cat > ~/.config/hermes-secrets/aws-yayin.credentials <<'EOF'
+[default]
+aws_access_key_id = BURAYA
+aws_secret_access_key = BURAYA
+EOF
+chmod 600 ~/.config/hermes-secrets/aws-yayin.credentials
+```
+
+4. Yayınla:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+export AWS_SHARED_CREDENTIALS_FILE="$HOME/.config/hermes-secrets/aws-yayin.credentials"
+export AWS_DEFAULT_REGION=eu-central-1
+./panel/infra/yayinla.sh            # derle + yükle + invalidation
+```
+
+> Yayın anahtarı yalnız `yourkiosk-veri/panel/*` ve **tek** CloudFront dağıtımına yetkili.
+> Cihaz verisi (`kiosk/*`) yazamaz → yanlışlıkla veri bozulamaz.
