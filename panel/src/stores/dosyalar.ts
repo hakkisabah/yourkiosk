@@ -6,6 +6,7 @@ import { defineStore } from 'pinia'
 
 import { DOSYALAR } from '@/aws/config'
 import { okumaPlani } from '@/domain/dosyaSecimi'
+import { mqttBildir } from '@/domain/push'
 import { tetikBelgesi, tetikGerekir } from '@/domain/tetik'
 import type { VeriKaynagi } from '@/aws/veriKaynagi'
 import type { KapsamBelgesi } from '@/domain/kapsam'
@@ -153,6 +154,9 @@ export const useDosyalar = defineStore('dosyalar', {
           } catch {
             /* tetikleyici yazılamadı: cihaz normal aralıkta güncellenir */
           }
+          // MQTT yapılandırıldıysa ANLIK bildirim de gönderilir (600+ cihaz ölçeği).
+          // Beklenmez: kayıt akışını yavaşlatmaz, hata sessizce yutulur.
+          void mqttBildir(ad).catch(() => undefined)
         }
         this.sonBasari = `${ad} kaydedildi (${sonuc.anahtar})`
         return true

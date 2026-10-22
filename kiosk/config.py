@@ -142,7 +142,19 @@ WEB_SUNUCU_PORTU = 8090
 # ---- Tetikleme (panel yayını → cihaz anında yenilenme)
 TETIK_AKTIF = True                       # False: panel tetikleyicisi yok sayılır (normal aralıkta güncellenir)
 TETIK_MODLAR = ("qt", "tarayici")        # oto tetiklemenin geçerli olduğu çalışma modları
-TETIK_KONTROL_MS = 3000                  # https modunda tetikleyici kaç ms'de bir yoklanır (anlık yenileme)        # oto tetiklemenin geçerli olduğu çalışma modları
+# ---- MQTT push (600+ cihaz: sabit bağlantı, olay başına mesaj)
+TETIK_PUSH_AKTIF = False                 # True: cihaz broker'a bağlanır, yayında ANINDA yenilenir (~100 ms)
+TETIK_PUSH_BROKER = ""                   # ör. "xxxxx-ats.iot.eu-central-1.amazonaws.com" ya da kendi sunucunuz
+TETIK_PUSH_PORT = 8883                   # 8883 = TLS (önerilir)
+TETIK_PUSH_KONU = "yourkiosk/yayin"      # panelin yayın yaptığı konu
+TETIK_PUSH_KULLANICI = ""
+TETIK_PUSH_PAROLA = ""
+# AWS IoT Core gibi X.509 isteyen broker'lar için (boşsa kullanıcı/parola yolu):
+TETIK_PUSH_CA = ""                       # kök CA dosyası (ör. AmazonRootCA1.pem)
+TETIK_PUSH_SERTIFIKA = ""                # cihaz sertifikası (cert.pem)
+TETIK_PUSH_ANAHTAR = ""                  # cihaz özel anahtarı (private.pem.key)
+TETIK_KONTROL_MS = 20000                 # yoklama emniyet ağı (ms). 600 cihazda her 3 sn ≈ 518 M istek/ay
+                                         # → MQTT push (aşağıdaki grup) açıksa yoklama yapılmaz.        # oto tetiklemenin geçerli olduğu çalışma modları
 
 WEB_VERI_MODU = "yerel"                   # "yerel": veri dosyaları yerel sunucudan | "https": DOSYA_ADRESI
 WEB_YENILEME_MS = 60000                   # sayfanın veriyi kontrol etme aralığı (kiosk: saatlik timer)

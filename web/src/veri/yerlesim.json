@@ -65,11 +65,20 @@
   "SOL_PANEL_OTOMATIK_KAYDIRMA": true,
   "TETIK_AKTIF": true,
   "TETIK_DOSYASI": "tetikle.json",
-  "TETIK_KONTROL_MS": 3000,
+  "TETIK_KONTROL_MS": 20000,
   "TETIK_MODLAR": [
    "qt",
    "tarayici"
   ],
+  "TETIK_PUSH_AKTIF": false,
+  "TETIK_PUSH_ANAHTAR": "",
+  "TETIK_PUSH_BROKER": "",
+  "TETIK_PUSH_CA": "",
+  "TETIK_PUSH_KONU": "yourkiosk/yayin",
+  "TETIK_PUSH_KULLANICI": "",
+  "TETIK_PUSH_PAROLA": "",
+  "TETIK_PUSH_PORT": 8883,
+  "TETIK_PUSH_SERTIFIKA": "",
   "WEB_KLASORU": "web",
   "WEB_SUNUCU_ADRESI": "127.0.0.1",
   "WEB_SUNUCU_PORTU": 8090,
@@ -200,5 +209,5 @@
    "krem": "#f5e8c7"
   }
  },
- "surum_ozeti": "fcf093e1b953475e"
+ "surum_ozeti": "6b2a9f637a62d7e9"
 }
