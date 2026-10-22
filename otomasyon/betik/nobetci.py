@@ -67,15 +67,23 @@ class Github:
         self.durum_yolu = durum_yolu
         self.gunluk = gunluk_yolu
         self.onbellek: dict[str, dict] = {}
+        self.denemeler: dict[str, dict] = {}
+        self.gunluk: dict[str, int] = {}
+        self._onceki_veri: dict = {}
         if durum_yolu.exists():
             try:
-                self.onbellek = json.loads(durum_yolu.read_text(encoding="utf-8")).get("etag", {})
+                eski = json.loads(durum_yolu.read_text(encoding="utf-8"))
+                self.onbellek = eski.get("etag", {})
+                self.denemeler = eski.get("denemeler", {})
+                self.gunluk = eski.get("gunluk", {})
+                self._onceki_veri = {"son_karar": eski.get("son_karar", ""), "zaman": eski.get("guncelleme", "")}
             except ValueError:
-                self.onbellek = {}
+                pass
 
     def kaydet(self, ek: dict) -> None:
         self.durum_yolu.parent.mkdir(parents=True, exist_ok=True)
-        veri = {"etag": self.onbellek, **ek, "guncelleme": simdi()}
+        veri = {"etag": self.onbellek, "denemeler": self.denemeler, "gunluk": self.gunluk,
+                **ek, "guncelleme": simdi()}
         gecici = self.durum_yolu.with_suffix(".tmp")
         gecici.write_text(json.dumps(veri, indent=2), encoding="utf-8")
         gecici.replace(self.durum_yolu)
@@ -121,6 +129,35 @@ def birlesik_durumlar(gh: Github, sha: str) -> dict[str, str]:
     if not isinstance(govde, dict):
         return {}
     return {s.get("context", "?"): s.get("state", "?") for s in govde.get("statuses", [])}
+
+
+#: Aynı PR+commit için yeniden oturum açmadan önce beklenecek süre (sn). Üstel artar.
+BEKLEME_TABANI_S = 600
+BEKLEME_TAVAN_S = 3600
+#: Günlük en çok oturum (oturum fırtınasına karşı sert fren)
+GUNLUK_OTURUM_TAVANI = 120
+
+
+def anahtar(pr: int, sha: str) -> str:
+    return f"{pr}:{sha[:12]}"
+
+
+def beklemeli_mi(denemeler: dict, pr: int, sha: str, an: float) -> tuple[bool, int]:
+    """Bu PR+commit için yakın zamanda denendiyse (True, kalan saniye) döner.
+
+    Neden: karar yazılamadığında (token/izin/geçici hata) nöbetçi her turda yeni bir Hermes
+    oturumu açıyordu → i5/i3 panolarında oturum sayısı sürekli artıyordu. Aynı commit'e
+    üstel artan bekleme uygulanır (10 dk → 20 → 40 → 60 dk tavan).
+    """
+    kayit = denemeler.get(anahtar(pr, sha))
+    if not kayit:
+        return False, 0
+    sayi = int(kayit.get("sayi", 1))
+    bekleme = min(BEKLEME_TABANI_S * (2 ** max(0, sayi - 1)), BEKLEME_TAVAN_S)
+    gecen = an - float(kayit.get("son", 0))
+    if gecen < bekleme:
+        return True, int(bekleme - gecen)
+    return False, 0
 
 
 def isler(gh: Github, rol: str, limit: int) -> list[dict]:
@@ -201,17 +238,56 @@ def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bo
 
 def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asimi: int,
             gunluk_yolu: Path | None) -> int:
-    is_listesi = isler(gh, rol, limit)
-    if not is_listesi:
-        gunluk(gunluk_yolu, f"{rol}: iş yok (0 oturum)")
-        gh.kaydet({"rol": rol, "is": 0, "son_karar": "bos"})
+    an = time.time()
+    bugun = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    bugun_sayi = int(gh.gunluk.get(bugun, 0))
+    if bugun_sayi >= GUNLUK_OTURUM_TAVANI:
+        gunluk(gunluk_yolu, f"{rol}: günlük oturum tavanı ({GUNLUK_OTURUM_TAVANI}) doldu → bugün yeni oturum yok")
+        gh.kaydet({"rol": rol, "is": 0, "son_karar": "tavan"})
         return 0
+
+    hepsi = isler(gh, rol, limit)
+    is_listesi: list[dict] = []
+    atlanan: list[tuple[dict, int]] = []
+    for is_ in hepsi:
+        bekle, kalan = beklemeli_mi(gh.denemeler, is_["pr"], is_["sha"], an)
+        (atlanan.append((is_, kalan)) if bekle else is_listesi.append(is_))
+    if atlanan:
+        gunluk(gunluk_yolu, f"{rol}: {len(atlanan)} PR beklemede — "
+                            + ", ".join(f"#{i['pr']} ({k}s)" for i, k in atlanan))
+    if not is_listesi:
+        if hepsi:
+            gh.kaydet({"rol": rol, "is": len(hepsi), "son_karar": "beklemede"})
+        else:
+            gunluk(gunluk_yolu, f"{rol}: iş yok (0 oturum)")
+            gh.kaydet({"rol": rol, "is": 0, "son_karar": "bos"})
+        return 0
+
     gunluk(gunluk_yolu, f"{rol}: {len(is_listesi)} iş → oturum açılıyor: "
                         + ", ".join(f"#{i['pr']}" for i in is_listesi))
     kod, cikti = hermes_calistir(depo, gorev_metni(rol, depo, is_listesi), rol, zaman_asimi, kuru)
     gunluk(gunluk_yolu, f"{rol}: oturum bitti (çıkış {kod})")
-    gh.kaydet({"rol": rol, "is": len(is_listesi), "son_karar": "calisti", "cikis": kod,
-               "prlar": [i["pr"] for i in is_listesi]})
+
+    # Sonuç: iş listesi hâlâ aynı PR'ları içeriyorsa karar YAZILAMAMIŞ demektir → beklemeyi artır.
+    if not kuru:
+        kalan = {anahtar(x["pr"], x["sha"]) for x in isler(gh, rol, limit)}
+        for is_ in is_listesi:
+            k = anahtar(is_["pr"], is_["sha"])
+            if k in kalan:
+                kayit = gh.denemeler.get(k, {"sayi": 0})
+                kayit["sayi"] = int(kayit.get("sayi", 0)) + 1
+                kayit["son"] = time.time()
+                gh.denemeler[k] = kayit
+            else:
+                gh.denemeler.pop(k, None)
+        gh.gunluk[bugun] = bugun_sayi + 1
+        for g in list(gh.gunluk):
+            if g != bugun:
+                gh.gunluk.pop(g)
+
+    gh.kaydet({"rol": rol, "is": len(is_listesi), "son_karar": "calisti" if not kuru else "kuru",
+               "cikis": kod, "prlar": [i["pr"] for i in is_listesi],
+               "bugun_oturum": int(gh.gunluk.get(bugun, 0))})
     if kod != 0 and cikti:
         gunluk(gunluk_yolu, "çıktı (son 600 karakter): " + cikti[-600:].replace("\n", " ⏎ "))
     return kod
@@ -225,6 +301,7 @@ def main() -> int:
     ayar.add_argument("--bir-kez", action="store_true", help="tek tur çalış ve çık (test)")
     ayar.add_argument("--kuru", action="store_true", help="oturum açma, görevi yazdır")
     ayar.add_argument("--durum", action="store_true", help="durum dosyasını yazdır ve çık")
+    ayar.add_argument("--tani", action="store_true", help="iş listesi + bekleyenler + günlük oturum sayısı")
     ayar.add_argument("--zaman-asimi", type=int, default=1200, help="oturum zaman aşımı sn")
     ayar.add_argument("--depo", type=Path, default=DEPO_VARSAYILAN)
     ayar.add_argument("--token", type=Path, default=TOKEN_VARSAYILAN)
@@ -245,6 +322,22 @@ def main() -> int:
                 print(f"  etag önbelleği : {len(deger)} adres")
             else:
                 print(f"  {anahtar:15s}: {deger}")
+        return 0
+
+    if secim.tani:
+        token = secim.token.read_text(encoding="utf-8").strip()
+        gh = Github(token, os.environ.get("GITHUB_DEPO", "hakkisabah/yourkiosk"), durum_yolu, gunluk_yolu)
+        hepsi = isler(gh, secim.rol, secim.limit)
+        an = time.time()
+        bugun = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        print(f"nöbetçi tanı · rol={secim.rol}")
+        print(f"  bugün açılan oturum : {gh.gunluk.get(bugun, 0)} (tavan {GUNLUK_OTURUM_TAVANI})")
+        print(f"  iş listesi          : {len(hepsi)} PR")
+        for is_ in hepsi:
+            bekle, kalan = beklemeli_mi(gh.denemeler, is_["pr"], is_["sha"], an)
+            durum = f"BEKLEMEDE ({kalan}s)" if bekle else "SIRADA"
+            kayit = gh.denemeler.get(anahtar(is_["pr"], is_["sha"]), {})
+            print(f"    #{is_['pr']:<3} {is_['sha'][:12]} · {durum} · deneme={kayit.get('sayi', 0)}")
         return 0
 
     if not secim.token.exists():
