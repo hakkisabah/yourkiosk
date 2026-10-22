@@ -103,6 +103,25 @@ docker compose down
 
 ---
 
+## Cihazda MQTT push'u açma (tek komut)
+
+Yerel veri modunda (`veri.kaynak = dosya`) cihaz, S3'teki ayarları okumaz → push ayarları cihazın
+kendi `ayarlar.json`'una yazılmalı. Araç bunu elle JSON düzenlemeden yapar:
+
+```bash
+cd kiosk
+.venv/bin/python tools/push_ayarla.py \
+    --broker yourkiosk.hakkisabah.com --kullanici cihaz --parola 'PAROLA' --dene
+```
+
+- `--dene` gerçek TLS bağlantısı kurar (sertifika/parola/host doğrulanır)
+- `--goster` mevcut ayarları (parola maskeli) yazdırır
+- `--kaldir` push'u kapatır (yoklama emniyet ağına döner)
+
+Sonra kiosk'u yeniden başlat → `tools/tarayici_kiosk.py --tani` çıktısında `MQTT push … bağlı ✓`.
+
+---
+
 ## Sorun giderme (kısa)
 
 | Belirti | Bak |

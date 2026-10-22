@@ -37,7 +37,6 @@ import socketserver
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -261,9 +260,17 @@ def tani_raporu(client_id: str, port: int | None = None) -> list[str]:
     try:
         from core import push as push_modulu
 
+        if push_modulu.acik():
+            # Raporda GERÇEK durumu göster: kısa bir bağlantı denemesi yap (kiosk başlarken
+            # nasıl davranacağını burada görürüz). İş parçacığı süreçle birlikte biter.
+            push_modulu.baslat()
+            for _ in range(12):
+                if push_modulu.durum().get("bagli"):
+                    break
+                time.sleep(0.25)
         d = push_modulu.durum()
         if push_modulu.acik():
-            durum = "bağlı ✓" if d.get("bagli") else f"BAĞLI DEĞİL ({d.get('hata') or 'henüz denemedi'})"
+            durum = "bağlı ✓" if d.get("bagli") else f"BAĞLI DEĞİL ({d.get('hata') or 'bağlantı kurulamadı'})"
             satirlar.append(f"MQTT push       : açık · {push_modulu.broker()} · konu={push_modulu.konu()} · {durum}")
         else:
             satirlar.append("MQTT push       : kapalı (yoklama emniyet ağı kullanılıyor)")
