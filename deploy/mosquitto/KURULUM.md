@@ -151,3 +151,87 @@ sudo bash kur.sh --host yourkiosk.hakkisabah.com --eposta siz@example.com
 
 - Sonuç: `wss://yourkiosk.hakkisabah.com:8084/mqtt` (panel) ve `yourkiosk.hakkisabah.com:8883`
   (cihazlar) — ücretsiz ve otomatik yenilenen gerçek sertifika. `nip.io` yalnız domain yoksa pratiktir.
+
+---
+
+## 9. AWS Lightsail ile kurulum (seçilen yol · $5/ay)
+
+### 9.1 Instance oluştur (konsol)
+
+1. AWS Konsol → **Lightsail** → **Create instance**
+2. **Region**: `Frankfurt, eu-central-1` (S3/CloudFront ile aynı bölge, TR'ye ~50 ms)
+3. **Platform**: Linux/Unix · **Blueprint**: *OS Only* → **Ubuntu 24.04 LTS**
+4. **Plan**: **$5/ay** (1 GB RAM · 2 vCPU · 40 GB SSD · **2 TB transfer**)
+5. **Name**: `yourkiosk-mqtt` → Create
+
+> 600 TLS bağlantısı için 1 GB RAM fazlasıyla yeter (mosquitto bağlantı başına ~10–20 KB).
+
+### 9.2 Statik IP (ZORUNLU)
+
+Lightsail'in IP'si **instance durdurulup başlatılınca değişir** → DNS ve sertifika kırılır.
+**Networking → Static IPs → Create static IP** → instance'a bağla (bağlıyken ücretsiz).
+Not al: `<STATIK_IP>`.
+
+### 9.3 Güvenlik duvarı (Lightsail'in kendi paneli)
+
+**Networking → IPv4 Firewall** → şu kuralları ekle:
+
+| Uygulama | Protokol | Port |
+|---|---|---|
+| SSH | TCP | 22 |
+| HTTP | TCP | **80** (Let's Encrypt) |
+| Custom | TCP | **8883** (MQTT/TLS) |
+| Custom | TCP | **8084** (WebSocket/TLS — panel) |
+
+> Burada açılmayan port sunucuda `ufw`'de açık olsa bile **dışarıdan erişilemez**.
+
+### 9.4 DNS
+
+`hakkisabah.com` DNS panelinde (Route53 ya da registrar):
+
+```
+Tip: A   Ad: yourkiosk   Değer: <STATIK_IP>   TTL: 300
+```
+
+Kontrol: `dig +short yourkiosk.hakkisabah.com` → `<STATIK_IP>`
+
+### 9.5 SSH + kurulum
+
+```bash
+# kendi makinenizden
+chmod 600 ~/Downloads/LightsailDefaultKey-*.pem
+ssh -i ~/Downloads/LightsailDefaultKey-*.pem ubuntu@<STATIK_IP>
+
+# sunucuda
+sudo apt-get update -qq && sudo apt-get install -y -qq git
+git clone https://github.com/hakkisabah/yourkiosk.git
+cd yourkiosk
+sudo bash deploy/mosquitto/kur.sh --host yourkiosk.hakkisabah.com --eposta siz@example.com
+```
+
+Betik sonunda iki parolayı basar ve `/root/yourkiosk-mqtt-credentials.txt` (0600) dosyasına yazar.
+
+### 9.6 Doğrulama (kendi makinenizden)
+
+```bash
+MQTT_PAROLA_PANEL=… MQTT_PAROLA_CIHAZ=… \
+  bash deploy/mosquitto/dogrula.sh yourkiosk.hakkisabah.com
+```
+
+Beklenen: TLS ✓ · panel yayını ✓ · cihaz aboneliği ✓ · **cihaz yayını RED** ✓ · anonim RED ✓ · 1883 kapalı ✓
+
+### 9.7 Devamı
+
+1. Panel `.env.local`: `VITE_MQTT_URL=wss://yourkiosk.hakkisabah.com:8084/mqtt` (+ konu/kullanıcı/parola) → `./panel/infra/yayinla.sh`
+2. Cihazlarda `pip install paho-mqtt`
+3. Panel → Tetikleme: `push_aktif=true` · `push_broker=yourkiosk.hakkisabah.com` · `push_port=8883` · `push_kullanici=cihaz` · `push_parola=…` · `kontrol_ms=300000`
+4. (Öneri) Lightsail → **Snapshots** → otomatik snapshot aç (yapılandırma yeniden üretilebilir, ama geri dönüş hızlı olur)
+
+### 9.8 Maliyet
+
+| Kalem | Aylık |
+|---|---|
+| Lightsail $5 planı | $5,00 |
+| Statik IP (instance'a bağlı) | $0 |
+| Trafik (2 TB dahil; broker trafiği ~MB) | $0 |
+| **Toplam** | **~$5** (3 sn yoklama $596 · 20 sn $89 ile karşılaştır) |
