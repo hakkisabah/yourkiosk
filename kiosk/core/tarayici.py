@@ -339,7 +339,7 @@ def degisiklik_imzasi() -> str:
     return "|".join(parcalar)
 
 
-def degisiklik_bekle(imza: str, sure_s: float, izinli: bool = True) -> dict:
+def degisiklik_bekle(imza: str, sure_s: float, izinli: bool = True, uzak_kaynak: bool = False) -> dict:
     """`imza` değişene kadar (en fazla `sure_s`) bekler; değişiklik bilgisini döner.
 
     Tarayıcıya SSE yerine **tek istek** (uzun yoklama) sunulur: kurulum gerektirmez,
@@ -355,8 +355,19 @@ def degisiklik_bekle(imza: str, sure_s: float, izinli: bool = True) -> dict:
     if not imza or imza != ilk:
         return {"degisti": True, "imza": ilk, "tetik": tetik_oku(), "damga": lastupdate_damgasi()}
     bitis = time.monotonic() + max(0.0, sure_s)
+    # https modunda veri UZAKTA: yerel `tetikle.json` ancak indirilince imza değişir. Uzun yoklama
+    # sırasında tetikleyiciyi KENDİMİZ çekiyoruz; aksi hâlde yenileme arka plan turunu (20 sn)
+    # bekliyordu — "anlık" beklentisini karşılamıyordu.
+    kontrol_s = max(1.0, float(getattr(config, "TETIK_KONTROL_MS", 3000)) / 1000.0)
+    sonraki_cekim = time.monotonic() + kontrol_s
     while time.monotonic() < bitis:
         time.sleep(0.4)
+        if uzak_kaynak and time.monotonic() >= sonraki_cekim:
+            sonraki_cekim = time.monotonic() + kontrol_s
+            try:
+                tetik_modulu.getir()
+            except Exception:  # noqa: BLE001 - ağ hatası yoklamayı durdurmamalı
+                log.debug("tetikleyici çekilemedi", exc_info=True)
         simdi = degisiklik_imzasi()
         if simdi != ilk:
             return {"degisti": True, "imza": simdi, "tetik": tetik_oku(), "damga": lastupdate_damgasi()}
@@ -551,7 +562,10 @@ class _IstekIsleyici(http.server.BaseHTTPRequestHandler):
         except ValueError:
             sure = float(getattr(config, "DEGISIKLIK_BEKLEME_S", 30))
         sure = max(0.0, min(sure, float(getattr(config, "DEGISIKLIK_BEKLEME_S", 30))))
-        veri = degisiklik_bekle(imza, sure, tetik_modulu.otomatik_acik("tarayici"))
+        uzak = str(getattr(config, "WEB_VERI_MODU", "yerel")).lower() == "https" or str(
+            getattr(config, "KAYNAK", "dosya")
+        ).lower() == "https"
+        veri = degisiklik_bekle(imza, sure, tetik_modulu.otomatik_acik("tarayici"), uzak)
         govde = json.dumps(veri, ensure_ascii=False).encode("utf-8")
         self._govde_gonder(govde, "application/json; charset=utf-8", "no-store")
 

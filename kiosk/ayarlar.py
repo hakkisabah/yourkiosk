@@ -77,6 +77,7 @@ KURALLAR: dict[tuple[str, str], tuple] = {
     ("calistirma", "web_sunucu_portu"): ("WEB_SUNUCU_PORTU", int, 1024, 65535),
     ("tetik", "aktif"): ("TETIK_AKTIF", bool, None, None),
     ("tetik", "modlar"): ("TETIK_MODLAR", "liste", None, None),
+    ("tetik", "kontrol_ms"): ("TETIK_KONTROL_MS", int, 1000, 60000),
     ("calistirma", "web_veri_modu"): ("WEB_VERI_MODU", "secim", ("yerel", "https"), None),
     ("calistirma", "web_yenileme_ms"): ("WEB_YENILEME_MS", int, 5000, 3600000),
     # ---- nöbet değişikliğini anında yansıtma (tetikleyici) ----
@@ -135,6 +136,7 @@ ACIKLAMALAR: dict[str, str] = {
     "calistirma.web_sunucu_adresi": "Yerel sunucu adresi (varsayılan 127.0.0.1 — yalnızca cihazdan erişilir)",
     "calistirma.web_sunucu_portu": "Yerel sunucu portu",
     "tetik.aktif": "Panel bir yayın yaptığında cihaz BEKLEMEDEN yenilensin mi (kapalıysa normal aralıkta yenilenir)",
+    "tetik.kontrol_ms": "https modunda tetikleyicinin kaç ms'de bir yoklanacağı (küçük = daha anlık, daha çok istek)",
     "tetik.modlar": "Oto tetiklemenin geçerli olacağı modlar: 'qt' (masaüstü), 'tarayici' (Chromium kiosk). Boş bırakılırsa hiçbir modda tetiklenmez",
     "calistirma.web_veri_modu": "Tarayıcı modunda veri kaynağı: 'yerel' (cihazdaki dosyalar) veya 'https' (DOSYA_ADRESI)",
     "calistirma.web_yenileme_ms": "Tarayıcının veriyi yeniden kontrol etme aralığı (ms)",

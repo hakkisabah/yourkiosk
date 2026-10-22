@@ -142,6 +142,7 @@ WEB_SUNUCU_PORTU = 8090
 # ---- Tetikleme (panel yayını → cihaz anında yenilenme)
 TETIK_AKTIF = True                       # False: panel tetikleyicisi yok sayılır (normal aralıkta güncellenir)
 TETIK_MODLAR = ("qt", "tarayici")        # oto tetiklemenin geçerli olduğu çalışma modları
+TETIK_KONTROL_MS = 3000                  # https modunda tetikleyici kaç ms'de bir yoklanır (anlık yenileme)        # oto tetiklemenin geçerli olduğu çalışma modları
 
 WEB_VERI_MODU = "yerel"                   # "yerel": veri dosyaları yerel sunucudan | "https": DOSYA_ADRESI
 WEB_YENILEME_MS = 60000                   # sayfanın veriyi kontrol etme aralığı (kiosk: saatlik timer)

@@ -633,6 +633,19 @@
             "tarayici"
           ],
           "gelismis": false
+        },
+        {
+          "ad": "kontrol_ms",
+          "tam": "tetik.kontrol_ms",
+          "tip": "int",
+          "etiket": "Kontrol ms",
+          "aciklama": "https modunda tetikleyicinin kaç ms'de bir yoklanacağı (küçük = daha anlık, daha çok istek)",
+          "birim": "",
+          "alt": 1000,
+          "ust": 60000,
+          "izinli": null,
+          "varsayilan": 3000,
+          "gelismis": false
         }
       ]
     },
