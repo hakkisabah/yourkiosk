@@ -155,3 +155,41 @@ def test_zorla_yukleme_damga_ayni_olsa_da_yeniler(monkeypatch) -> None:
     # TETİKLEYİCİ yolu: damga aynı olsa da zorla okunur
     isleyici.load_data(zorla=True)
     assert cagrilar["sistem"] == ilk + 1
+
+
+# ---------------------------------------------------------------- oto tetikleme ayarı
+def test_otomatik_acik_varsayilan_iki_modda_da_acik(monkeypatch) -> None:
+    from core import tetik
+
+    monkeypatch.setattr(config, "TETIK_AKTIF", True, raising=False)
+    monkeypatch.setattr(config, "TETIK_MODLAR", ("qt", "tarayici"), raising=False)
+    assert tetik.otomatik_acik("qt") is True
+    assert tetik.otomatik_acik("tarayici") is True
+    assert tetik.otomatik_acik("TARAYICI") is True  # büyük/küçük harf duyarsız
+
+
+def test_otomatik_acik_kapaliysa_hicbir_modda_tetiklenmez(monkeypatch) -> None:
+    from core import tetik
+
+    monkeypatch.setattr(config, "TETIK_AKTIF", False, raising=False)
+    monkeypatch.setattr(config, "TETIK_MODLAR", ("qt", "tarayici"), raising=False)
+    assert tetik.otomatik_acik("qt") is False
+    assert tetik.otomatik_acik("tarayici") is False
+
+
+def test_otomatik_acik_yalnizca_secili_modlarda(monkeypatch) -> None:
+    from core import tetik
+
+    monkeypatch.setattr(config, "TETIK_AKTIF", True, raising=False)
+    monkeypatch.setattr(config, "TETIK_MODLAR", ("qt",), raising=False)
+    assert tetik.otomatik_acik("qt") is True
+    assert tetik.otomatik_acik("tarayici") is False
+
+
+def test_otomatik_acik_bos_liste_hicbir_mod(monkeypatch) -> None:
+    from core import tetik
+
+    monkeypatch.setattr(config, "TETIK_AKTIF", True, raising=False)
+    monkeypatch.setattr(config, "TETIK_MODLAR", (), raising=False)
+    assert tetik.otomatik_acik("qt") is False
+    assert tetik.otomatik_acik("tarayici") is False

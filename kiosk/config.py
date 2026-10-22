@@ -139,6 +139,10 @@ TARAYICI_YENIDEN_BASLAT_S = 5             # tarayıcı kapanırsa kaç saniye so
 WEB_KLASORU = "web"                       # HTML/JS arayüzünün bulunduğu klasör (proje kökü altında)
 WEB_SUNUCU_ADRESI = "127.0.0.1"           # yerel sunucu (yalnızca bu makineden erişilir)
 WEB_SUNUCU_PORTU = 8090
+# ---- Tetikleme (panel yayını → cihaz anında yenilenme)
+TETIK_AKTIF = True                       # False: panel tetikleyicisi yok sayılır (normal aralıkta güncellenir)
+TETIK_MODLAR = ("qt", "tarayici")        # oto tetiklemenin geçerli olduğu çalışma modları
+
 WEB_VERI_MODU = "yerel"                   # "yerel": veri dosyaları yerel sunucudan | "https": DOSYA_ADRESI
 WEB_YENILEME_MS = 60000                   # sayfanın veriyi kontrol etme aralığı (kiosk: saatlik timer)
 

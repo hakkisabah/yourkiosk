@@ -42,6 +42,22 @@ def dosya_yolu() -> Path:
     return PROJE_KOK / str(getattr(config, "TETIK_DOSYASI", "tetikle.json"))
 
 
+#: Geçerli mod adları (ayar doğrulaması ve panel için tek kaynak)
+MODLAR = ("qt", "tarayici")
+
+
+def otomatik_acik(mod: str) -> bool:
+    """Bu modda oto tetikleme açık mı?
+
+    `tetik.aktif = false` → hiçbir modda (cihaz normal aralıkta yenilenir).
+    `tetik.modlar` → yalnızca listede olan modlar (ör. yalnız `qt`).
+    """
+    if not bool(getattr(config, "TETIK_AKTIF", True)):
+        return False
+    modlar = {str(x).strip().lower() for x in (getattr(config, "TETIK_MODLAR", MODLAR) or ())}
+    return mod.lower() in modlar
+
+
 def oku() -> dict | None:
     """Tetikleyiciyi okur; dosya yok/bozuksa ya da `zaman` alanı yoksa None."""
     yol = dosya_yolu()

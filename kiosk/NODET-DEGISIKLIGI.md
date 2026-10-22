@@ -103,3 +103,29 @@ python3 tools/nobet_tetikle.py --sil                      # tetikleyiciyi kaldı
   Kurulum ve kullanım: **[KOMUTLAR.md](KOMUTLAR.md)** (`core/komut.py`, `tools/komut_gonder.py`).
   Cihaz tarafı: Qt'de `pharmacy_app.tetik_kontrol → uzak_kontrol`, tarayıcı modunda süpervizörün
   `uzak-kontrol` iş parçacığı (`core/tarayici.py::uzak_kontrol_bir_tur`).
+
+---
+
+## Oto tetikleme ayarı (`tetik` grubu)
+
+| Anahtar | Tip | Varsayılan | Anlamı |
+|---|---|---|---|
+| `tetik.aktif` | bool | `true` | Panel yayını cihazı **beklemeden** yenilesin mi |
+| `tetik.modlar` | liste | `["qt", "tarayici"]` | Oto tetiklemenin geçerli olacağı modlar |
+
+### Davranış
+
+1. **Panel:** ekranda görüneni değiştiren her dosya yazıldıktan sonra `tetikle.json` yazılır —
+   `ayarlar.json`, `kapsam-ayarlari.json`, `sablon.json`, `lastSystemData.json`, `match.json`,
+   `lastupdate.json`. (Önceden yalnız "Nöbet ve Yayınlar" ekranındaki elle "Bildir" düğmesi yazıyordu.)
+2. **Cihaz:** `tetik.aktif = true` **ve** cihazın modu `tetik.modlar` içindeyse hemen yenilenir —
+   Qt `DAMGA_KONTROL_MS` (≈20 sn) içinde, tarayıcı `/degisiklik` uzun yoklamasıyla tipik **<1 sn**.
+3. **Kapalı / mod listede değil:** anında yenileme yok; cihaz normal aralıkta güncellenir
+   (Qt `data_timer`, tarayıcı `web_yenileme_ms`). `/degisiklik` nabız gibi döner (sıcak döngü yok).
+4. **Uzaktan komutlar** (`komut.json`) bu ayardan **bağımsızdır** (ayrı beyaz liste + HMAC).
+
+### Sınır
+
+Qt ayarları **açılışta** okur: `ayarlar.json` değişikliği (ör. `tetik.aktif`) için yeniden başlatma
+gerekir. **Veri/yayın** değişiklikleri tetikleyici ile anında gelir. Tarayıcı modunda sayfa
+yenilenince ayarlar da tazelenir.

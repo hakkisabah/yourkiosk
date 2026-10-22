@@ -114,6 +114,11 @@ class PharmacyApp(QMainWindow):
         # UZAKTAN KOMUT + küçük dosya senkronu (her turda; hızlı ve ucuz)
         self.uzak_kontrol()
 
+        # OTO TETİKLEME KAPALI ise yayın değişikliğinde ANINDA yenilenme yapılmaz;
+        # cihaz normal aralıkta (`data_timer`) güncellenir. Uzaktan komutlar yine çalışır.
+        if not tetik_modulu.otomatik_acik("qt"):
+            return
+
         try:
             damga = veri_kaynagi.lastupdate_taze()
         except Exception:  # noqa: BLE001 - denetim hatası gösterimi durdurmamalı

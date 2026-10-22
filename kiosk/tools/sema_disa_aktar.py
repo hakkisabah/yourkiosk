@@ -33,6 +33,7 @@ GRUP_BASLIKLARI = {
     "ag": "Ağ (güvenlik)",
     "gelismis": "Gelişmiş (veri hacmi)",
     "onbellek": "Önbellek (maliyet + performans)",
+    "tetik": "Tetikleme (oto yenileme)",
     "calistirma": "Çalıştırma modu (Qt / tarayıcı)",
 }
 
@@ -52,6 +53,8 @@ ETIKETLER = {
     "kusak.tekli": "Tek tek göster",
     "gorunum.sol_panel_satir": "Sol panel taban satır sayısı",
     "veri.kaynak": "Veri kaynağı türü",
+    "tetik.aktif": "Oto tetikleme",
+    "tetik.modlar": "Oto tetikleme modları",
     "veri.dosya_adresi": "Dosya adresi",
     "ag.izinli_hostlar": "İzinli ana makineler",
     "ag.izinli_portlar": "İzinli portlar",

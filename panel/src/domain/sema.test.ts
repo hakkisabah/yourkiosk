@@ -13,7 +13,7 @@ const okuJson = (yol: string): Record<string, unknown> =>
 
 describe('sema', () => {
   it('kiosk şemasından üretilmiş ve dolu', () => {
-    expect(gruplar.map((g) => g.ad)).toEqual(["ozellikler", "kusak", "gorunum", "veri", "ag", "gelismis", "onbellek", "calistirma"])
+    expect(gruplar.map((g) => g.ad)).toEqual(["ozellikler", "kusak", "gorunum", "veri", "ag", "gelismis", "onbellek", "tetik", "calistirma"])
     expect(tumAnahtarlar.length).toBeGreaterThanOrEqual(52)
     expect(kapsamGruplari).toEqual(["ozellikler", "kusak", "gorunum", "gelismis", "onbellek"])
   })
