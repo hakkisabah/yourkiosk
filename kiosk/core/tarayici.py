@@ -42,6 +42,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import config
+from core import tetik as tetik_modulu
 
 log = logging.getLogger("kiosk.tarayici")
 
@@ -338,13 +339,18 @@ def degisiklik_imzasi() -> str:
     return "|".join(parcalar)
 
 
-def degisiklik_bekle(imza: str, sure_s: float) -> dict:
+def degisiklik_bekle(imza: str, sure_s: float, izinli: bool = True) -> dict:
     """`imza` değişene kadar (en fazla `sure_s`) bekler; değişiklik bilgisini döner.
 
     Tarayıcıya SSE yerine **tek istek** (uzun yoklama) sunulur: kurulum gerektirmez,
     kopan bağlantıda arayüz kendi kendine yeniden kurar. Süre dolduğunda `degisti: false`
     döner (nabız) ve arayüz yeni bir istek açar.
     """
+    if not izinli:
+        # `tetik.aktif = false` ya da bu mod `tetik.modlar` içinde değil: arayüz ANINDA
+        # yenilenmesin. İstek hemen dönmesin (sıcak döngü olur) — kısa bir nabız kadar beklenir.
+        time.sleep(min(max(float(sure_s or 0), 1.0), 10.0))
+        return {"degisti": False, "imza": degisiklik_imzasi(), "tetik": None, "damga": lastupdate_damgasi()}
     ilk = degisiklik_imzasi()
     if not imza or imza != ilk:
         return {"degisti": True, "imza": ilk, "tetik": tetik_oku(), "damga": lastupdate_damgasi()}
@@ -545,7 +551,7 @@ class _IstekIsleyici(http.server.BaseHTTPRequestHandler):
         except ValueError:
             sure = float(getattr(config, "DEGISIKLIK_BEKLEME_S", 30))
         sure = max(0.0, min(sure, float(getattr(config, "DEGISIKLIK_BEKLEME_S", 30))))
-        veri = degisiklik_bekle(imza, sure)
+        veri = degisiklik_bekle(imza, sure, tetik_modulu.otomatik_acik("tarayici"))
         govde = json.dumps(veri, ensure_ascii=False).encode("utf-8")
         self._govde_gonder(govde, "application/json; charset=utf-8", "no-store")
 

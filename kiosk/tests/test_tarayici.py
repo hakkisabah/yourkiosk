@@ -638,3 +638,15 @@ def test_tani_raporu_cihaz_verisi_eksikse_cozum_yazar(tmp_path, monkeypatch) -> 
     assert "fetch_nobet.py" in metin
     assert "cp /eski/kurulum" in metin
 
+
+
+def test_degisiklik_bekle_izinli_degilse_hemen_doner(monkeypatch) -> None:
+    """`tetik.aktif=false` / mod listede değil → arayüz anında yenilenmez; istek nabız gibi döner."""
+    import time as _zaman
+
+    basla = _zaman.monotonic()
+    veri = tarayici.degisiklik_bekle("eski-imza", 0.2, izinli=False)
+    gecen = _zaman.monotonic() - basla
+    assert veri["degisti"] is False
+    assert veri["tetik"] is None
+    assert gecen < 5  # sıcak döngü yok, ama hemen de dönmüyor

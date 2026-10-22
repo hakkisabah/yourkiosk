@@ -6,6 +6,7 @@ import { defineStore } from 'pinia'
 
 import { DOSYALAR } from '@/aws/config'
 import { okumaPlani } from '@/domain/dosyaSecimi'
+import { tetikBelgesi, tetikGerekir } from '@/domain/tetik'
 import type { VeriKaynagi } from '@/aws/veriKaynagi'
 import type { KapsamBelgesi } from '@/domain/kapsam'
 import type { SistemVerisi } from '@/domain/veri'
@@ -144,6 +145,15 @@ export const useDosyalar = defineStore('dosyalar', {
         hedef.veri = veri
         hedef.etag = sonuc.etag
         hedef.yuklendi = true
+        // Ekranda görüneni değiştiren her yayın cihazı tetikler (cihazda `tetik.aktif` /
+        // `tetik.modlar` ile filtrelenir). Tetik yazılamazsa kayıt yine geçerli sayılır.
+        if (tetikGerekir(ad)) {
+          try {
+            await baglan.kaynak.yaz('tetikle.json', tetikBelgesi(ad))
+          } catch {
+            /* tetikleyici yazılamadı: cihaz normal aralıkta güncellenir */
+          }
+        }
         this.sonBasari = `${ad} kaydedildi (${sonuc.anahtar})`
         return true
       } catch (hata) {

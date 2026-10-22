@@ -601,6 +601,42 @@
       ]
     },
     {
+      "ad": "tetik",
+      "baslik": "Tetikleme (oto yenileme)",
+      "kapsam": false,
+      "anahtarlar": [
+        {
+          "ad": "aktif",
+          "tam": "tetik.aktif",
+          "tip": "bool",
+          "etiket": "Oto tetikleme",
+          "aciklama": "Panel bir yayın yaptığında cihaz BEKLEMEDEN yenilensin mi (kapalıysa normal aralıkta yenilenir)",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": true,
+          "gelismis": false
+        },
+        {
+          "ad": "modlar",
+          "tam": "tetik.modlar",
+          "tip": "liste",
+          "etiket": "Oto tetikleme modları",
+          "aciklama": "Oto tetiklemenin geçerli olacağı modlar: 'qt' (masaüstü), 'tarayici' (Chromium kiosk). Boş bırakılırsa hiçbir modda tetiklenmez",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": [
+            "qt",
+            "tarayici"
+          ],
+          "gelismis": false
+        }
+      ]
+    },
+    {
       "ad": "calistirma",
       "baslik": "Çalıştırma modu (Qt / tarayıcı)",
       "kapsam": false,
