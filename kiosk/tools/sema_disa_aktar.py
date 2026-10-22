@@ -132,7 +132,6 @@ def sema() -> dict:
                 "gelismis.max_json_dugum",
                 "gelismis.max_gorsel_bayt",
                 "gelismis.max_gorsel_piksel",
-                "ag.izinli_hostlar",
                 "ag.izinli_portlar",
             },
         }

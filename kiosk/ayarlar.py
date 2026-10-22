@@ -119,6 +119,7 @@ ACIKLAMALAR: dict[str, str] = {
     "gorunum.kaydirma_cubugu_genislik": "Sol panel kaydırma çubuğu genişliği (px, 0 = gizli)",
     "gorunum.kaydirma_cubugu_renk": "Kaydırma çubuğu rayının rengi (#rrggbb)",
     "gorunum.kaydirma_tutamak_renk": "Kaydırma çubuğu tutamağının rengi (#rrggbb)",
+    "ag.izinli_hostlar": "HTTPS veri kaynağı için izinli ana makineler (virgülle). Örn: d2dnrvsx5eevod.cloudfront.net, kocaelieo.org.tr",
     "veri.kaynak": "Verinin nereden okunacağı: 'dosya' = cihazdaki JSON dosyaları, 'https' = Dosya adresi'ndeki sunucu",
     "veri.dosya_adresi": "Verinin çekileceği taban adres — sonunda / olmalı (ör. https://d2dnrvsx5eevod.cloudfront.net/). 'Veri kaynağı türü' https seçilince kullanılır",
     "calistirma.mod": "Gösterim modu: 'qt' (PyQt6 penceresi) veya 'tarayici' (Chromium kiosk)",

@@ -31,6 +31,20 @@ def test_url_veri_modu_ve_port() -> None:
     assert ":1234/" in adres
 
 
+def test_url_https_modunda_taban_adresi_yazilir(monkeypatch) -> None:
+    """https modunda sayfa veriyi DOSYA_ADRESI'nden çekmeli; `taban` yoksa yerel dosyaya düşüyordu."""
+    monkeypatch.setattr(tarayici.config, "DOSYA_ADRESI", "https://d2dnrvsx5eevod.cloudfront.net/")
+    adres = tarayici.url_olustur("C1", "https")
+    assert "veri=https" in adres
+    assert "taban=https%3A%2F%2Fd2dnrvsx5eevod.cloudfront.net" in adres
+    assert adres.split("taban=")[1] == "https%3A%2F%2Fd2dnrvsx5eevod.cloudfront.net"  # sondaki / atıldı
+
+
+def test_url_https_modunda_adres_yoksa_taban_eklenmez(monkeypatch) -> None:
+    monkeypatch.setattr(tarayici.config, "DOSYA_ADRESI", "")
+    assert "taban=" not in tarayici.url_olustur("C1", "https")
+
+
 def test_url_kimlik_kacisli_yazilir() -> None:
     adres = tarayici.url_olustur("a b&c")
     assert "clientID=a+b%26c" in adres
