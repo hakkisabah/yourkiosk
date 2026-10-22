@@ -69,10 +69,12 @@ chmod 755 /etc/letsencrypt/renewal-hooks/deploy/yourkiosk-mosquitto.sh
 echo "=== 5/8 kullanıcılar (parolalar üretiliyor) ==="
 PAROLA_PANEL="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
 PAROLA_CIHAZ="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
-install -m 700 -o root -g root -d /etc/mosquitto/auth
+# mosquitto kullanıcısı dizine GİREBİLMELİ (0700 root:root olsaydı pwfile açılamazdı)
+install -m 750 -o mosquitto -g mosquitto -d /etc/mosquitto/auth
 mosquitto_passwd -b -c /etc/mosquitto/auth/passwd panel "$PAROLA_PANEL"
 mosquitto_passwd -b /etc/mosquitto/auth/passwd cihaz "$PAROLA_CIHAZ"
-chown mosquitto:mosquitto /etc/mosquitto/auth/passwd
+# mosquitto 2.x parola dosyasının SAHİBİNİN root olmasını bekler (uyarı → ileride hata)
+chown root:mosquitto /etc/mosquitto/auth/passwd
 chmod 640 /etc/mosquitto/auth/passwd
 
 echo "=== 6/8 ACL (panel yazar, cihaz okur) ==="
@@ -119,7 +121,7 @@ acl_file      /etc/mosquitto/auth/acl
 message_size_limit 1024
 persistence false
 
-log_dest file /var/log/mosquitto/mosquitto.log
+# log_dest Ubuntu'nun varsayılan mosquitto.conf'unda zaten tanımlı → TEKRAR ETME (Duplicate hatası)
 log_type error
 log_type warning
 log_type notice
@@ -131,6 +133,32 @@ systemctl enable mosquitto >/dev/null 2>&1
 systemctl restart mosquitto
 sleep 2
 systemctl is-active --quiet mosquitto && echo "  ✓ mosquitto çalışıyor" || { echo "  ✗ mosquitto başlamadı"; journalctl -u mosquitto -n 30 --no-pager; exit 1; }
+
+cat > /root/yourkiosk-mqtt-credentials.txt <<EOF
+yourkiosk MQTT (güvenli)
+host      : $HOST
+port      : 8883 (MQTT/TLS) · 8084 (WebSocket/TLS — panel)
+konu      : yourkiosk/yayin
+
+panel (yalnız yazar) : panel / $PAROLA_PANEL
+cihaz (yalnız okur)  : cihaz / $PAROLA_CIHAZ
+
+Panel .env.local:
+  VITE_MQTT_URL=wss://$HOST:8084/mqtt
+  VITE_MQTT_KONU=yourkiosk/yayin
+  VITE_MQTT_KULLANICI=panel
+  VITE_MQTT_PAROLA=<panel parolası>
+
+Cihaz ayarları (tetik grubu):
+  tetik.push_aktif=true
+  tetik.push_broker=$HOST
+  tetik.push_port=8883
+  tetik.push_konu=yourkiosk/yayin
+  tetik.push_kullanici=cihaz
+  tetik.push_parola=<cihaz parolası>
+  tetik.kontrol_ms=300000
+EOF
+chmod 600 /root/yourkiosk-mqtt-credentials.txt
 
 echo "=== 9/9 bağlantı testi (kendine TLS) ==="
 mosquitto_pub -h 127.0.0.1 -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
