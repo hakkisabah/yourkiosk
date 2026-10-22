@@ -2,7 +2,7 @@
  * VERİ KAYNAĞI (tarayıcı) — Qt `core/veri_kaynagi.py` ile aynı dosyalar ve aynı kurallar.
  *
  * · `veri=yerel`  → dosyalar cihazdaki yerel sunucudan (aynı kaynak; `lastSystemData.json` …)
- * · `veri=https`  → büyük veri dosyaları `taban` adresinden (ör. https://sunucu/veri)
+ * · `veri=https`  → veri VE ayarlar `taban` adresinden (ör. https://sunucu/veri); çevrimdışıysa önbellek/yerel
  *
  * Ayarlar (`ayarlar.json`, `kapsam-ayarlari.json`) HER ZAMAN yerel kaynaktan okunur —
  * Qt sürümünde de bu dosyalar cihazın kendi diskinden okunur.
@@ -15,6 +15,14 @@ import type { SistemVerisi } from './nobet'
 import { sabit } from '@/stiller/olcu'
 
 export type VeriModu = 'yerel' | 'https'
+
+/** Ayarların son iyi kopyası (bellek + localStorage). Çevrimdışı açılışta kullanılır. */
+const AYAR_BELLEK = new Map<string, string>()
+
+/** Testler/diagnostik için: ayar önbelleğini boşalt. */
+export function ayarOnbellegiTemizle(): void {
+  AYAR_BELLEK.clear()
+}
 
 /** Panelin yazdığı tetikleyici (nöbet değişikliği bildirimi). */
 export interface TetikBilgisi {
@@ -171,10 +179,57 @@ export class VeriKaynagi {
     }
   }
 
-  /** Ayarlar her zaman yerel kaynaktan (Qt: cihazın kendi dosyası). */
+  /**
+   * Ayar belgesi.
+   *
+   * `veri=https` → **yayınlanmış** ayarlar (`DOSYA_ADRESI`) okunur; panelden yapılan değişiklikler
+   * cihaza ulaşır. Uzak okunamazsa (çevrimdışı / 403 / bozuk JSON) sırayla:
+   * `localStorage` kopyası → yerel dosya → varsayılan. Böylece cihaz çevrimdışıyken ayarsız kalmaz.
+   */
   async ayarBelgesi(ad: string): Promise<Record<string, unknown> | null> {
     if (!(AYAR_DOSYALARI as readonly string[]).includes(ad)) return null
+    if (this.ayar.secenekler.veri === 'https') {
+      const uzak = await this._json<Record<string, unknown>>(`${this.veriTaban()}/${ad}`)
+      if (uzak) {
+        this.ayarOnbellekYaz(ad, uzak)
+        return uzak
+      }
+      const yerelKopya = this.ayarOnbellekOku(ad)
+      if (yerelKopya) return yerelKopya
+    }
     return this._json<Record<string, unknown>>(`${this.yerel}/${ad}`)
+  }
+
+  private ayarOnbellekAnahtari(ad: string): string {
+    return `yourkiosk:ayar:${ad}`
+  }
+
+  private ayarOnbellekYaz(ad: string, belge: Record<string, unknown>): void {
+    const metin = JSON.stringify(belge)
+    AYAR_BELLEK.set(ad, metin)
+    try {
+      localStorage.setItem(this.ayarOnbellekAnahtari(ad), metin)
+    } catch {
+      /* depolama kapalı/dolu: bellek kopyası yine de var */
+    }
+  }
+
+  private ayarOnbellekOku(ad: string): Record<string, unknown> | null {
+    let ham: string | null = AYAR_BELLEK.get(ad) ?? null
+    if (!ham) {
+      try {
+        ham = localStorage.getItem(this.ayarOnbellekAnahtari(ad))
+      } catch {
+        ham = null
+      }
+    }
+    if (!ham) return null
+    try {
+      const belge = JSON.parse(ham) as unknown
+      return belge && typeof belge === 'object' ? (belge as Record<string, unknown>) : null
+    } catch {
+      return null
+    }
   }
 
   /**

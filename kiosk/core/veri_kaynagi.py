@@ -151,6 +151,15 @@ def _guncel_lastupdate() -> str:
             if govde.get(anahtar):
                 _lastupdate_damgasi = str(govde[anahtar])
                 return _lastupdate_damgasi
+    if govde is None:
+        # Ağ yok / çevrimdışı açılış: disk önbelleğinin geçerlilik anahtarı olarak SON BİLİNEN
+        # damgayı kullan. Bu olmadan çevrimdışı yeniden başlatmada önbellek HİÇ kullanılmıyordu
+        # (damga boş → `veri_oku` atlanıyor → veri yok).
+        kayitli = onbellek.kayitli_damga()
+        if kayitli:
+            log.warning("lastupdate ağdan okunamadı; kayıtlı damga kullanılıyor: %s", kayitli)
+            _lastupdate_damgasi = kayitli
+            return kayitli
     _lastupdate_damgasi = json.dumps(govde, sort_keys=True) if govde is not None else ""
     return _lastupdate_damgasi
 
