@@ -99,10 +99,14 @@ def main() -> int:
     ayar.add_argument("--port", type=int, default=VARSAYILAN["push_port"])
     ayar.add_argument("--konu", default=VARSAYILAN["push_konu"])
     ayar.add_argument("--kullanici", default="cihaz")
-    ayar.add_argument("--parola", default="", help="broker parolası (verilmezse dosyadaki/ortamdaki)")
+    ayar.add_argument("--parola", default="", help="broker parolası (ÖNERİLMEZ: kabuk geçmişine düşer)")
+    ayar.add_argument("--parola-dosya", default="", help="parolayı bu dosyadan oku (0600; önerilen)")
+    ayar.add_argument("--parola-sor", action="store_true", help="parolayı gizli olarak sor (geçmişe yazılmaz)")
     ayar.add_argument("--kontrol-ms", type=int, default=VARSAYILAN["kontrol_ms"])
     ayar.add_argument("--modlar", default="qt,tarayici", help="oto tetiklemenin geçerli olduğu modlar")
     ayar.add_argument("--dene", action="store_true", help="yazdıktan sonra gerçek bağlantı denemesi yap")
+    ayar.add_argument("--veri-adresi", default="", help="veriyi bu adresten çek (ör. https://d2dnrvsx5eevod.cloudfront.net/)")
+    ayar.add_argument("--yerel-veri", action="store_true", help="veri kaynağını yerel dosyalara geri al")
     ayar.add_argument("--kaldir", action="store_true", help="push'u kapat (diğer anahtarlar korunur)")
     ayar.add_argument("--goster", action="store_true", help="mevcut push ayarlarını yazdır")
     secim = ayar.parse_args()
@@ -131,7 +135,18 @@ def main() -> int:
     if not secim.broker:
         print("✗ --broker gerekli (ör. --broker yourkiosk.hakkisabah.com)", file=sys.stderr)
         return 2
-    parola = secim.parola or os.environ.get("MQTT_PAROLA") or str(tetik.get("push_parola", ""))
+    parola = secim.parola
+    if not parola and secim.parola_dosya:
+        try:
+            parola = Path(secim.parola_dosya).read_text(encoding="utf-8").strip()
+        except OSError as hata:
+            print(f"✗ parola dosyası okunamadı: {hata}", file=sys.stderr)
+            return 2
+    if not parola and secim.parola_sor:
+        import getpass
+
+        parola = getpass.getpass("MQTT parolası (görünmez): ").strip()
+    parola = parola or os.environ.get("MQTT_PAROLA") or str(tetik.get("push_parola", ""))
     if not parola:
         print("✗ parola gerekli (--parola ya da MQTT_PAROLA ortam değişkeni)", file=sys.stderr)
         return 2
@@ -148,6 +163,21 @@ def main() -> int:
         "push_parola": parola,
     })
     belge["tetik"] = tetik
+
+    # Veri kaynağı: yerel modda cihaz PANELDEKİ değişiklikleri GÖRMEZ (panel S3'e yazar).
+    if secim.yerel_veri:
+        belge.setdefault("veri", {})["kaynak"] = "dosya"
+        belge.setdefault("calistirma", {})["web_veri_modu"] = "yerel"
+        print("✓ veri kaynağı YEREL dosyalara alındı (panel değişiklikleri görünmez)")
+    elif secim.veri_adresi:
+        adres = secim.veri_adresi.strip()
+        if not adres.endswith("/"):
+            adres += "/"
+        belge.setdefault("veri", {})["kaynak"] = "https"
+        belge["veri"]["dosya_adresi"] = adres
+        belge.setdefault("calistirma", {})["web_veri_modu"] = "https"
+        print(f"✓ veri kaynağı PANEL YAYINI: {adres} (kaynak=https · web_veri_modu=https)")
+
     yaz(belge)
     print(f"✓ yazıldı: {AYAR_DOSYASI} (0600)")
     print(f"  broker={secim.broker}:{secim.port} · konu={secim.konu} · kullanıcı={secim.kullanici}")
