@@ -170,13 +170,39 @@ def main() -> int:
         belge.setdefault("calistirma", {})["web_veri_modu"] = "yerel"
         print("✓ veri kaynağı YEREL dosyalara alındı (panel değişiklikleri görünmez)")
     elif secim.veri_adresi:
+        from urllib.parse import urlparse
+
         adres = secim.veri_adresi.strip()
         if not adres.endswith("/"):
             adres += "/"
+        konak = (urlparse(adres).hostname or "").strip()
+        if not konak:
+            print(f"✗ veri adresi geçersiz: {adres}", file=sys.stderr)
+            return 2
         belge.setdefault("veri", {})["kaynak"] = "https"
         belge["veri"]["dosya_adresi"] = adres
         belge.setdefault("calistirma", {})["web_veri_modu"] = "https"
+
+        # ZORUNLU: https kaynağı izin listesinde olmalı, yoksa TÜM okumalar reddedilir
+        # ("adres izin listesinde değil" → beyaz ekran). Aracın bunu kendisi eklemesi gerekir.
+        ag = belge.setdefault("ag", {})
+        izinli = ag.get("izinli_hostlar")
+        if not isinstance(izinli, list):
+            izinli = []
+        izinli = [str(x).strip() for x in izinli if str(x).strip()]
+        if konak not in izinli:
+            izinli.append(konak)
+            print(f"✓ izin listesine eklendi: {konak}")
+        ag["izinli_hostlar"] = izinli
+        portlar = ag.get("izinli_portlar")
+        if not isinstance(portlar, list):
+            portlar = []
+        portlar = [int(x) for x in portlar if str(x).strip().isdigit()]
+        if 443 not in portlar:
+            portlar.append(443)
+        ag["izinli_portlar"] = portlar
         print(f"✓ veri kaynağı PANEL YAYINI: {adres} (kaynak=https · web_veri_modu=https)")
+        print(f"  izinli hostlar: {izinli} · portlar: {portlar}")
 
     yaz(belge)
     print(f"✓ yazıldı: {AYAR_DOSYASI} (0600)")
@@ -185,6 +211,16 @@ def main() -> int:
 
     if secim.dene:
         dene(secim.broker, secim.port, secim.konu, secim.kullanici, parola)
+        if secim.veri_adresi or str(belge.get("veri", {}).get("kaynak", "")).lower() == "https":
+            import urllib.request
+
+            taban = str(belge.get("veri", {}).get("dosya_adresi", "") or "").rstrip("/")
+            if taban:
+                try:
+                    with urllib.request.urlopen(f"{taban}/lastupdate.json", timeout=8) as yanit:
+                        print(f"  ✓ veri adresi erişilebilir: {taban}/lastupdate.json (HTTP {yanit.status})")
+                except Exception as hata:  # noqa: BLE001
+                    print(f"  ✗ veri adresine erişilemedi: {taban} ({hata})")
 
     print("\nSıradaki: kiosk'u yeniden başlat → `tools/tarayici_kiosk.py --tani` çıktısında 'MQTT push … bağlı ✓'")
     return 0
