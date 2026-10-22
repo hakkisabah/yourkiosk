@@ -119,7 +119,15 @@ def url_olustur(client_id: str, veri_modu: str | None = None, port: int | None =
     `veri=https` → veri `DOSYA_ADRESI`'nden (cihazın internet bağlantısı kullanılır).
     """
     mod = str(veri_modu or getattr(config, "WEB_VERI_MODU", "yerel")).lower()
+    if mod not in ("yerel", "https"):
+        mod = "yerel"
     parametreler = {"clientID": str(client_id or ""), "veri": mod}
+    if mod == "https":
+        # Sayfa `veri=https` gördüğünde veriyi `${taban}/${dosya}` adresinden çeker.
+        # `taban` verilmezse sessizce YEREL dosyaya düşüyordu (https modu çalışmıyordu).
+        taban = str(getattr(config, "DOSYA_ADRESI", "") or "").strip().rstrip("/")
+        if taban:
+            parametreler["taban"] = taban
     makine = adres or sunucu_adresi()
     kaport = sunucu_portu() if port is None else int(port)
     return f"http://{makine}:{kaport}/index.html?{urlencode(parametreler)}"

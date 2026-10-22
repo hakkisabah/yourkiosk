@@ -323,7 +323,7 @@
           "tam": "ag.izinli_hostlar",
           "tip": "liste",
           "etiket": "İzinli ana makineler",
-          "aciklama": "",
+          "aciklama": "HTTPS veri kaynağı için izinli ana makineler (virgülle). Örn: d2dnrvsx5eevod.cloudfront.net, kocaelieo.org.tr",
           "birim": "",
           "alt": null,
           "ust": null,
@@ -333,7 +333,7 @@
             "www.kocaelieo.org.tr",
             "kocaelieo.org.tr"
           ],
-          "gelismis": true
+          "gelismis": false
         },
         {
           "ad": "izinli_portlar",
