@@ -256,6 +256,19 @@ def tani_raporu(client_id: str, port: int | None = None) -> list[str]:
             return f"hata: {hata}"
 
     satirlar.append(f"geçici sunucu   : http://{sunucu_adresi()}:{gercek_port}")
+
+    # MQTT push durumu (600+ cihaz ölçeğinde birincil tetikleme yolu)
+    try:
+        from core import push as push_modulu
+
+        d = push_modulu.durum()
+        if push_modulu.acik():
+            durum = "bağlı ✓" if d.get("bagli") else f"BAĞLI DEĞİL ({d.get('hata') or 'henüz denemedi'})"
+            satirlar.append(f"MQTT push       : açık · {push_modulu.broker()} · konu={push_modulu.konu()} · {durum}")
+        else:
+            satirlar.append("MQTT push       : kapalı (yoklama emniyet ağı kullanılıyor)")
+    except Exception as hata:  # noqa: BLE001
+        satirlar.append(f"MQTT push       : durum okunamadı ({hata})")
     for yol_ in ("/index.html", "/lastSystemData.json", "/lastupdate.json", "/match.json", "/bg_layout/box.png"):
         satirlar.append(f"  {yol_:<24}: {_cek(yol_)}")
 
