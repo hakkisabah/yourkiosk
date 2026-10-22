@@ -49,11 +49,21 @@ if [ -s "$GECICI" ]; then echo "  ✓ mesaj alındı: $(head -c 80 "$GECICI")"; 
 rm -f "$GECICI"
 
 echo "=== 4) cihaz YAYIN yapamamalı (ACL) ==="
-if mosquitto_pub -h "$HOST" -p 8883 -u cihaz -P "$MQTT_PAROLA_CIHAZ" -t "$KONU" -m '{"kaynak":"olmamali"}' 2>/dev/null; then
-  echo "  ✗ GÜVENLİK: cihaz yayın yapabildi (ACL hatalı)"
+# MQTT 3.1.1'de reddedilen PUBLISH istemciye HATA DÖNMEZ (sessizce düşürülür) → çıkış koduna bakmak
+# yanıltıcı. Doğru test: abone aç, cihaz olarak yayınla, aboneye ULAŞMAMALI.
+GECICI2="$(mktemp)"
+timeout 8 mosquitto_sub -h "$HOST" -p 8883 -u cihaz -P "$MQTT_PAROLA_CIHAZ" -t "$KONU" -C 1 >"$GECICI2" 2>/dev/null &
+ABONE2=$!
+sleep 2
+mosquitto_pub -h "$HOST" -p 8883 -u cihaz -P "$MQTT_PAROLA_CIHAZ" -t "$KONU" -m '{"kaynak":"cihaz-olmamali"}' 2>/dev/null
+wait $ABONE2 2>/dev/null
+if [ -s "$GECICI2" ]; then
+  echo "  ✗ GÜVENLİK: cihazın yayını aboneye ulaştı (ACL hatalı)"
+  head -c 80 "$GECICI2"
 else
-  echo "  ✓ reddedildi"
+  echo "  ✓ reddedildi (yayın düşmedi)"
 fi
+rm -f "$GECICI2"
 
 echo "=== 5) anonim bağlantı reddedilmeli ==="
 if timeout 5 mosquitto_pub -h "$HOST" -p 8883 -t "$KONU" -m 'x' 2>/dev/null; then
