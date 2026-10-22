@@ -6,6 +6,9 @@
 # Arch'ta sistem paketi tercih edilirse: python-pyqt6 + qt6-base (6.12.0 → düzeltme dâhil).
 PyQt6>=6.11.0
 
+# MQTT push (600+ cihazda anlık tetikleme; yoksa yoklama emniyet ağı çalışır)
+paho-mqtt>=2.1
+
 # Test
 pytest>=8
 pytest-qt>=4.4
