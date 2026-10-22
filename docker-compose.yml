@@ -1,0 +1,40 @@
+# yourkiosk · Docker Compose
+#
+#   ./kur.sh docker                 # kiosk imajını derle + başlat
+#   docker compose --profile broker up -d   # + yerel test broker'ı (TLS YOK, yalnız geliştirme)
+#
+# Üretimde broker VPS'te TLS ile çalışır (deploy/mosquitto); buradaki broker yalnız yerel deneme içindir.
+services:
+  kiosk:
+    build: .
+    image: yourkiosk/kiosk:local
+    container_name: yourkiosk-kiosk
+    restart: unless-stopped
+    environment:
+      # Fiziksel ekran varsa (compose aşağıda X11 soketini bağlar) :0 kullanılır;
+      # yoksa entrypoint Xvfb :99 açar.
+      DISPLAY: "${DISPLAY:-:99}"
+      TZ: "${TZ:-Europe/Istanbul}"
+    volumes:
+      # Cihaz ayarları (depoda yoksa oluşturulur; panelden yayınlanan ayarlar https modunda okunur)
+      - ./kiosk/ayarlar.json:/app/kiosk/ayarlar.json:ro
+      # Disk önbelleği kalıcı olsun (çevrimdışı gösterim için)
+      - ./kiosk/onbellek:/app/kiosk/onbellek
+      # Fiziksel ekran (Linux): /tmp/.X11-unix bağlanır
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    ports:
+      - "8090:8090"      # yerel arayüz (tarayıcıdan kontrol için)
+    devices:
+      - /dev/dri:/dev/dri  # donanım hızlandırma varsa (yoksa zararsız)
+
+  # Yerel geliştirme broker'ı — ÜRETİMDE KULLANMAYIN (TLS/parola yok)
+  broker:
+    image: eclipse-mosquitto:2
+    container_name: yourkiosk-broker-dev
+    profiles: ["broker"]
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./deploy/docker/mosquitto.dev.conf:/mosquitto/config/mosquitto.conf:ro
