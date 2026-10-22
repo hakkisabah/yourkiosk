@@ -20,6 +20,7 @@ import {
   type SistemVerisi,
 } from '@/domain/veri'
 import { useDosyalar } from '@/stores/dosyalar'
+import { mqttBildir } from '@/domain/push'
 import { useBaglanti } from '@/stores/baglanti'
 import { silinecekYayinlar } from '@/domain/temizlik'
 
@@ -174,6 +175,7 @@ async function tetikBildir(): Promise<void> {
       aciklama: 'Panelden bildirildi',
     }
     await kaynak.yaz('tetikle.json', belge)
+    void mqttBildir('elle-bildirim', belge.zaman).catch(() => undefined)
     const kapsam = tetikIlce.value || 'tüm cihazlar'
     tetikBilgi.value = `Gönderildi (${kapsam}) · ${belge.zaman}`
   } catch (e) {

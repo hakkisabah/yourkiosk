@@ -91,6 +91,12 @@ def main(argv=None):
     from pharmacy_app import PharmacyApp
 
     log.info("kiosk başlatılıyor · veri kaynağı: %s", config.KAYNAK)
+    try:
+        from core import push as push_modulu
+
+        push_modulu.baslat()
+    except Exception:  # noqa: BLE001 - push isteğe bağlı
+        log.warning("MQTT push başlatılamadı", exc_info=True)
     log.info(
         "özellikler: nöbet listesi=%s, yayınlar=%s, kayan yazı=%s, saat/tarih=%s",
         ayarlar.ozellik("nobet_listesi"),

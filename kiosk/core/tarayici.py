@@ -339,6 +339,21 @@ def degisiklik_imzasi() -> str:
     return "|".join(parcalar)
 
 
+def uzak_yoklama_gerekli() -> bool:
+    """Uzun yoklama sırasında tetikleyici UZAKTAN çekilsin mi?
+
+    Hayır eğer MQTT push açıksa (mesaj getirir) ya da veri yerelden okunuyorsa (dosya değişimi
+    yerel imzada görünür). Bu, cihaz başına yoklama maliyetini önler (600 cihaz ölçeği).
+    """
+    from core import push as push_modulu
+
+    if push_modulu.acik():
+        return False
+    return str(getattr(config, "WEB_VERI_MODU", "yerel")).lower() == "https" or str(
+        getattr(config, "KAYNAK", "dosya")
+    ).lower() == "https"
+
+
 def degisiklik_bekle(imza: str, sure_s: float, izinli: bool = True, uzak_kaynak: bool = False) -> dict:
     """`imza` değişene kadar (en fazla `sure_s`) bekler; değişiklik bilgisini döner.
 
@@ -562,9 +577,7 @@ class _IstekIsleyici(http.server.BaseHTTPRequestHandler):
         except ValueError:
             sure = float(getattr(config, "DEGISIKLIK_BEKLEME_S", 30))
         sure = max(0.0, min(sure, float(getattr(config, "DEGISIKLIK_BEKLEME_S", 30))))
-        uzak = str(getattr(config, "WEB_VERI_MODU", "yerel")).lower() == "https" or str(
-            getattr(config, "KAYNAK", "dosya")
-        ).lower() == "https"
+        uzak = uzak_yoklama_gerekli()
         veri = degisiklik_bekle(imza, sure, tetik_modulu.otomatik_acik("tarayici"), uzak)
         govde = json.dumps(veri, ensure_ascii=False).encode("utf-8")
         self._govde_gonder(govde, "application/json; charset=utf-8", "no-store")
@@ -840,6 +853,10 @@ def baslat(
 
     # NÖBET DEĞİŞİKLİĞİ + UZAKTAN KOMUT: arka planda küçük dosyaları tazeler, komutu uygular.
     # (Süpervizör döngüsü tarayıcıyı beklediği için ayrı bir iş parçacığı gerekir.)
+    from core import push as push_modulu
+
+    push_modulu.baslat()
+
     izleyici = threading.Thread(
         target=_uzak_kontrol_dongusu,
         args=(durdur, surec_kutusu, str(client_id), float(getattr(config, "DAMGA_KONTROL_MS", 20000)) / 1000.0),
