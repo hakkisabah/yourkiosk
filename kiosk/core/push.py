@@ -92,7 +92,12 @@ def _dongu(durdur: threading.Event) -> None:
         return
 
     adres, port = broker(), int(getattr(config, "TETIK_PUSH_PORT", 8883))
-    istemci = mqtt.Client(client_id=f"yourkiosk-{int(time.time())%100000}")
+    # paho-mqtt 2.x CallbackAPIVersion'ı ZORUNLU tutar; 1.x'te yoktur → ikisini de destekle
+    istemci_id = f"yourkiosk-{int(time.time()) % 100000}"
+    if hasattr(mqtt, "CallbackAPIVersion"):
+        istemci = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=istemci_id)
+    else:  # pragma: no cover - eski paho
+        istemci = mqtt.Client(client_id=istemci_id)
 
     if getattr(config, "TETIK_PUSH_KULLANICI", ""):
         istemci.username_pw_set(str(config.TETIK_PUSH_KULLANICI), str(getattr(config, "TETIK_PUSH_PAROLA", "")))
@@ -111,7 +116,7 @@ def _dongu(durdur: threading.Event) -> None:
             log.error("MQTT TLS kurulamadı (%s) — push devre dışı, yoklama sürüyor", hata)
             return
 
-    def _baglandi(_c, _u, _f, rc):
+    def _baglandi(_c, _u, _f, rc, _p=None):  # paho 2.x 5 argüman geçer (properties)
         _durum["bagli"] = rc == 0
         if rc == 0:
             istemci.subscribe(konu(), qos=1)
