@@ -10,7 +10,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { Ayarlar, kapsamCoz } from '@/veri/ayarlar'
-import { parametreleriOku, VeriKaynagi } from '@/veri/kaynak'
+import { ayarOnbellegiTemizle, parametreleriOku, VeriKaynagi } from '@/veri/kaynak'
 import { Onbellek, type OnbellekDeposu, type Yanit } from '@/veri/onbellek'
 import { aktifYayinlar, yayinAktifMi, yayinAdresi, yayinSirasi, yayinSuresiMs } from '@/veri/yayin'
 
@@ -145,7 +145,44 @@ describe('VeriKaynagi — lastupdate ile önbellek', () => {
     await k.ayarBelgesi('ayarlar.json')
 
     expect(cagrilar.some((u) => u.startsWith('https://sunucu/veri/lastSystemData.json'))).toBe(true)
-    expect(cagrilar.some((u) => u.startsWith('http://127.0.0.1:8090/ayarlar.json'))).toBe(true)
+    // ayarlar da YAYINDAN gelir (panel → cihaz); yerel kopya yalnız çevrimdışı yedeği
+    expect(cagrilar.some((u) => u.startsWith('https://sunucu/veri/ayarlar.json'))).toBe(true)
+  })
+
+  it('https modunda uzak ayarlar okunamazsa yerel dosyaya düşer (çevrimdışı)', async () => {
+    ayarOnbellegiTemizle()
+    const depo = new SahteDepo()
+    const getir = vi.fn(async (adres: string) => {
+      if (String(adres).startsWith('https://sunucu/veri/ayarlar.json')) return new Response('yok', { status: 403 })
+      if (String(adres).endsWith('/ayarlar.json')) return jsonYanit({ veri: { kaynak: 'dosya' } })
+      return new Response('yok', { status: 404 })
+    }) as unknown as typeof fetch
+    const k = new VeriKaynagi({
+      secenekler: { clientID: 'C1', veri: 'https', taban: 'https://sunucu/veri' },
+      onbellek: new Onbellek(2, depo),
+      getir,
+      yerelTaban: 'http://127.0.0.1:8090',
+    })
+    expect(await k.ayarBelgesi('ayarlar.json')).toEqual({ veri: { kaynak: 'dosya' } })
+  })
+
+  it('https modunda ayarlar bir kez alınınca çevrimdışı önbellekten gelir', async () => {
+    const depo = new SahteDepo()
+    let cevrimici = true
+    const getir = vi.fn(async (adres: string) => {
+      if (!cevrimici) throw new Error('ağ yok')
+      if (String(adres).endsWith('/ayarlar.json')) return jsonYanit({ veri: { kaynak: 'https' }, ozellikler: { yayinlar: false } })
+      return new Response('yok', { status: 404 })
+    }) as unknown as typeof fetch
+    const k = new VeriKaynagi({
+      secenekler: { clientID: 'C1', veri: 'https', taban: 'https://sunucu/veri' },
+      onbellek: new Onbellek(2, depo),
+      getir,
+      yerelTaban: 'http://127.0.0.1:8090',
+    })
+    expect(await k.ayarBelgesi('ayarlar.json')).toMatchObject({ veri: { kaynak: 'https' } })
+    cevrimici = false
+    expect(await k.ayarBelgesi('ayarlar.json')).toMatchObject({ veri: { kaynak: 'https' } })
   })
 
   it('ayar dosyası olarak yalnızca bilinen adları kabul eder', async () => {

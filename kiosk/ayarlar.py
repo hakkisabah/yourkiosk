@@ -24,6 +24,7 @@ import logging
 from pathlib import Path
 
 import config
+from security.network import AgAyarlari, indir
 from security.veri_dogrulama import VeriHatasi, atomik_yaz, json_yukle
 
 log = logging.getLogger("kiosk.ayarlar")
@@ -218,6 +219,84 @@ def _deger_dogrula(tip, deger, alt, ust, anahtar: str):
     return None, f"{anahtar}: bilinmeyen tip"
 
 
+
+# ------------------------------------------------------------------ uzak ayarlar
+#: Yayınlanan (https) ayarların EZEMEYECEĞİ anahtarlar. Cihaza/ağa özgüdür ve yanlış bir yayın
+#: cihazı erişilemez hâle getirebilir (ör. izin listesini boşaltmak, veri adresini değiştirmek).
+YEREL_ONCELIKLI = frozenset(
+    {
+        "veri.kaynak",
+        "veri.dosya_adresi",
+        "ag.izinli_hostlar",
+        "ag.izinli_portlar",
+        "ag.yonlendirme_izinli",
+        "ag.http_timeout_s",
+        "onbellek.klasor",
+        "calistirma.mod",
+        "calistirma.tarayici_yolu",
+        "calistirma.profil_klasoru",
+        "calistirma.web_klasoru",
+        "calistirma.web_sunucu_adresi",
+        "calistirma.web_sunucu_portu",
+    }
+)
+
+
+def _uzak_belge() -> dict:
+    """`veri.kaynak = https` ise yayınlanmış `ayarlar.json`'u indirir (hata → {}).
+
+    Yerel dosya **bootstrap**tır: `KAYNAK` ve `DOSYA_ADRESI` oradan bilinir. Uzak belge yoksa
+    (çevrimdışı, 403, bozuk JSON) sessizce yalnız yerel ayarlarla devam edilir — cihaz asla
+    ayarsız kalmaz.
+    """
+    if str(getattr(config, "KAYNAK", "dosya") or "dosya").lower() != "https":
+        return {}
+    taban = str(getattr(config, "DOSYA_ADRESI", "") or "").strip()
+    if not taban:
+        return {}
+    url = taban.rstrip("/") + "/" + AYARLAR_DOSYASI
+    try:
+        govde, _tur = indir(
+            url,
+            AgAyarlari(
+                zaman_asimi_s=float(getattr(config, "HTTP_TIMEOUT_S", 10)),
+                en_buyuk_bayt=EN_BUYUK_AYAR_BAYT,
+                izinli_hostlar=tuple(getattr(config, "ALLOWED_HOSTS", ())),
+                kullanici_ajani="yourkiosk/1.0",
+                izinli_portlar=tuple(getattr(config, "AG_IZINLI_PORTLAR", (443,))),
+                yonlendirme_izinli=bool(getattr(config, "AG_YONLENDIRME_IZINLI", False)),
+                en_buyuk_url=getattr(config, "MAX_URL_UZUNLUK", 2048),
+            ),
+            icerik_turu_denetle=False,
+        )
+        belge = json_yukle(
+            govde,
+            etiket=url,
+            en_buyuk_bayt=EN_BUYUK_AYAR_BAYT,
+            en_buyuk_derinlik=16,
+            en_buyuk_dugum=20_000,
+        )
+    except Exception as hata:  # ağ/ayrıştırma: çevrimdışı çalışmaya devam
+        log.warning("uzak ayarlar okunamadı (%s): %s — yerel ayarlar kullanılıyor", url, hata)
+        return {}
+    if not isinstance(belge, dict):
+        return {}
+    log.info("uzak ayarlar alındı: %s", url)
+    return belge
+
+
+def birlestir(yerel: dict, uzak: dict) -> dict:
+    """Uzak ayarları temel alır; `YEREL_ONCELIKLI` anahtarlarda **yerel** kazanır."""
+    sonuc: dict = {grup: dict(veri) for grup, veri in uzak.items() if isinstance(veri, dict)}
+    for grup, veri in yerel.items():
+        if not isinstance(veri, dict):
+            continue
+        hedef = sonuc.setdefault(grup, {})
+        for anahtar, deger in veri.items():
+            if f"{grup}.{anahtar}" in YEREL_ONCELIKLI or anahtar not in hedef:
+                hedef[anahtar] = deger
+    return sonuc
+
 # ---------------------------------------------------------------- okuma/uygulama
 def oku(dosya: str | Path | None = None, kok: Path | None = None) -> dict:
     """`ayarlar.json` içeriğini okur (yoksa boş sözlük). Güvenlik kapısından geçer."""
@@ -271,6 +350,9 @@ def uygula(
         return {"uygulanan": [], "gecersiz": [], "yok_sayilan": [], "dosya": str(hedef), "atlandi": True}
 
     belge = oku(hedef)
+    uzak = _uzak_belge()
+    if uzak:
+        belge = birlestir(belge, uzak)
     uygulanan: list[str] = []
     gecersiz: list[str] = []
     yok_sayilan: list[str] = []

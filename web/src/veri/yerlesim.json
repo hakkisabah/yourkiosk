@@ -141,6 +141,8 @@
    "yayinlar": true
   },
   "veri": {
+   "_dosya_adresi_aciklama": "Verinin çekileceği taban adres — sonunda / olmalı (ör. https://d2dnrvsx5eevod.cloudfront.net/). 'Veri kaynağı türü' https seçilince kullanılır",
+   "_kaynak_aciklama": "Verinin nereden okunacağı: 'dosya' = cihazdaki JSON dosyaları, 'https' = Dosya adresi'ndeki sunucu",
    "dosya_adresi": "",
    "kaynak": "dosya"
   }
@@ -192,5 +194,5 @@
    "krem": "#f5e8c7"
   }
  },
- "surum_ozeti": "c664f9d0679927f9"
+ "surum_ozeti": "81538cce5be3fd01"
 }
