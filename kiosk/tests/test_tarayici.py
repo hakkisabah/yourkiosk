@@ -650,3 +650,32 @@ def test_degisiklik_bekle_izinli_degilse_hemen_doner(monkeypatch) -> None:
     assert veri["degisti"] is False
     assert veri["tetik"] is None
     assert gecen < 5  # sıcak döngü yok, ama hemen de dönmüyor
+
+
+def test_degisiklik_bekle_https_modunda_tetikleyiciyi_kendi_ceker(monkeypatch) -> None:
+    """https modunda veri uzakta: uzun yoklama sırasında tetikleyici indirilmeli (yoksa 20 sn bekler)."""
+    import time as _zaman
+
+    from core import tetik as tetik_modulu
+
+    monkeypatch.setattr(config, "TETIK_KONTROL_MS", 800, raising=False)
+    monkeypatch.setattr(config, "TETIK_AKTIF", True, raising=False)
+    monkeypatch.setattr(config, "TETIK_MODLAR", ("qt", "tarayici"), raising=False)
+
+    cagri = {"sayi": 0}
+    durum = {"imza": "A"}
+
+    def sahte_getir() -> bool:
+        cagri["sayi"] += 1
+        durum["imza"] = "B"  # panel tetikleyicisi indi → imza değişti
+        return True
+
+    monkeypatch.setattr(tetik_modulu, "getir", sahte_getir)
+    monkeypatch.setattr(tarayici, "degisiklik_imzasi", lambda: durum["imza"])
+
+    basla = _zaman.monotonic()
+    veri = tarayici.degisiklik_bekle("A", 5.0, izinli=True, uzak_kaynak=True)
+    gecen = _zaman.monotonic() - basla
+    assert veri["degisti"] is True
+    assert cagri["sayi"] >= 1
+    assert gecen < 3  # 20 sn'lik arka plan turu beklenmedi

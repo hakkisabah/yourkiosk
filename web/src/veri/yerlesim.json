@@ -65,6 +65,7 @@
   "SOL_PANEL_OTOMATIK_KAYDIRMA": true,
   "TETIK_AKTIF": true,
   "TETIK_DOSYASI": "tetikle.json",
+  "TETIK_KONTROL_MS": 3000,
   "TETIK_MODLAR": [
    "qt",
    "tarayici"
@@ -199,5 +200,5 @@
    "krem": "#f5e8c7"
   }
  },
- "surum_ozeti": "79e9654c8a6a49ff"
+ "surum_ozeti": "fcf093e1b953475e"
 }
