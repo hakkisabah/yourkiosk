@@ -42,6 +42,7 @@ TOKEN_VARSAYILAN = Path.home() / ".config" / "hermes-secrets" / "github-yourkios
 
 ZORUNLU = ("guvenlik/inceleme", "guvenlik/karar")
 ONAY_ETIKETI = "guvenlik/onay"
+UNIT_ADI = "yourkiosk-nobetci.service"
 SORUN_ETIKETI = "guvenlik/sorun"
 
 
@@ -293,6 +294,82 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
     return kod
 
 
+def kendini_denetle(rol: str) -> int:
+    """KONTROL NOKTALARI — 'neden hâlâ oturum açılıyor?' sorusunu tek komutta yanıtlar.
+
+    Hiçbir şeyi değiştirmez; her madde ✓/✗ yazar ve ✗ varsa çıkış kodu 1 olur.
+    """
+    import sqlite3
+    from datetime import datetime, timezone
+
+    sorun = 0
+
+    def satir(durum: bool, etiket: str, ayrinti: str = "") -> None:
+        nonlocal sorun
+        if not durum:
+            sorun += 1
+        print(f"{'✓' if durum else '✗'} {etiket:<26} {ayrinti}")
+
+    # 1) Projeye ait cron görevleri (oturumların 2. kaynağı)
+    temizle = DEPO_VARSAYILAN / "otomasyon" / "betik" / "cron_temizle.py"
+    kalan_cron: list = []
+    if temizle.is_file():
+        try:
+            cikti = subprocess.run([sys.executable, str(temizle), "--json"],
+                                   capture_output=True, text=True, timeout=40).stdout
+            kalan_cron = json.loads(cikti).get("hedef", [])
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
+    satir(not kalan_cron, "cron görevi yok",
+          "temiz" if not kalan_cron else f"{[g['id'] for g in kalan_cron]} → --sadece-cron")
+
+    # 2) systemd servisi
+    durum_metni = ""
+    try:
+        durum_metni = subprocess.run(["systemctl", "--user", "is-active", UNIT_ADI],
+                                     capture_output=True, text=True, timeout=15).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        durum_metni = "bilinmiyor"
+    satir(durum_metni == "active", "servis aktif", durum_metni or "kapalı")
+
+    # 3) oturum kapanınca durmaması için linger
+    linger = ""
+    try:
+        linger = subprocess.run(["loginctl", "show-user", os.environ.get("USER", ""), "-p", "Linger"],
+                                capture_output=True, text=True, timeout=15).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    satir(linger.endswith("yes"), "linger açık", linger or "okunamadı")
+
+    # 4) durum dosyası tazeliği
+    dosya = DURUM_KLASORU / f"nobetci-{rol}.json"
+    taze = False
+    ayrinti = f"yok: {dosya}"
+    if dosya.is_file():
+        yas = time.time() - dosya.stat().st_mtime
+        taze = yas < 3600
+        ayrinti = f"{int(yas / 60)} dk önce güncellendi"
+    satir(taze, "durum dosyası taze", ayrinti)
+
+    # 5) bugün açılan nöbetçi oturumu (makul üst sınır: 24)
+    adet = -1
+    try:
+        vt = Path.home() / ".hermes" / "state.db"
+        if vt.is_file():
+            c = sqlite3.connect(f"file:{vt}?mode=ro", uri=True)
+            gece = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+            adet = c.execute(
+                "select count(*) from sessions where started_at >= ? and coalesce(created_source, source) = 'nobetci'",
+                (gece,),
+            ).fetchone()[0]
+    except (OSError, sqlite3.Error):
+        pass
+    satir(0 <= adet <= 24, "bugünkü oturum ≤ 24", f"{adet}" if adet >= 0 else "okunamadı")
+
+    print(f"\n{'✓ tüm kontrol noktaları temiz' if sorun == 0 else f'✗ {sorun} kontrol noktası sorunlu'}")
+    return 0 if sorun == 0 else 1
+
+
 def main() -> int:
     ayar = argparse.ArgumentParser(description="yourkiosk nöbetçi (olay güdümlü i5/i3)")
     ayar.add_argument("--rol", choices=["i5", "i3"], required=True)
@@ -302,12 +379,16 @@ def main() -> int:
     ayar.add_argument("--kuru", action="store_true", help="oturum açma, görevi yazdır")
     ayar.add_argument("--durum", action="store_true", help="durum dosyasını yazdır ve çık")
     ayar.add_argument("--tani", action="store_true", help="iş listesi + bekleyenler + günlük oturum sayısı")
+    ayar.add_argument("--kendini-denetle", action="store_true",
+                      help="kontrol noktaları: kalan cron / servis / linger / oturum sayısı (değiştirmez)")
     ayar.add_argument("--zaman-asimi", type=int, default=1200, help="oturum zaman aşımı sn")
     ayar.add_argument("--depo", type=Path, default=DEPO_VARSAYILAN)
     ayar.add_argument("--token", type=Path, default=TOKEN_VARSAYILAN)
     ayar.add_argument("--log", type=Path, default=None)
 
     secim = ayar.parse_args()
+    if secim.kendini_denetle:  # kilit/token gerekmez, hiçbir şeyi değiştirmez
+        return kendini_denetle(secim.rol)
     durum_yolu = DURUM_KLASORU / f"nobetci-{secim.rol}.json"
     gunluk_yolu = secim.log or (DURUM_KLASORU / f"nobetci-{secim.rol}.log")
 
