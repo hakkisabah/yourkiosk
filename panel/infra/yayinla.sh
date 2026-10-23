@@ -52,9 +52,14 @@ echo "=== CORS (cihazlar: GET/HEAD her origin · panel: PUT) ==="
 # Kiosk tarayıcısı 127.0.0.1'den CloudFront'a istek atar → CORS şart. Eksikse data okunamaz
 # ("match.json okunamadı"). Kural her yayında tazelenir.
 if [ -f "$KOK/panel/infra/s3-cors.json" ]; then
-  aws s3api put-bucket-cors --bucket "$KOVA" \
-    --cors-configuration "file://$KOK/panel/infra/s3-cors.json" --only-show-errors \
-    && echo "  ✓ CORS uygulandı"
+  # NOT: s3api `--only-show-errors` kabul etmez (yalnız `aws s3 ...` alır); CORS kritik olmadığı
+  # için hata yayını durdurmaz, uyarı basar.
+  if aws s3api put-bucket-cors --bucket "$KOVA" \
+      --cors-configuration "file://$KOK/panel/infra/s3-cors.json"; then
+    echo "  ✓ CORS uygulandı"
+  else
+    echo "  ⚠ CORS uygulanamadı (yayın devam ediyor; cihazlar CORS'a muhtaç değil)" >&2
+  fi
 fi
 
 if [ -z "$DIST" ]; then

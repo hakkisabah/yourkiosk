@@ -1,0 +1,62 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListeleKokVeOnek",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::yourkiosk-veri"
+      ],
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "",
+            "kiosk/*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "JsonKokVeOnek",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::yourkiosk-veri/*.json"
+      ]
+    },
+    {
+      "Sid": "GorselKok",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::yourkiosk-veri/*.png",
+        "arn:aws:s3:::yourkiosk-veri/*.jpg",
+        "arn:aws:s3:::yourkiosk-veri/*.jpeg",
+        "arn:aws:s3:::yourkiosk-veri/*.webp"
+      ]
+    },
+    {
+      "Sid": "OnekOkumaYazma",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::yourkiosk-veri/kiosk/*"
+      ]
+    }
+  ]
+}
