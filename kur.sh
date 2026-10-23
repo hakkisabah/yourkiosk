@@ -52,7 +52,15 @@ kontrol() {
   fi
 
   [ -f "$KOK/web/dist/index.html" ] && ok "web derlemesi var (web/dist)" || uyar "web derlemesi yok → ./kur.sh kiosk"
-  [ -f "$KOK/panel/.env.local" ] && ok "panel/.env.local var" || uyar "panel/.env.local yok → ./kur.sh panel"
+  if [ -f "$KOK/panel/.env.local" ]; then
+    if python3 "$KOK/panel/infra/env_denetle.py" >/dev/null 2>&1; then
+      ok "panel/.env.local geçerli"
+    else
+      uyar "panel/.env.local YER TUTUCU/eksik → panel Kurulum ekranına düşer (panel/infra/env_denetle.py)"
+    fi
+  else
+    uyar "panel/.env.local yok → ./kur.sh panel"
+  fi
 
   # broker erişimi (ayarlardan okunur, yoksa atlanır)
   local broker port
