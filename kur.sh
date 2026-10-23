@@ -114,12 +114,29 @@ kiosk() {
   ok "bağımlılıklar: kiosk/requirements.txt + paho-mqtt"
   "$VENV/bin/python" -m pip install -q -r kiosk/requirements.txt paho-mqtt || { hata "pip kurulumu başarısız"; return 1; }
 
-  if [ -f web/package.json ] && [ ! -f web/dist/index.html ]; then
-    ok "web arayüzü derleniyor (ilk seferde ~1 dk)"
-    ( cd web && NODE_ENV=development npm ci --include=dev >/dev/null 2>&1 || NODE_ENV=development npm install --include=dev >/dev/null 2>&1
-      NODE_ENV=development npm run build >/dev/null 2>&1 ) || uyar "web derlemesi başarısız (tarayıcı modu çalışmayabilir)"
-  else
-    ok "web derlemesi mevcut"
+  # ESKİ HATA: yalnız `web/dist/index.html` YOKSA derliyordu → kaynak değişse bile "mevcut" deyip
+  # eski paket kalıyordu (kullanıcı güncellemeyi göremedi, beyaz ekran sürdü).
+  # Artık: kaynak dosyalar dist'ten YENİYSE yeniden derler; başarısızlık SESSİZ değil.
+  if [ -f web/package.json ]; then
+    YENI_KAYNAK="$(find web/src web/index.html web/package.json web/vite.config.ts web/tsconfig.json \
+        -newer web/dist/index.html -type f 2>/dev/null | head -1 || true)"
+    if [ ! -f web/dist/index.html ] || [ -n "$YENI_KAYNAK" ]; then
+      ok "web arayüzü derleniyor${YENI_KAYNAK:+ (kaynak değişmiş: ${YENI_KAYNAK#web/})}"
+      if ! ( cd web
+             NODE_ENV=development npm ci --include=dev >/dev/null 2>&1 \
+               || NODE_ENV=development npm install --include=dev >/dev/null 2>&1
+             NODE_ENV=development npm run build ); then
+        hata "web derlemesi BAŞARISIZ — tarayıcı modu eski paketle çalışır"
+        return 1
+      fi
+      # damga: hangi commit'in derlendiğini cihazda görebilelim (--tani yazar)
+      printf '{"git": "%s", "zaman": "%s"}\n' \
+        "$(git -C "$KOK" rev-parse --short HEAD 2>/dev/null || echo '-')" \
+        "$(date -Iseconds)" > web/dist/surum.json
+      ok "web derlemesi tamam (surum.json yazıldı)"
+    else
+      ok "web derlemesi güncel"
+    fi
   fi
 
   ok "hazır. Başlatmak için:"
