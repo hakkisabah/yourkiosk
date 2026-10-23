@@ -92,10 +92,15 @@ export class VeriKaynagi {
     return this.ayar.secenekler
   }
 
-  /** Büyük veri dosyalarının kökü (yerel modda aynı kaynak). */
+  /** Büyük veri dosyalarının kökü (yerel modda aynı kaynak).
+   *
+   * Sondaki `/` **temizlenir**: `DOSYA_ADRESI` sonunda `/` taşıdığı için `${taban}/match.json`
+   * çift slash üretiyordu (`…//match.json`) → S3/CloudFront **403** → `match()` null dönüyordu →
+   * "cihaz kimliği match.json içinde bulunamadı" (beyaz ekran). Qt tarafı zaten rstrip yapıyordu.
+   */
   veriTaban(): string {
     if (this.ayar.secenekler.veri !== 'https') return this.yerel
-    return this.ayar.secenekler.taban || this.yerel
+    return (this.ayar.secenekler.taban || this.yerel).replace(/\/+$/, '')
   }
 
   private async _metin(adres: string): Promise<ArrayBuffer | null> {
