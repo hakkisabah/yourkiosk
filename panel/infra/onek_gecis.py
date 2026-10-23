@@ -55,6 +55,64 @@ def politika_ekle(politika: dict, kova: str, onek: str, dagitim_arn: str) -> boo
     return True
 
 
+def _head(url: str) -> str:
+    try:
+        istek = urllib.request.Request(url, method="HEAD", headers={"Cache-Control": "no-cache"})
+        with urllib.request.urlopen(istek, timeout=12) as y:
+            return f"HTTP {y.status}"
+    except urllib.error.HTTPError as h:
+        return f"HTTP {h.code}"
+    except Exception as h:  # noqa: BLE001
+        return f"hata: {type(h).__name__}"
+
+
+def _dagitim_teshisi(kova: str, dagitim_id: str) -> None:
+    """Origin/behavior/OAC ve nesne erişimini GERÇEKLERE göre yazdırır (tahmin yok)."""
+    print("\n--- dağıtım yapılandırması ---")
+    kod, cikti, hata = aws("cloudfront", "get-distribution-config", "--id", dagitim_id, "--output", "json")
+    if kod != 0:
+        print(f"  ✗ okunamadı: {hata}")
+        return
+    cfg = json.loads(cikti).get("DistributionConfig", {})
+    origins = cfg.get("Origins", {}).get("Items", [])
+    for o in origins:
+        s3 = o.get("S3OriginConfig") or {}
+        print(f"  origin {o.get('Id')}: {o.get('DomainName')}  originPath={o.get('OriginPath') or '-'}")
+        print(f"     OAC={o.get('OriginAccessControlId') or '(yok)'} · OAI={s3.get('OriginAccessIdentity') or '(yok)'}")
+
+    # OAC ayarları (imza davranışı yanlışsa 403 sürer)
+    for o in origins:
+        oac_id = o.get("OriginAccessControlId")
+        if not oac_id:
+            continue
+        kod3, cikti3, hata3 = aws("cloudfront", "get-origin-access-control", "--id", oac_id, "--output", "json")
+        if kod3 == 0:
+            oc = json.loads(cikti3).get("OriginAccessControl", {}).get("OriginAccessControlConfig", {})
+            print(f"     OAC ayarı: behaviour={oc.get('SigningBehavior')} · protokol={oc.get('SigningProtocol')} "
+                  f"· tür={oc.get('OriginAccessControlOriginType')}")
+            if oc.get("SigningBehavior") == "never":
+                print("     ✗ SigningBehavior=never → S3'e imzasız gider (403 nedeni)")
+        else:
+            print(f"     ✗ OAC okunamadı ({oac_id}): {hata3[:80]}")
+
+    varsayilan = cfg.get("DefaultCacheBehavior", {}).get("TargetOriginId")
+    print(f"  varsayılan behavior → origin: {varsayilan}")
+    for b in cfg.get("CacheBehaviors", {}).get("Items", []):
+        print(f"  behavior {b.get('PathPattern')} → origin: {b.get('TargetOriginId')}")
+
+    if any("--" in str(o.get("OriginPath") or "") for o in origins):
+        print("  ⚠ originPath ayarlı: istenen yol origin yoluna EKLENİR (403/404 nedeni olabilir)")
+
+    print("\n--- nesne erişimi (doğrudan S3 vs CloudFront) ---")
+    bolge = "eu-central-1"
+    for anahtar in ("match.json", "kiosk/match.json"):
+        s3_url = f"https://{kova}.s3.{bolge}.amazonaws.com/{anahtar}"
+        print(f"  {anahtar:<22} S3: {_head(s3_url):<12}", end="")
+        kod2, cikti2, _ = aws("s3api", "head-object", "--bucket", kova, "--key", anahtar,
+                              "--query", "{boyut:ContentLength,acl:Grant}", "--output", "json")
+        print(f"nesne: {'var' if kod2 == 0 else 'YOK/erişilemiyor'}")
+
+
 def main() -> int:
     a = argparse.ArgumentParser(description="kiosk/* önekine geçiş (CloudFront OAC + kova politikası)")
     a.add_argument("--kova", default="yourkiosk-veri")
@@ -115,6 +173,7 @@ def main() -> int:
             if kosullar and not source_arn:
                 print(f"     condition={json.dumps(kosullar, ensure_ascii=False)[:160]}")
         print("\n(Deny ifadeleri Allow'u EZER; kiosk/* için Deny varsa onu kaldırmadan çalışmaz.)")
+        _dagitim_teshisi(secim.kova, dagitim["Id"])
         return 0
     eklendi = True if secim.zorla_ekle else politika_ekle(politika, secim.kova, secim.onek, dagitim["ARN"])
     if not eklendi:
