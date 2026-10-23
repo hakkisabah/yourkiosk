@@ -39,6 +39,16 @@ def _indirici(monkeypatch: pytest.MonkeyPatch, govde: bytes, tur: str = "image/p
         return govde, tur
 
     monkeypatch.setattr(pharmacy_app, "indir", sahte)
+
+    # YENİ: görsel indirme yolu artık `kosullu_indir` (ETag/304). Testte o da yamalanır.
+    def sahte_kosullu(url, ayarlar, *, etag="", son_degisiklik=""):
+        # İlk istek (ETag yok) → gövde; sonraki koşullu istek → 304 (gövde YOK)
+        if etag or son_degisiklik:
+            return None, "", etag or '"test-etag"', son_degisiklik or "Mon, 01 Jan 2026 00:00:00 GMT"
+        bayt, tur_ = sahte(url, ayarlar)
+        return bayt, tur_, '"test-etag"', "Mon, 01 Jan 2026 00:00:00 GMT"
+
+    monkeypatch.setattr(pharmacy_app, "kosullu_indir", sahte_kosullu)
     return cagrilar
 
 
@@ -107,11 +117,14 @@ def test_bayat_gorsel_agdan_tazelenir(pencere, monkeypatch) -> None:
     assert len(cagrilar) == 1
 
     assert onbellek.gorselleri_bayat_isaretle({URL}) == 1
+    # YENİ DAVRANIŞ: bayat görsel KÖRLEMESİNE indirilmez; ETag ile doğrulanır (304 → diskten).
+    # `_indirici` 304 döndürecek şekilde ayarlandığı için ağdan GÖVDE alınmaz.
     assert p._yayin_gorselini_yukle(URL) is True
-    assert len(cagrilar) == 2, "bayat işaretli görsel yeniden indirilmeli"
-    # tazelendikten sonra yeniden önbellekten
+    assert len(cagrilar) == 1, "304 alınınca gövde indirilmemeli (diskten okunmalı)"
+    assert onbellek.gorsel_kayit(URL)["bayat"] is False, "304 sonrası kayıt tazelenmeli"
+    # sonraki gösterimler de diskten
     assert p._yayin_gorselini_yukle(URL) is True
-    assert len(cagrilar) == 2
+    assert len(cagrilar) == 1
 
 
 def test_gecersiz_gorsel_onbellege_yazilmaz(pencere, monkeypatch) -> None:

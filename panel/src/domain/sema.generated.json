@@ -930,7 +930,7 @@
           "alt": 5000,
           "ust": 3600000,
           "izinli": null,
-          "varsayilan": 20000,
+          "varsayilan": 300000,
           "gelismis": false
         },
         {

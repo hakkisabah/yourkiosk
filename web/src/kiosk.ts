@@ -470,7 +470,10 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
 
   // ---------------------------------------------------------------- canlı değişiklik
   /**
-   * Damga + tetikleyici yoklaması (`DAMGA_KONTROL_MS`, varsayılan 20 sn).
+   * Damga + tetikleyici yoklaması (`DAMGA_KONTROL_MS`).
+   * Maliyet notu: bu yoklama her turda 2-3 küçük dosya isteği demektir; anlık güncelleme
+   * `/degisiklik` uzun yoklaması + MQTT ile gelir, bu yüzden varsayılan 300 sn (600 cihaz
+   * ölçeğinde 20 sn ≈ 233 M istek/ay ≈ $268; 300 sn ≈ 15,6 M ≈ $18).
    *
    * Yalnızca KÜÇÜK dosyalar okunur (`lastupdate.json`, `tetikle.json`); büyük veri
    * dosyaları damga değişmedikçe indirilmez. Anlık uç (`/degisiklik`) yoksa tek yol budur.
@@ -631,7 +634,7 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
     void canliBaslat()
     const periyotlar: Array<[number, () => void]> = [
       [sabit('REFRESH_INTERVAL_MS', 3_600_000), () => void yukle()],
-      [sabit('DAMGA_KONTROL_MS', 20_000), () => void damgaKontrol()],
+      [sabit('DAMGA_KONTROL_MS', 300_000), () => void damgaKontrol()],
       [1000, saatGuncelle],
       [sabit('KUSAK_ADIM_ARALIGI_MS', 30), kusakAdimi],
     ]

@@ -239,7 +239,7 @@ def gorsel_oku(url: str) -> bytes | None:
     return govde
 
 
-def gorsel_yaz(url: str, govde: bytes, icerik_turu: str = "") -> None:
+def gorsel_yaz(url: str, govde: bytes, icerik_turu: str = "", etag: str = "", son_degisiklik: str = "") -> None:
     """Görseli önbelleğe yazar (aynı adres tekrar gelirse üzerine yazar)."""
     if not aktif() or not govde:
         return
@@ -257,9 +257,38 @@ def gorsel_yaz(url: str, govde: bytes, icerik_turu: str = "") -> None:
         "icerik_turu": str(icerik_turu or ""),
         "sha256": _sha256(govde),
         "bayat": False,
+        "etag": str(etag or onceki.get("etag") or ""),
+        "son_degisiklik": str(son_degisiklik or onceki.get("son_degisiklik") or ""),
     }
     _dizin_yaz(dizin)
     log.info("görsel önbelleğe alındı: %s (%d bayt)", anahtar, len(govde))
+
+
+def gorsel_kayit(url: str) -> dict | None:
+    """Görsel dizin kaydı (etag/son_degisiklik/bayat). Yoksa None."""
+    if not aktif():
+        return None
+    kayit = _dizin_oku()["gorsel"].get(gorsel_anahtari(url))
+    return kayit if isinstance(kayit, dict) else None
+
+
+def gorsel_bayati_temizle(url: str, etag: str = "", son_degisiklik: str = "") -> None:
+    """304 doğrulaması sonrası kaydı 'taze' işaretler (gövde indirilmeden)."""
+    if not aktif():
+        return
+    anahtar = gorsel_anahtari(url)
+    dizin = _dizin_oku()
+    kayit = dizin["gorsel"].get(anahtar)
+    if not isinstance(kayit, dict):
+        return
+    kayit["bayat"] = False
+    kayit["dogrulandi"] = _simdi().isoformat(timespec="seconds")
+    if etag:
+        kayit["etag"] = etag
+    if son_degisiklik:
+        kayit["son_degisiklik"] = son_degisiklik
+    _dizin_yaz(dizin)
+    log.info("görsel değişmemiş (304) → diskten kullanılıyor: %s", url)
 
 
 def gorsel_temizle(url: str) -> None:

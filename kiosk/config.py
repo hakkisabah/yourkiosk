@@ -39,7 +39,12 @@ LASTUPDATE_KONTROL_MS = 60 * 60 * 1000
 TETIK_DOSYASI = "tetikle.json"
 #: Damga/tetik yoklama aralığı (ms). Yalnızca KÜÇÜK dosyalar okunur (lastupdate+tetik);
 #: büyük veri dosyaları damga değişmedikçe indirilmez.
-DAMGA_KONTROL_MS = 20 * 1000
+# Emniyet ağı yoklaması. ANLIK güncelleme MQTT push (tetik.push_*) ve tarayıcıda `/degisiklik`
+# uzun yoklamasıyla gelir; bu süre yalnızca "push kaçtı" durumu içindir.
+# 600 cihaz ölçeğinde maliyet: 3 küçük istek × (86400/süre) × cihaz.
+#   20 sn → ~234 M istek/ay (CloudFront ~$175/ay)   |   300 sn → ~15,6 M istek/ay (~$12/ay)
+# 20 sn'ye düşürmek isteyen `calistirma.degisiklik_kontrol_ms` ile ayarlar.
+DAMGA_KONTROL_MS = 300 * 1000
 #: Tarayıcı modunda anlık değişiklik ucu: tek istekte en fazla kaç saniye beklenir
 DEGISIKLIK_BEKLEME_S = 30
 # --- UZAKTAN KOMUT (S3 → cihaz): yeniden başlat / uygulamayı yeniden başlat / ekranı yenile ---
