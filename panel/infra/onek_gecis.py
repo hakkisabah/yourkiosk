@@ -41,6 +41,9 @@ def politika_ekle(politika: dict, kova: str, onek: str, dagitim_arn: str) -> boo
         kaynaklar = i.get("Resource") if isinstance(i.get("Resource"), list) else [i.get("Resource")]
         if any(str(k) in (f"arn:aws:s3:::{kova}/{onek}*", f"arn:aws:s3:::{kova}/*") for k in kaynaklar if k):
             return False
+    # aynı Sid iki kez olamaz → eski kiosk ifadesini kaldır
+    politika["Statement"] = [x for x in ifadeler if x.get("Sid") != "KioskOnekOAC"]
+    ifadeler = politika["Statement"]
     ifadeler.append({
         "Sid": "KioskOnekOAC",
         "Effect": "Allow",
@@ -59,6 +62,8 @@ def main() -> int:
     a.add_argument("--onek", default="kiosk/")
     a.add_argument("--uygula", action="store_true", help="değişiklikleri yaz (varsayılan: yalnız plan)")
     a.add_argument("--sadece-politika", action="store_true", help="veri dosyalarını kopyalama")
+    a.add_argument("--teshis", action="store_true", help="kova politikasındaki ifadeleri özetle ve çık")
+    a.add_argument("--zorla-ekle", action="store_true", help="'zaten var' görünse de kiosk ifadesini ekle")
     secim = a.parse_args()
 
     kod, hesap, hata = aws("sts", "get-caller-identity", "--query", "Account", "--output", "text")
@@ -90,7 +95,28 @@ def main() -> int:
     politika = json.loads(politika_metni)
     ifadeler = politika.setdefault("Statement", [])
     kaynak = f"arn:aws:s3:::{secim.kova}/{secim.onek}*"
-    eklendi = politika_ekle(politika, secim.kova, secim.onek, dagitim["ARN"])
+
+    if secim.teshis:
+        print("\n--- kova politikası ifadeleri ---")
+        for i, ifade in enumerate(ifadeler, 1):
+            principal = ifade.get("Principal")
+            if isinstance(principal, dict):
+                principal = principal.get("Service") or principal.get("AWS") or principal.get("CanonicalUser")
+            kosullar = ifade.get("Condition") or {}
+            source_arn = ""
+            for kural in kosullar.values():
+                if isinstance(kural, dict) and "AWS:SourceArn" in kural:
+                    source_arn = kural["AWS:SourceArn"]
+            print(f"  {i}. Sid={ifade.get('Sid','-'):<24} {ifade.get('Effect','?'):<6} "
+                  f"principal={principal} action={ifade.get('Action')}")
+            print(f"     resource={ifade.get('Resource')}")
+            if source_arn:
+                print(f"     SourceArn={source_arn}{'  ← VERİ dağıtımı' if source_arn == dagitim['ARN'] else '  ← BAŞKA dağıtım!'}")
+            if kosullar and not source_arn:
+                print(f"     condition={json.dumps(kosullar, ensure_ascii=False)[:160]}")
+        print("\n(Deny ifadeleri Allow'u EZER; kiosk/* için Deny varsa onu kaldırmadan çalışmaz.)")
+        return 0
+    eklendi = True if secim.zorla_ekle else politika_ekle(politika, secim.kova, secim.onek, dagitim["ARN"])
     if not eklendi:
         print(f"✓ kova politikası: '{secim.onek}*' için CloudFront izni zaten var")
     else:
