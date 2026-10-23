@@ -210,6 +210,25 @@ def tani_raporu(client_id: str, port: int | None = None) -> list[str]:
     satirlar: list[str] = []
     satirlar.append(f"arayüz kökü     : {web_kok()}")
     satirlar.append(f"derlenmiş mi    : {'EVET' if derlenmis_mi() else 'HAYIR → cd web && npm run build'}")
+    # Hangi paketin çalıştığı görünsün: eski dist ile yeni kaynak karışmasın (beyaz ekran hataları)
+    try:
+        import json as _j
+
+        paketler = sorted((web_kok() / "assets").glob("index-*.js"), key=lambda p: p.stat().st_mtime)
+        if paketler:
+            son = paketler[-1]
+            satirlar.append(f"arayüz paketi   : {son.name} · {time.strftime('%Y-%m-%d %H:%M', time.localtime(son.stat().st_mtime))}")
+        surum_yolu = web_kok() / "surum.json"
+        if surum_yolu.is_file():
+            s = _j.loads(surum_yolu.read_text(encoding="utf-8"))
+            satirlar.append(f"paket sürümü    : git={s.get('git', '-')} · derleme={s.get('zaman', '-')}")
+        # kaynak dist'ten yeni mi? (kur.sh artık kendisi derler; burada uyarı)
+        kaynaklar = list((web_kok().parent / "src").rglob("*")) + [web_kok().parent / "index.html"]
+        en_yeni = max((p.stat().st_mtime for p in kaynaklar if p.is_file()), default=0)
+        if paketler and en_yeni > paketler[-1].stat().st_mtime + 1:
+            satirlar.append("UYARI           : web/dist ESKİ (kaynak daha yeni) → ./kur.sh kiosk")
+    except Exception:  # noqa: BLE001
+        pass
     eksik_veri = [ad for ad in CIHAZ_VERI_DOSYALARI if not (KOK / ad).is_file()]
     if eksik_veri:
         satirlar.append(f"cihaz verisi    : EKSİK → {', '.join(eksik_veri)}")
