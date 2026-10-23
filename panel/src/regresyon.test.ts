@@ -70,7 +70,11 @@ describe('üretim derlemesi (varsa)', () => {
     for (const ad of dosyalar) {
       const icerik = readFileSync(join(dizin, ad), 'utf8')
       expect(icerik, `${ad}: HMR istemcisi olmamalı`).not.toContain('@vite/client')
-      expect(icerik, `${ad}: dev HMR WebSocket'i olmamalı`).not.toContain('WebSocket')
+      // NOT: düz "WebSocket" aramak yanlış — MQTT push (wss://) meşru olarak WebSocket kullanır.
+      // Aranan şey Vite'ın DEV HMR istemcisi; onu kendi işaretleriyle yakalarız.
+      expect(icerik, `${ad}: dev HMR istemcisi olmamalı`).not.toContain('vite-hmr')
+      expect(icerik, `${ad}: dev HMR ping'i olmamalı`).not.toContain('__vite_ping')
+      expect(icerik, `${ad}: import.meta.hot kalmamalı`).not.toContain('import.meta.hot')
       const ciplakGlobal = icerik.match(/(^|[^A-Za-z0-9_$.])global\.[A-Za-z_$]/g)
       expect(ciplakGlobal, `${ad}: global globalThis'e çevrilmeli`).toBeNull()
     }
