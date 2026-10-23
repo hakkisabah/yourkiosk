@@ -515,6 +515,7 @@ class PharmacyApp(QMainWindow):
         self.current_index += 1
         if self.current_index >= len(self.pharmacies):
             active_yayinlar = self.broadcast_manager.get_active_yayinlar(self.yayinlar)
+            log.debug("nöbet listesi bitti: havuz=%d · aktif yayın=%d", len(self.yayinlar), len(active_yayinlar))
             if active_yayinlar:
                 self.start_broadcast_mode(active_yayinlar)
             else:
@@ -541,7 +542,9 @@ class PharmacyApp(QMainWindow):
 
     def start_broadcast_mode(self, active_yayinlar):
         if not ayarlar.ozellik("yayinlar"):
+            log.info("yayın moduna geçilmedi: 'yayinlar' özelliği kapalı")
             return
+        log.info("yayın modu başladı: %d yayın", len(active_yayinlar))
         self.is_broadcast_mode = True
         self.broadcast_manager.active_yayin_list = active_yayinlar
         self.broadcast_manager.current_yayin_idx = 0
@@ -562,6 +565,7 @@ class PharmacyApp(QMainWindow):
             return
         y = mgr.active_yayin_list[mgr.current_yayin_idx]
         url = y.get("contentURL") or y.get("contentUrl") or ""
+        log.info("yayın gösteriliyor: %d/%d · %s", mgr.current_yayin_idx + 1, len(mgr.active_yayin_list), url or "(adres yok)")
         # Süre sınırlanır: bozuk değer (ör. 99999999) ekranı yayında kilitleyemesin
         duration = (
             sayi_sinirla(
