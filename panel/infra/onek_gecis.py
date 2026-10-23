@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""Çözüm A: cihazlar `kiosk/*` önekinden okusun (CloudFront + OAC + kova politikası).
+
+NE YAPAR (sırayla, her adımı yazdırır):
+  1. AWS kimliğini ve veri dağıtımını bulur (alan adından).
+  2. Kova politikasını okur; `kiosk/*` için CloudFront OAC izni YOKSA ekler (mevcut ifadeler korunur).
+  3. `kiosk/` altında eksik veri dosyalarını kökten kopyalar (lastupdate/lastSystemData/match/…).
+  4. `https://<dağıtım>/kiosk/match.json` erişimini doğrular (200 beklenir).
+
+    ./panel/infra/onek_gecis.py                       # yalnız plan (hiçbir şey değiştirmez)
+    ./panel/infra/onek_gecis.py --uygula              # politikayı yaz + dosyaları kopyala
+    ./panel/infra/onek_gecis.py --uygula --sadece-politika
+
+Cihaz tarafı (en son, elle): `push_ayarla.py --veri-adresi https://<dağıtım>/kiosk/`
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+COGRAFYA = "eu-central-1"
+VERI_DOSYALARI = ("lastupdate.json", "lastSystemData.json", "match.json", "makinebilgileri.json", "sablon.json", "ayarlar.json")
+
+
+def aws(*arg: str) -> tuple[int, str, str]:
+    r = subprocess.run(["aws", *arg], capture_output=True, text=True)
+    return r.returncode, r.stdout.strip(), r.stderr.strip()
+
+
+def politika_ekle(politika: dict, kova: str, onek: str, dagitim_arn: str) -> bool:
+    """`onek*` için CloudFront OAC izni yoksa ekler; eklendiyse True döner."""
+    ifadeler = politika.setdefault("Statement", [])
+    for i in ifadeler:
+        if i.get("Principal", {}).get("Service") != "cloudfront.amazonaws.com":
+            continue
+        kaynaklar = i.get("Resource") if isinstance(i.get("Resource"), list) else [i.get("Resource")]
+        if any(str(k) in (f"arn:aws:s3:::{kova}/{onek}*", f"arn:aws:s3:::{kova}/*") for k in kaynaklar if k):
+            return False
+    ifadeler.append({
+        "Sid": "KioskOnekOAC",
+        "Effect": "Allow",
+        "Principal": {"Service": "cloudfront.amazonaws.com"},
+        "Action": "s3:GetObject",
+        "Resource": f"arn:aws:s3:::{kova}/{onek}*",
+        "Condition": {"StringEquals": {"AWS:SourceArn": dagitim_arn}},
+    })
+    return True
+
+
+def main() -> int:
+    a = argparse.ArgumentParser(description="kiosk/* önekine geçiş (CloudFront OAC + kova politikası)")
+    a.add_argument("--kova", default="yourkiosk-veri")
+    a.add_argument("--alan-adi", default="d2dnrvsx5eevod.cloudfront.net", help="veri dağıtımının alan adı")
+    a.add_argument("--onek", default="kiosk/")
+    a.add_argument("--uygula", action="store_true", help="değişiklikleri yaz (varsayılan: yalnız plan)")
+    a.add_argument("--sadece-politika", action="store_true", help="veri dosyalarını kopyalama")
+    secim = a.parse_args()
+
+    kod, hesap, hata = aws("sts", "get-caller-identity", "--query", "Account", "--output", "text")
+    if kod != 0:
+        print(f"✗ AWS kimliği yok: {hata}", file=sys.stderr)
+        return 2
+    print(f"hesap           : {hesap}")
+
+    kod, cikti, hata = aws(
+        "cloudfront", "list-distributions",
+        "--query", f"DistributionList.Items[?DomainName=='{secim.alan_adi}'].{{Id:Id,ARN:ARN}}",
+        "--output", "json",
+    )
+    if kod != 0:
+        print(f"✗ dağıtımlar okunamadı: {hata}", file=sys.stderr)
+        return 2
+    daagitimlar = json.loads(cikti or "[]")
+    if not daagitimlar:
+        print(f"✗ '{secim.alan_adi}' dağıtımı bulunamadı", file=sys.stderr)
+        return 2
+    dagitim = daagitimlar[0]
+    print(f"dağıtım         : {dagitim['Id']}  ({dagitim['ARN']})")
+
+    # ---- 1) kova politikası
+    kod, politika_metni, hata = aws("s3api", "get-bucket-policy", "--bucket", secim.kova, "--query", "Policy", "--output", "text")
+    if kod != 0:
+        print(f"✗ kova politikası okunamadı: {hata}", file=sys.stderr)
+        return 2
+    politika = json.loads(politika_metni)
+    ifadeler = politika.setdefault("Statement", [])
+    kaynak = f"arn:aws:s3:::{secim.kova}/{secim.onek}*"
+    eklendi = politika_ekle(politika, secim.kova, secim.onek, dagitim["ARN"])
+    if not eklendi:
+        print(f"✓ kova politikası: '{secim.onek}*' için CloudFront izni zaten var")
+    else:
+        print(f"+ kova politikasına eklenecek: KioskOnekOAC → {kaynak}")
+        if secim.uygula:
+            with open("/tmp/kova-politika-yeni.json", "w", encoding="utf-8") as f:
+                json.dump(politika, f, ensure_ascii=False, indent=2)
+            kod, _, hata = aws("s3api", "put-bucket-policy", "--bucket", secim.kova,
+                               "--policy", "file:///tmp/kova-politika-yeni.json")
+            if kod != 0:
+                print(f"✗ politika yazılamadı: {hata}", file=sys.stderr)
+                return 2
+            print("  ✓ politika yazıldı")
+
+    # ---- 2) veri dosyalarını kökten kiosk/ altına kopyala
+    if not secim.sadece_politika:
+        kod, kok_liste, _ = aws("s3api", "list-objects-v2", "--bucket", secim.kova, "--query", "Contents[].Key", "--output", "json")
+        kod2, onek_liste, _ = aws("s3api", "list-objects-v2", "--bucket", secim.kova, "--prefix", secim.onek,
+                                  "--query", "Contents[].Key", "--output", "json")
+        kok = set(json.loads(kok_liste or "[]"))
+        onektekiler = set(json.loads(onek_liste or "[]"))
+        for ad in VERI_DOSYALARI:
+            hedef = f"{secim.onek}{ad}"
+            if hedef in onektekiler:
+                print(f"✓ {hedef} var")
+                continue
+            if ad not in kok:
+                print(f"· {ad} kökte de yok (atlandı)")
+                continue
+            print(f"+ kopyalanacak: {ad} → {hedef}")
+            if secim.uygula:
+                kod, _, hata = aws("s3", "cp", f"s3://{secim.kova}/{ad}", f"s3://{secim.kova}/{hedef}",
+                                   "--cache-control", "no-cache,must-revalidate", "--only-show-errors")
+                if kod != 0:
+                    print(f"  ✗ kopyalanamadı: {hata}", file=sys.stderr)
+                else:
+                    print("  ✓ kopyalandı")
+
+    # ---- 3) doğrulama
+    adres = f"https://{secim.alan_adi}/{secim.onek}match.json"
+    try:
+        istek = urllib.request.Request(adres, headers={"Cache-Control": "no-cache"})
+        with urllib.request.urlopen(istek, timeout=15) as y:
+            boyut = len(y.read())
+        print(f"✓ {adres} → HTTP 200 · {boyut} bayt")
+    except urllib.error.HTTPError as h:
+        print(f"✗ {adres} → HTTP {h.code} (politika/kopyalama henüz uygulanmadıysa normaldir)")
+    except Exception as h:  # noqa: BLE001
+        print(f"✗ {adres} → {h}")
+
+    if not secim.uygula:
+        print("\n(plan) uygulamak için: --uygula")
+    else:
+        print("\nSIRADAKİ (cihaz): push_ayarla.py --veri-adresi https://%s/%s" % (secim.alan_adi, secim.onek))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
