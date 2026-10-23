@@ -190,6 +190,19 @@ def main() -> int:
         if not isinstance(izinli, list):
             izinli = []
         izinli = [str(x).strip() for x in izinli if str(x).strip()]
+        # ÖNEMLİ: dosyadaki liste config varsayılanlarını EZER. Varsayılanları (veri kaynağı,
+        # yayın görsellerinin alan adları) kaybetmemek için onları da ekle.
+        try:
+            import sys as _sys
+
+            _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+            from config import ALLOWED_HOSTS as _VARSAYILAN
+
+            for _h in _VARSAYILAN:
+                if _h not in izinli:
+                    izinli.append(_h)
+        except Exception:  # noqa: BLE001
+            pass
         if konak not in izinli:
             izinli.append(konak)
             print(f"✓ izin listesine eklendi: {konak}")
