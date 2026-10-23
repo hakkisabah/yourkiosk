@@ -83,7 +83,9 @@ def main() -> int:
         # KONTROL NOKTASI: geçen turda testler kırıkken birleştirdim → artık kapı.
         import subprocess as sp
 
-        kiosk = sp.run(["kiosk/tools/test.sh", "tests", "-q"], cwd=KOK, capture_output=True, text=True)
+        # DİKKAT: test.sh kiosk/ içinden çalışmalı; depo kökünden çağrılınca pytest koleksiyonu
+        # patlıyor (çıkış 2) ve "testler kırık" sanılıyor. Geçen tur bu yüzden yanlış sonuç aldım.
+        kiosk = sp.run(["tools/test.sh", "tests", "-q"], cwd=KOK / "kiosk", capture_output=True, text=True)
         madde("kiosk testleri", kiosk.returncode == 0, f"çıkış {kiosk.returncode}")
         web = sp.run(["npx", "vitest", "run"], cwd=KOK / "web", capture_output=True, text=True)
         madde("web testleri", web.returncode == 0, f"çıkış {web.returncode}")
