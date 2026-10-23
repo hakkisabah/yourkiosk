@@ -63,6 +63,19 @@ def main() -> int:
                 sorunlar.append(f"{anahtar}: YER TUTUCU ({ham[:18]}…)")
                 break
 
+    # Cihazlar veriyi KÖKTEN okur (DOSYA_ADRESI). Panel önek yazarsa (kiosk/) iki ayrı isim alanı
+    # oluşur: panel oraya yazar, cihaz kökten okur → "panelde değiştirdim, cihazda görünmedi".
+    # UYARI (engel değil): panel `VITE_PREFIX` altına yazar; cihazın DOSYA_ADRESI ile AYNI isim
+    # alanında olmalı. Şu an cihazlar kökten okuyor, panel `kiosk/` yazıyor → uçtan uca akış için
+    # ya CloudFront'ta `kiosk/*` davranışı (OAC) açılmalı ya da VITE_PREFIX boşaltılmalı.
+    onek = (deger.get("VITE_PREFIX") or "").strip()
+    uyarilar = []
+    if onek:
+        uyarilar.append(
+            f"VITE_PREFIX='{onek}' — cihaz DOSYA_ADRESI ile aynı önekte olmalı "
+            "(cihazlar şu an kökten okuyor; ya öneki boşalt ya CloudFront'ta kiosk/* davranışını aç)"
+        )
+
     mod = (deger.get("VITE_AUTH_MODU") or "cognito").strip().lower()
     if mod not in ("cognito", "lambda"):
         sorunlar.append(f"VITE_AUTH_MODU: geçersiz ({mod}) — 'cognito' veya 'lambda' olmalı")
@@ -72,6 +85,9 @@ def main() -> int:
             ham = deger.get(anahtar, "")
             gizli = ham[:10] + "…" if len(ham) > 12 else ham
             print(f"  {anahtar:<28}= {gizli or '(yok)'}")
+
+    for u in uyarilar:
+        print(f"⚠ {u}")
 
     if sorunlar:
         print("✗ .env.local yayına uygun değil (panel Kurulum ekranına düşer):", file=sys.stderr)
