@@ -1,24 +1,24 @@
 {
   "CORSRules": [
     {
-      "AllowedHeaders": [
-        "*"
-      ],
-      "AllowedMethods": [
-        "GET",
-        "HEAD",
-        "PUT"
-      ],
+      "ID": "cihaz-okuma",
+      "AllowedHeaders": ["*"],
+      "AllowedMethods": ["GET", "HEAD"],
+      "AllowedOrigins": ["*"],
+      "ExposeHeaders": ["ETag", "Last-Modified", "Content-Length"],
+      "MaxAgeSeconds": 3000
+    },
+    {
+      "ID": "panel-yazma",
+      "AllowedHeaders": ["*"],
+      "AllowedMethods": ["GET", "HEAD", "PUT"],
       "AllowedOrigins": [
         "http://localhost:5173",
         "http://localhost:4173",
-        "https://d308vfb9mn2991.cloudfront.net"
+        "https://d308vfb9mn2991.cloudfront.net",
+        "https://yourkiosk.hakkisabah.com"
       ],
-      "ExposeHeaders": [
-        "ETag",
-        "Last-Modified",
-        "Content-Length"
-      ],
+      "ExposeHeaders": ["ETag", "Last-Modified", "Content-Length"],
       "MaxAgeSeconds": 3000
     }
   ]
