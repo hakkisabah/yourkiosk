@@ -33,6 +33,15 @@ echo "=== index.html (önbelleksiz) ==="
 aws --no-cli-pager s3 cp dist/index.html "s3://$KOVA/${ONEK}index.html" \
   --cache-control "no-cache,must-revalidate" --content-type "text/html; charset=utf-8" --only-show-errors
 
+echo "=== CORS (cihazlar: GET/HEAD her origin · panel: PUT) ==="
+# Kiosk tarayıcısı 127.0.0.1'den CloudFront'a istek atar → CORS şart. Eksikse data okunamaz
+# ("match.json okunamadı"). Kural her yayında tazelenir.
+if [ -f "$KOK/panel/infra/s3-cors.json" ]; then
+  aws --no-cli-pager s3api put-bucket-cors --bucket "$KOVA" \
+    --cors-configuration "file://$KOK/panel/infra/s3-cors.json" --only-show-errors \
+    && echo "  ✓ CORS uygulandı"
+fi
+
 echo "=== önbellek temizliği ==="
 aws --no-cli-pager cloudfront create-invalidation --distribution-id "$DIST" --paths "/*" \
   --query "Invalidation.{Id:Id,Status:Status}" --output json

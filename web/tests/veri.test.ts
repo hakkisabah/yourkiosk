@@ -494,3 +494,50 @@ describe('veri tabanı adresi (çift slash)', () => {
     expect(kaynak('https://sunucu/veri', []).veriTaban()).toBe('https://sunucu/veri')
   })
 })
+
+/**
+ * CORS yedeği: tarayıcı 127.0.0.1'den CloudFront'a giderken CORS yoksa fetch bloke olur.
+ * Python tarafı aynı dosyayı çekip `kiosk/` altında tutuyor → yerel sunucudan okunmalı.
+ */
+describe('CORS yedeği (uzak erişilemezse yerel sunucu)', () => {
+  it('uzak fetch hata verirse yerel adresten okur', async () => {
+    const adresler: string[] = []
+    const getir = vi.fn(async (adres: string | URL | Request) => {
+      const u = String(adres)
+      adresler.push(u)
+      if (u.startsWith('https://sunucu')) throw new TypeError('Failed to fetch')
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new TextEncoder().encode('{"I1":[{"B1":["C1"]}]}').buffer,
+        text: async () => '{"I1":[{"B1":["C1"]}]}',
+      } as unknown as Response
+    }) as unknown as typeof fetch
+
+    const k = new VeriKaynagi({
+      secenekler: { clientID: 'C1', veri: 'https', taban: 'https://sunucu/veri/' },
+      onbellek: new Onbellek(2, new SahteDepo()),
+      getir,
+      yerelTaban: 'http://127.0.0.1:8090',
+    })
+
+    expect(await k.match()).toEqual({ I1: [{ B1: ['C1'] }] })
+    expect(adresler).toContain('http://127.0.0.1:8090/match.json')
+  })
+
+  it('uzak 200 dönerse yerel sunucuya hiç gitmez', async () => {
+    const adresler: string[] = []
+    const getir = vi.fn(async (adres: string | URL | Request) => {
+      adresler.push(String(adres))
+      return { ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode('{}').buffer } as unknown as Response
+    }) as unknown as typeof fetch
+    const k = new VeriKaynagi({
+      secenekler: { clientID: 'C1', veri: 'https', taban: 'https://sunucu/veri' },
+      onbellek: new Onbellek(2, new SahteDepo()),
+      getir,
+      yerelTaban: 'http://127.0.0.1:8090',
+    })
+    await k.match()
+    expect(adresler.some((u) => u.startsWith('http://127.0.0.1'))).toBe(false)
+  })
+})

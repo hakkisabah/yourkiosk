@@ -109,7 +109,17 @@ export class VeriKaynagi {
       if (!yanit.ok) return null
       return await yanit.arrayBuffer()
     } catch {
-      return null
+      // CORS/ağ hatası: uzak adres yoksa AYNI dosyayı yerel kiosk sunucusundan dene.
+      // Python tarafı veriyi TLS + izin listesiyle çekip `kiosk/` altında tutuyor → aynı origin.
+      const yerelAdres = adres.replace(this.veriTaban(), this.yerel)
+      if (yerelAdres === adres) return null
+      try {
+        const yanit = await this.getir(yerelAdres, { cache: 'no-store' })
+        if (!yanit.ok) return null
+        return await yanit.arrayBuffer()
+      } catch {
+        return null
+      }
     }
   }
 
@@ -172,7 +182,13 @@ export class VeriKaynagi {
     }
   }
 
-  /** match.json (cihaz → ilçe/bölge eşlemesi). */
+  /** match.json (cihaz → ilçe/bölge eşlemesi).
+   *
+   * `veri=https` iken önce uzak adresten, olmazsa **yerel sunucudan** (kiosk'un kendi Python
+   * sunucusu) okunur. Neden: tarayıcı `127.0.0.1:8090`'dan CloudFront'a giderken **CORS** gerekir;
+   * bucket CORS'u eksikse istek tarayıcıda bloke olur ve ekran "match.json okunamadı" derdi.
+   * Python tarafı aynı dosyayı TLS + izin listesiyle zaten çekip önbelleğe alıyor.
+   */
   async match(): Promise<Record<string, unknown> | null> {
     const ad = 'match.json'
     const govde = await this._metin(`${this.veriTaban()}/${ad}`)
