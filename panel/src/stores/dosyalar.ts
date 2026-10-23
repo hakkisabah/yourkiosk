@@ -146,6 +146,16 @@ export const useDosyalar = defineStore('dosyalar', {
         hedef.veri = veri
         hedef.etag = sonuc.etag
         hedef.yuklendi = true
+        // DAMGA: cihaz yoklaması `lastupdate` ile karşılaştırır. Damga güncellenmezse cihaz
+        // "değişmedi" sanıp ÖNBELLEKTEN eski gövdeyi gösterir (push ulaşmazsa hiç güncellenmez).
+        // Bu yüzden veriyi değiştiren her kayıttan sonra damga da tazelenir.
+        if (tetikGerekir(ad)) {
+          try {
+            await baglan.kaynak.yaz(DOSYALAR.lastupdate, { lastupdate: zamanDamgasi(new Date()) })
+          } catch {
+            /* damga yazılamadı: cihaz yine tetikleyici/MQTT ile haberdar edilir */
+          }
+        }
         // Ekranda görüneni değiştiren her yayın cihazı tetikler (cihazda `tetik.aktif` /
         // `tetik.modlar` ile filtrelenir). Tetik yazılamazsa kayıt yine geçerli sayılır.
         if (tetikGerekir(ad)) {
