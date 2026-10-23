@@ -23,7 +23,12 @@ from pathlib import Path
 DIZIN = Path(__file__).resolve().parent
 ENV = DIZIN.parent / ".env.local"
 VARSAYILAN_ADRES = "https://d308vfb9mn2991.cloudfront.net/"
-YER_TUTUCU = (re.compile(r"X{4,}"), re.compile(r"ORNEK|EXAMPLE", re.I), re.compile(r"eu-central-1:1{8}-2{4}"))
+# NOT: "ORNEK"/"EXAMPLE" kelimesi pakette MEŞRU olabilir (arayüz metni, kod örneği) → aranmaz.
+YER_TUTUCU = (
+    re.compile(r"eu-central-1_[Xx]{6,}"),        # VITE_USER_POOL_ID yer tutucusu
+    re.compile(r"eu-central-1:1{8}-2{4}-3{4}"),  # VITE_IDENTITY_POOL_ID yer tutucusu
+    re.compile(r"[X]{20,}"),                     # istemci kimliği yer tutucusu
+)
 
 
 def _getir(url: str) -> tuple[bytes, dict[str, str]]:

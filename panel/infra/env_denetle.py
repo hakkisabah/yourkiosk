@@ -85,13 +85,12 @@ def main() -> int:
     # UYARI (engel değil): panel `VITE_PREFIX` altına yazar; cihazın DOSYA_ADRESI ile AYNI isim
     # alanında olmalı. Şu an cihazlar kökten okuyor, panel `kiosk/` yazıyor → uçtan uca akış için
     # ya CloudFront'ta `kiosk/*` davranışı (OAC) açılmalı ya da VITE_PREFIX boşaltılmalı.
+    # Bilgi: veri dağıtımının origin'inde `originPath=/kiosk` var → kök istek `kiosk/*` nesnesini
+    # okur. Yani panel `kiosk/` yazması DOĞRU; uyarı üretmiyoruz (docs/PANEL-ISIM-ALANI.md).
     onek = (deger.get("VITE_PREFIX") or "").strip()
     uyarilar = []
-    if onek:
-        uyarilar.append(
-            f"VITE_PREFIX='{onek}' — cihaz DOSYA_ADRESI ile aynı önekte olmalı "
-            "(cihazlar şu an kökten okuyor; ya öneki boşalt ya CloudFront'ta kiosk/* davranışını aç)"
-        )
+    if onek and onek != "kiosk/":
+        uyarilar.append(f"VITE_PREFIX='{onek}' beklenmedik (bu kurulumda 'kiosk/' olmalı)")
 
     mod = (deger.get("VITE_AUTH_MODU") or "cognito").strip().lower()
     if mod not in ("cognito", "lambda"):

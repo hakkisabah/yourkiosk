@@ -11,7 +11,7 @@ from PyQt6.QtCore import Qt, QLocale, QDateTime, QPropertyAnimation, QEasingCurv
 import config
 import ayarlar
 import utils
-from security.network import AgAyarlari, AgHatasi, indir
+from security.network import AgAyarlari, AgHatasi, gorsel_icin_ayarlar, indir
 from security.safe_image import ayirma_limitini_ayarla, piksel_yukle
 from security.veri_dogrulama import sayi_sinirla
 from ui.nobet_widget import NobetWidget
@@ -598,8 +598,14 @@ class PharmacyApp(QMainWindow):
         try:
             ayarlar.dogrula_url(url)
         except AgHatasi as hata:
-            log.warning("yayın görseli adresi reddedildi (%s): %s", url, hata)
-            return False
+            # Veri izin listesi görseller için dar olabilir (cihaz ayarları varsayılanı ezer).
+            # Tarayıcı köprüsüyle AYNI kural: herkese açık https host kabul, özel/loopback RED.
+            try:
+                ayarlar = gorsel_icin_ayarlar(ayarlar, url)
+                log.info("yayın görseli: izin listesi dışı herkese açık host kabul edildi (%s) — %s", url, hata)
+            except AgHatasi:
+                log.warning("yayın görseli adresi reddedildi (%s): %s", url, hata)
+                return False
         # 1) Cihaz önbelleği: görsel daha önce indirildiyse AĞA HİÇ ÇIKILMAZ.
         baytlar = onbellek.gorsel_oku(url)
         icerik_turu = ""
