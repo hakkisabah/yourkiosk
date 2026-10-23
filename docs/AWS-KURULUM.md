@@ -194,7 +194,16 @@ aws cloudfront create-origin-access-control --origin-access-control-config \
   '{"Name":"yourkiosk-panel-oac","SigningProtocol":"sigv4","SigningBehavior":"always","OriginAccessControlOriginType":"s3"}'
 aws cloudfront create-distribution --distribution-config file:///tmp/aws-kur/cf-config.json
 aws s3api put-bucket-policy --bucket yourkiosk-veri --policy file:///tmp/aws-kur/bucket-policy.json   # Principal: cloudfront.amazonaws.com + SourceArn
-aws s3api put-bucket-cors --bucket yourkiosk-veri --cors-configuration file://panel/infra/s3-cors.json
+# DİKKAT: `file://` yolu ÇALIŞTIĞIN DİZİNE göre çözülür → mutlak yol kullan.
+# (Hata: "Unable to load paramfile file://panel/infra/s3-cors.json: No such file or directory")
+KOK="$(pwd)/.."; [ -d panel ] && KOK="$(pwd)"        # depo kökündeysek pwd
+aws s3api put-bucket-cors --bucket yourkiosk-veri \
+  --cors-configuration "file://$KOK/panel/infra/s3-cors.json"
+
+# doğrulama
+aws s3api get-bucket-cors --bucket yourkiosk-veri
+curl -si -H "Origin: http://127.0.0.1:8090" \
+  https://d2dnrvsx5eevod.cloudfront.net/match.json | grep -i access-control
 aws s3 sync panel/dist s3://yourkiosk-veri/panel/ --delete --exclude index.html \
   --cache-control "public,max-age=31536000,immutable"
 aws s3 cp panel/dist/index.html s3://yourkiosk-veri/panel/index.html --cache-control "no-cache,must-revalidate"
