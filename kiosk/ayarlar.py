@@ -392,7 +392,9 @@ def uygula(
             log.warning("ayar geçersiz, varsayılan kullanılacak — %s", sebep)
             continue
         setattr(config, cfg_ad, deger)
-        uygulanan.append(f"{grup}.{anahtar}={deger}")
+        # GÜVENLİK: parola/anahtar/sertifika İÇERİĞİ asla günlüğe yazılmaz (yalnız "***").
+        gizli = any(k in anahtar.lower() for k in ("parola", "password", "secret", "token", "anahtar"))
+        uygulanan.append(f"{grup}.{anahtar}={'***' if gizli else deger}")
 
     # bilinmeyen gruplar/anahtarlar
     for grup, veri in belge.items():

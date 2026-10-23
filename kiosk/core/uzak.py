@@ -46,10 +46,22 @@ def getir(ad: str, *, taban: str | None = None, en_buyuk_bayt: int = EN_BUYUK_KU
         yonlendirme_izinli=bool(getattr(config, "AG_YONLENDIRME_IZINLI", False)),
         en_buyuk_url=int(getattr(config, "MAX_URL_UZUNLUK", 2048)),
     )
+    # NOT: `indir()` varsayılan olarak GÖRSEL içerik türü beyaz listesini uygular (png/jpeg/webp).
+    # tetikle.json / komut.json `application/json` gelir → bu yüzden denetim KAPATILIR; JSON
+    # geçerliliği çağıran tarafta (core/tetik.py, core/komut.py) ayrıştırılarak doğrulanır.
     try:
-        govde, _tur = indir(f"{kok}/{ad}", ayarlar)
+        govde, tur = indir(f"{kok}/{ad}", ayarlar, icerik_turu_denetle=False)
+        if tur and not (tur.startswith("application/json") or tur.startswith("text/plain")
+                        or tur in ("", "application/octet-stream")):
+            log.warning("küçük dosya beklenmeyen içerik türü (%s/%s): %s", kok, ad, tur)
+            return None
     except AgHatasi as hata:
-        log.warning("küçük dosya alınamadı (%s/%s): %s", kok, ad, hata)
+        # 403/404 = dosya yok (henüz yazılmamış) → gürültü yapma; gerçek politika/ağ hatası uyarı
+        metin = str(hata)
+        if "HTTP 403" in metin or "HTTP 404" in metin:
+            log.debug("küçük dosya yok (%s/%s): %s", kok, ad, metin)
+        else:
+            log.warning("küçük dosya alınamadı (%s/%s): %s", kok, ad, hata)
         return None
     except Exception:  # noqa: BLE001 - ağ hatası gösterimi durdurmamalı
         log.warning("küçük dosya alınamadı (%s/%s)", kok, ad, exc_info=True)
