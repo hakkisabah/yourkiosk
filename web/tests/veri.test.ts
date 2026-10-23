@@ -453,3 +453,44 @@ describe('yayınlar — pencere, sıra, süre', () => {
     expect(yayinSuresiMs({ duration: 'bozuk' })).toBe(10000)
   })
 })
+
+/**
+ * Regresyon: `DOSYA_ADRESI` sonunda `/` varken `${taban}/match.json` **çift slash** üretiyordu
+ * (`…//match.json` → S3/CloudFront 403) → match.json okunamıyor → "cihaz kimliği match.json içinde
+ * bulunamadı" beyaz ekranı. Qt tarafı zaten `rstrip('/')` yapıyordu; tarayıcı yapmıyordu.
+ */
+describe('veri tabanı adresi (çift slash)', () => {
+  function kaynak(taban: string, toplanan: string[]) {
+    const getir = vi.fn(async (adres: string | URL | Request) => {
+      toplanan.push(String(adres))
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new TextEncoder().encode('{}').buffer,
+        text: async () => '{}',
+      } as unknown as Response
+    }) as unknown as typeof fetch
+    return new VeriKaynagi({
+      secenekler: { clientID: 'C1', veri: 'https', taban },
+      onbellek: new Onbellek(2, new SahteDepo()),
+      getir,
+      yerelTaban: 'http://127.0.0.1:8090',
+    })
+  }
+
+  it('sondaki / temizlenir', async () => {
+    const adresler: string[] = []
+    const k = kaynak('https://sunucu/veri/', adresler)
+    expect(k.veriTaban()).toBe('https://sunucu/veri')
+    await k.match()
+    expect(adresler).toContain('https://sunucu/veri/match.json')
+  })
+
+  it('çoklu / temizlenir', () => {
+    expect(kaynak('https://sunucu/veri///', []).veriTaban()).toBe('https://sunucu/veri')
+  })
+
+  it('slash yoksa değişmez', () => {
+    expect(kaynak('https://sunucu/veri', []).veriTaban()).toBe('https://sunucu/veri')
+  })
+})

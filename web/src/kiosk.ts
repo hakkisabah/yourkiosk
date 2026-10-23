@@ -206,6 +206,15 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
       durum.damga = damga
       const match = await secenekler.kaynak.match()
       const clientId = secenekler.kaynak.secenekler.clientID
+      if (!match) {
+        // match.json hiç okunamadı (403/404/ağ). Sebebi kimlik eşleşmesinden AYRI göster:
+        // yoksa "cihaz match.json'da yok" gibi yanıltıcı bir mesaj çıkar.
+        durum.hata =
+          'match.json okunamadı (ağ hatası ya da erişim reddi). ' +
+          `Adres: ${secenekler.kaynak.veriTaban()}/match.json — taban adresinin sonunda çift "/" olmamalı.`
+        log('HATA: match.json okunamadı (403/404/ağ)')
+        return false
+      }
       const konumHam = cihazKonumunuBul(match, clientId)
       if (!konumHam.bulundu) {
         durum.hata =
