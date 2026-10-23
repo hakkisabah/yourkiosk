@@ -19,6 +19,8 @@ ana makine denetimi yoktu; hata durumunda ekran sessizce boş kalıyordu. Bu mod
 from __future__ import annotations
 
 import logging
+import ipaddress
+import socket
 import ssl
 import urllib.error
 import urllib.request
@@ -111,6 +113,59 @@ class AgAyarlari:
         except AgHatasi:
             return False
         return True
+
+
+def _host_herkese_acik(host: str) -> tuple[bool, str]:
+    """Host yalnız GENEL (özel olmayan) IP'lere çözümleniyorsa True.
+
+    SSRF koruması: 127.0.0.0/8, 10/8, 172.16/12, 192.168/16, 169.254/16, ::1, fc00::/7,
+    multicast/ayrılmış adresler reddedilir. DNS rebinding'e karşı tam koruma sağlamaz
+    (bağlantı anında yeniden çözümleme olur) — içerik panel tarafından yetkilendirilir.
+    """
+    try:
+        kayitlar = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+    except OSError as hata:
+        return False, f"çözümlenemedi: {hata}"
+    if not kayitlar:
+        return False, "adres kaydı yok"
+    for kayit in kayitlar:
+        try:
+            ip = ipaddress.ip_address(str(kayit[4][0]).split("%")[0])
+        except ValueError:
+            return False, "geçersiz IP"
+        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+                or ip.is_multicast or ip.is_unspecified):
+            return False, f"özel/ayrılmış adres: {ip}"
+    return True, ""
+
+
+def gorsel_icin_ayarlar(ayarlar: AgAyarlari, url: str) -> AgAyarlari:
+    """Görsel indirme için ayarları genişletir: izin listesinde olmayan **herkese açık** https host kabul.
+
+    NEDEN: yayın görselleri panelde serbestçe adreslenir (ör. https://hakkisabah.com/api/x.png).
+    Cihazın veri izin listesine her görsel alan adını eklemek 600 cihazda sürdürülemez.
+    """
+    import dataclasses
+
+    parcali = urlparse(url)
+    if parcali.scheme not in IZINLI_SEMALAR:
+        raise AgHatasi(f"görsel: yalnızca https kabul edilir (gelen: {parcali.scheme or 'yok'})")
+    if parcali.username or parcali.password:
+        raise AgHatasi("görsel adresinde kullanıcı bilgisi var")
+    try:
+        port = parcali.port or VARSAYILAN_PORT
+    except ValueError as hata:
+        raise AgHatasi(f"görsel: geçersiz port: {hata}") from hata
+    if port not in ayarlar.izinli_portlar:
+        raise AgHatasi(f"görsel: izin verilmeyen port: {port}")
+    host = (parcali.hostname or "").rstrip(".").lower()
+    if not host:
+        raise AgHatasi("adreste ana makine yok")
+    uygun, neden = _host_herkese_acik(host)
+    if not uygun:
+        raise AgHatasi(f"görsel adresi reddedildi ({host}): {neden}")
+    izinli = tuple(dict.fromkeys((*ayarlar.izinli_hostlar, host)))
+    return dataclasses.replace(ayarlar, izinli_hostlar=izinli)
 
 
 class _YonlendirmeDenetimi(urllib.request.HTTPRedirectHandler):
