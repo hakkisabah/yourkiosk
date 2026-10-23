@@ -10,7 +10,9 @@ set -euo pipefail
 DIZIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KOK="$(cd "$DIZIN/.." && pwd)"
 KOVA="${KOVA:-yourkiosk-veri}"
-DIST="${DIST:-EVR6YMP2UVX8A}"
+DAGITIM_ADI="${DAGITIM_ADI:-d308vfb9mn2991.cloudfront.net}"
+# DİKKAT: önceki varsayılan EVR6YMP2UVX8A VERİ dağıtımıydı → panel önbelleği hiç temizlenmiyordu.
+DIST="${PANEL_DIST:-}"
 ONEK="${ONEK:-panel/}"
 # `less` kurulu olmayan makinelerde AWS CLI sayfalayıcı açmaya çalışıp hata veriyor
 # ("Unable to redirect output to pager ... 'less'"). Sayfalayıcıyı tamamen kapat.
@@ -55,9 +57,20 @@ if [ -f "$KOK/panel/infra/s3-cors.json" ]; then
     && echo "  ✓ CORS uygulandı"
 fi
 
-echo "=== önbellek temizliği ==="
-aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*" \
-  --query "Invalidation.{Id:Id,Status:Status}" --output json
+if [ -z "$DIST" ]; then
+  DIST="$(aws cloudfront list-distributions \
+      --query "DistributionList.Items[?DomainName=='$DAGITIM_ADI'].Id" --output text 2>/dev/null | head -1)"
+  if [ -z "$DIST" ] || [ "$DIST" = "None" ]; then
+    echo "⚠ panel dağıtımı bulunamadı ($DAGITIM_ADI) — invalidation atlandı (PANEL_DIST=... verin)"
+    DIST=""
+  fi
+fi
+
+echo "=== önbellek temizliği${DIST:+ (dağıtım $DIST)} ==="
+if [ -n "$DIST" ]; then
+  aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*" \
+    --query "Invalidation.{Id:Id,Status:Status}" --output json
+fi
 
 echo "=== dağıtım doğrulaması ==="
 YEREL_PAKET="$(grep -o 'assets/index-[A-Za-z0-9_-]*\.js' dist/index.html | head -1)"
@@ -70,3 +83,9 @@ else
 fi
 
 echo "✓ yayınlandı"
+
+echo "=== canlı doğrulama ==="
+python3 "$DIZIN/infra/yayin_dogrula.py" --adres "https://$DAGITIM_ADI/" || {
+  echo "✗ CANLI DOĞRULAMA BAŞARISIZ — panel yanlış derlenmiş görünüyor (yukarıdaki maddelere bak)" >&2
+  exit 1
+}
