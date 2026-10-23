@@ -3,14 +3,16 @@
 #
 #   ./otomasyon/nobetci-kur.sh i5                 # kur + başlat
 #   ./otomasyon/nobetci-kur.sh i3                 # (i3 makinesinde)
-#   ./otomasyon/nobetci-kur.sh i5 --cron-kaldir   # eski 'i5 guvenlik' cron görevini de sil
+#   ./otomasyon/nobetci-kur.sh i5 --cron-kaldir   # bu depoya ait TÜM cron görevlerini sil (+ servisi kur)
+#   ./otomasyon/nobetci-kur.sh i5 --sadece-cron   # yalnız cron'ları sil, servise dokunma
+#   ./otomasyon/nobetci-kur.sh i5 --denetle       # kontrol noktaları: cron/servis/linger/oturum
 #   ./otomasyon/nobetci-kur.sh i5 --durum         # servis durumu
 #   ./otomasyon/nobetci-kur.sh i5 --kaldir        # servisi durdur + sil
 set -euo pipefail
 
 ROL="${1:-}"; shift || true
 if [ "$ROL" != "i5" ] && [ "$ROL" != "i3" ]; then
-  echo "kullanım: $0 <i5|i3> [--cron-kaldir|--durum|--kaldir|--kuru]" >&2
+  echo "kullanım: $0 <i5|i3> [--cron-kaldir|--sadece-cron|--denetle|--durum|--kaldir|--kuru]" >&2
   exit 2
 fi
 KIP="kur"
@@ -19,23 +21,29 @@ for a in "$@"; do
   case "$a" in
     # --cron-kaldir EK bir işlemdir: servisi kurmayı ENGELLEMEZ (ilk sürümde engelliyordu)
     --cron-kaldir) CRON_KALDIR=1 ;;
+    --sadece-cron) CRON_KALDIR=2 ;;
+    --denetle) KIP="denetle" ;;
     --durum) KIP="durum" ;;
     --kaldir) KIP="kaldir" ;;
     --kuru) KIP="kuru" ;;
   esac
 done
 
+# ESKİ HATA: yalnız "i5/i3 guvenlik" ADINI arıyordu; "i3 karar" adlı görev silinmiyordu → oturumlar
+# iki kaynaktan açılmaya devam ediyordu. Artık ada değil İŞ DİZİNİNE bakıyor ve silmeyi DOĞRULUYOR.
 cron_kaldir() {
-  local id
-  id="$(hermes cron list 2>/dev/null | grep -B1 -E "Name:.*(i5|i3) [gG]uvenlik" | grep -oE '^[[:space:]]*[0-9a-f]{12}' | head -1 | tr -d ' ')"
-  if [ -n "$id" ]; then
-    hermes cron remove "$id" >/dev/null 2>&1 && echo "eski cron görevi silindi: $id"
-  else
-    echo "silinecek cron görevi yok (zaten temiz)"
-  fi
+  "$PYTHON" "$DEPO/otomasyon/betik/cron_temizle.py" --sil
 }
 
 DEPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# --sadece-cron: yalnız cron temizliği yap, systemd'ye DOKUNMA
+if [ "$CRON_KALDIR" -eq 2 ]; then
+  exec "$(command -v python3)" "$DEPO/otomasyon/betik/cron_temizle.py" --sil
+fi
+# --denetle: kontrol noktaları (hiçbir şeyi değiştirmez)
+if [ "$KIP" = "denetle" ]; then
+  exec "$(command -v python3)" "$DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --kendini-denetle
+fi
 UNIT_ADI="yourkiosk-nobetci.service"
 UNIT_YOL="$HOME/.config/systemd/user/$UNIT_ADI"
 # sistem python3 tercih edilir: venv yolu (ör. ~/.hermes/installs/...) güncellemede kırılır
@@ -92,5 +100,8 @@ case "$KIP" in
     echo "canlı günlük: journalctl --user -u $UNIT_ADI -f"
     echo "             tail -f $HOME/.local/state/yourkiosk-otomasyon/nobetci-$ROL.log"
     if [ "$CRON_KALDIR" -eq 1 ]; then cron_kaldir; else echo "cron'u kaldırmak için: $0 $ROL --cron-kaldir"; fi
+    echo
+    echo "=== kontrol noktaları ==="
+    "$PYTHON" "$DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --kendini-denetle || echo "(denetim uyarı verdi — yukarıya bak)"
     ;;
 esac
