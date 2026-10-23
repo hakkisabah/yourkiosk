@@ -230,6 +230,61 @@ def indir(url: str, ayarlar: AgAyarlari, *, icerik_turu_denetle: bool = True) ->
         raise AgHatasi(f"{type(hata).__name__}: {hata}") from hata
 
 
+def kosullu_indir(
+    url: str,
+    ayarlar: AgAyarlari,
+    *,
+    etag: str = "",
+    son_degisiklik: str = "",
+) -> tuple[bytes | None, str, str, str]:
+    """Koşullu GET: içerik değişmediyse (304) GÖVDE İNDİRİLMEZ.
+
+    Dönüş: (bayt|None, icerik_turu, yeni_etag, yeni_son_degisiklik)
+    `bayt is None` → 304 (disk kaydı hâlâ geçerli) ya da sunucu ETag/Last-Modified vermiyor.
+
+    NEDEN: her veri güncellemesinde 600 cihazın aynı görselleri yeniden indirmesi hem bant
+    genişliği hem AWS maliyeti demekti. 304 yanıtının gövdesi yoktur (birkaç yüz bayt).
+    """
+    ayarlar.dogrula_url(url)
+    basliklar = {
+        "User-Agent": ayarlar.kullanici_ajani,
+        "Accept": "image/png,image/jpeg,image/webp,*/*;q=0.1",
+        "Accept-Encoding": "identity",
+        "Connection": "close",
+    }
+    if etag:
+        basliklar["If-None-Match"] = etag
+    elif son_degisiklik:
+        basliklar["If-Modified-Since"] = son_degisiklik
+    istek = urllib.request.Request(url, headers=basliklar, method="GET")
+    try:
+        with _opener(ayarlar).open(istek, timeout=ayarlar.zaman_asimi_s) as yanit:  # noqa: S310
+            yeni_etag = (yanit.headers.get("ETag") or "").strip()
+            yeni_tarih = (yanit.headers.get("Last-Modified") or "").strip()
+            if yanit.status == 304:
+                return None, "", yeni_etag or etag, yeni_tarih or son_degisiklik
+            if yanit.status != 200:
+                raise AgHatasi(f"HTTP {yanit.status}")
+            tur = (yanit.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if tur not in IZINLI_ICERIK_TURLERI:
+                raise AgHatasi(f"içerik türü kabul edilmiyor: {tur or 'yok'}")
+            ilan = yanit.headers.get("Content-Length")
+            if ilan is not None and ilan.isdigit() and int(ilan) > ayarlar.en_buyuk_bayt:
+                raise AgHatasi(f"yanıt çok büyük: {ilan} bayt")
+            veri = yanit.read(ayarlar.en_buyuk_bayt + 1)
+            if len(veri) > ayarlar.en_buyuk_bayt:
+                raise AgHatasi(f"yanıt üst sınırı aştı (> {ayarlar.en_buyuk_bayt} bayt)")
+            return veri, tur, yeni_etag, yeni_tarih
+    except AgHatasi:
+        raise
+    except urllib.error.HTTPError as hata:
+        if hata.code == 304:  # urllib 304'ü hata olarak da verebilir
+            return None, "", etag, son_degisiklik
+        raise AgHatasi(f"HTTP {hata.code}") from hata
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as hata:
+        raise AgHatasi(f"{type(hata).__name__}: {hata}") from hata
+
+
 def json_indir(url: str, ayarlar: AgAyarlari) -> object:
     """JSON gövdesi çeker (boyut + derinlik + düğüm denetimiyle)."""
     from security.veri_dogrulama import json_yukle

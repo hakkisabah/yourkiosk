@@ -18,7 +18,7 @@
  ],
  "sabitler": {
   "CYCLE_INTERVAL_MS": 10000,
-  "DAMGA_KONTROL_MS": 20000,
+  "DAMGA_KONTROL_MS": 300000,
   "DEGISIKLIK_BEKLEME_S": 30,
   "EKSIK_TELEFON_YERINE_BOLGE": true,
   "KAPSAM": "ilce",
@@ -209,5 +209,5 @@
    "krem": "#f5e8c7"
   }
  },
- "surum_ozeti": "6b2a9f637a62d7e9"
+ "surum_ozeti": "e8daf774c1ac0728"
 }

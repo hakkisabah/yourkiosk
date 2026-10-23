@@ -11,7 +11,7 @@ from PyQt6.QtCore import Qt, QLocale, QDateTime, QPropertyAnimation, QEasingCurv
 import config
 import ayarlar
 import utils
-from security.network import AgAyarlari, AgHatasi, gorsel_icin_ayarlar, indir
+from security.network import AgAyarlari, AgHatasi, gorsel_icin_ayarlar, indir, kosullu_indir
 from security.safe_image import ayirma_limitini_ayarla, piksel_yukle
 from security.veri_dogrulama import sayi_sinirla
 from ui.nobet_widget import NobetWidget
@@ -613,15 +613,42 @@ class PharmacyApp(QMainWindow):
         # 1) Cihaz önbelleği: görsel daha önce indirildiyse AĞA HİÇ ÇIKILMAZ.
         baytlar = onbellek.gorsel_oku(url)
         icerik_turu = ""
+        etag_indirilen = tarih_indirilen = ""
         if baytlar is not None:
-            log.debug("yayın görseli önbellekten okundu: %s", url)
+            log.info("yayın görseli DİSKTEN okundu (%d bayt): %s", len(baytlar), url)
         else:
-            # 2) Önbellekte yok/bayat → indir, doğrula, önbelleğe yaz.
-            try:
-                baytlar, icerik_turu = indir(url, ayarlar)
-            except AgHatasi as hata:
-                log.warning("yayın görseli indirilemedi (%s): %s", url, hata)
-                return False
+            # 1b) Kayıt "bayat" ise KÖRLEMESİNE indirme: ETag/Last-Modified ile doğrula.
+            #     Sunucu 304 derse gövde gelmez → diskteki kopya kullanılır (bant + AWS maliyeti yok).
+            kayit = onbellek.gorsel_kayit(url)
+            if isinstance(kayit, dict) and kayit.get("bayat") and (kayit.get("etag") or kayit.get("son_degisiklik")):
+                try:
+                    yeni, tur304, etag304, tarih304 = kosullu_indir(
+                        url, ayarlar, etag=str(kayit.get("etag") or ""),
+                        son_degisiklik=str(kayit.get("son_degisiklik") or ""),
+                    )
+                except AgHatasi as hata:
+                    log.warning("görsel doğrulanamadı (%s): %s", url, hata)
+                    yeni = None
+                    tur304 = ""
+                if yeni is None:
+                    onbellek.gorsel_bayati_temizle(url, etag304, tarih304)
+                    baytlar = onbellek.gorsel_oku(url)
+                    if baytlar is not None:
+                        onbellek.gorsel_gosterildi(url)
+                        log.info("yayın görseli DİSKTEN okundu (304 doğrulandı, %d bayt)", len(baytlar))
+            if baytlar is not None and not icerik_turu:
+                pass  # diskten geldi: aşağıdaki piksel yüklemesi baytları kullanır
+            if baytlar is None:
+                # 2) Önbellekte yok / gerçekten değişmiş → indir, doğrula, önbelleğe yaz.
+                #    `kosullu_indir` ETag/Last-Modified'i de döndürür → sonraki tazeleme 304 alır.
+                try:
+                    baytlar, icerik_turu, etag_indirilen, tarih_indirilen = kosullu_indir(url, ayarlar)
+                except AgHatasi as hata:
+                    log.warning("yayın görseli indirilemedi (%s): %s", url, hata)
+                    return False
+                if baytlar is None:  # beklenmedik 304 (ETag göndermedik)
+                    log.warning("yayın görseli için gövde gelmedi (%s)", url)
+                    return False
         pixmap, karar = piksel_yukle(
             baytlar,
             en_buyuk_bayt=config.MAX_GORSEL_BAYT,
@@ -634,7 +661,7 @@ class PharmacyApp(QMainWindow):
                 onbellek.gorsel_temizle(url)
             return False
         if icerik_turu:  # yalnızca yeni indirilen görsel saklanır (doğrulandıktan sonra)
-            onbellek.gorsel_yaz(url, baytlar, icerik_turu)
+            onbellek.gorsel_yaz(url, baytlar, icerik_turu, etag=etag_indirilen, son_degisiklik=tarih_indirilen)
         onbellek.gorsel_gosterildi(url)
         self.yayin_widget.img_lbl.setPixmap(pixmap)
         return True
