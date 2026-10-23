@@ -45,6 +45,8 @@ def oku(yol: Path) -> dict[str, str]:
 def main() -> int:
     ayar = argparse.ArgumentParser(description=".env.local yer tutucu denetimi")
     ayar.add_argument("--ayrinti", action="store_true")
+    ayar.add_argument("--duzelt", action="store_true",
+                      help="VITE_AUTH_MODU geçersizse 'cognito' yapar (yalnız bu anahtar onarılır)")
     secim = ayar.parse_args()
 
     if not ENV.is_file():
@@ -52,6 +54,21 @@ def main() -> int:
         return 1
 
     deger = oku(ENV)
+    if secim.duzelt:
+        ham_mod = (deger.get("VITE_AUTH_MODU") or "").strip().lower()
+        if ham_mod not in ("cognito", "lambda"):
+            satirlar = ENV.read_text(encoding="utf-8").splitlines()
+            yazildi = False
+            for i, s in enumerate(satirlar):
+                if s.strip().startswith("VITE_AUTH_MODU="):
+                    satirlar[i] = "VITE_AUTH_MODU=cognito"
+                    yazildi = True
+            if not yazildi:
+                satirlar.append("VITE_AUTH_MODU=cognito")
+            ENV.write_text("\n".join(satirlar) + "\n", encoding="utf-8")
+            ENV.chmod(0o600)
+            print(f"✓ VITE_AUTH_MODU=cognito yazıldı (önceki: {ham_mod or '(yok)'})")
+            deger = oku(ENV)
     sorunlar: list[str] = []
     for anahtar in ZORUNLU:
         ham = deger.get(anahtar, "")
