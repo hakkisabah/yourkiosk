@@ -597,7 +597,7 @@ class _IstekIsleyici(http.server.BaseHTTPRequestHandler):
         except AgHatasi as hata:
             # adres politikası ihlali (izin listesi/scheme/port) → 403, ağ hatası → 502
             metin = str(hata)
-            politika = any(k in metin for k in ("izin", "politika", "kabul edilir", "adres "))
+            politika = any(k in metin for k in ("izin", "politika", "kabul edilir", "adres ", "reddedildi", "çözümlenemedi"))
             log.warning("görsel alınamadı (%s): %s", url, hata)
             self._hata(403 if politika else 502, metin)
             return

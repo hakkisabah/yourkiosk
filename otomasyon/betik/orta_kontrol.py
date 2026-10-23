@@ -37,6 +37,7 @@ def komut(*a: str) -> str:
 def main() -> int:
     a = argparse.ArgumentParser(description="birleştirme öncesi kontrol noktaları")
     a.add_argument("--json", action="store_true")
+    a.add_argument("--testler", action="store_true", help="kiosk + web testlerini de çalıştır (yavaş)")
     secim = a.parse_args()
 
     sonuc: dict[str, dict] = {}
@@ -77,6 +78,15 @@ def main() -> int:
     testler = [d for d in degisen if "test" in d.lower()]
     kod = [d for d in degisen if d.endswith((".py", ".ts", ".vue", ".sh")) and "test" not in d.lower()]
     madde("test izi", bool(testler) or not kod, f"{len(testler)} test dosyası / {len(kod)} kod dosyası", onemli=False)
+
+    if secim.testler:
+        # KONTROL NOKTASI: geçen turda testler kırıkken birleştirdim → artık kapı.
+        import subprocess as sp
+
+        kiosk = sp.run(["kiosk/tools/test.sh", "tests", "-q"], cwd=KOK, capture_output=True, text=True)
+        madde("kiosk testleri", kiosk.returncode == 0, f"çıkış {kiosk.returncode}")
+        web = sp.run(["npx", "vitest", "run"], cwd=KOK / "web", capture_output=True, text=True)
+        madde("web testleri", web.returncode == 0, f"çıkış {web.returncode}")
 
     if secim.json:
         print(json.dumps(sonuc, ensure_ascii=False, indent=2))
