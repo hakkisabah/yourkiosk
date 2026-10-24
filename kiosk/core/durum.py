@@ -52,6 +52,22 @@ def tetik(belge: dict | None) -> dict | None:
     return deger if isinstance(deger, dict) and deger else None
 
 
+def secili_tetik(belge: dict | None, yerel_oku) -> dict | None:
+    """Tetikleyici seçimi: UZAK (panel → `durum.json`) önce, yoksa YEREL (MQTT → `tetikle.json`).
+
+    NEDEN: MQTT push yerel dosyaya yazar. `durum.json` yoluna geçildiğinde bu dosya okunmazsa
+    "Bildir" anlık çalışmaz (yaşandı). `yerel_oku` enjekte edilir → test edilebilir.
+    """
+    uzak_tetik = tetik(belge)
+    if uzak_tetik:
+        return uzak_tetik
+    try:
+        yerel = yerel_oku()
+    except Exception:  # noqa: BLE001 - yerel okuma hatası gösterimi durdurmamalı
+        return None
+    return yerel if isinstance(yerel, dict) and yerel else None
+
+
 def komut_isareti(belge: dict | None) -> str:
     """Komut dosyası için kısa işaret (zaman + id). Değişmediyse komut dosyası çekilmez."""
     deger = (belge or {}).get("komut")

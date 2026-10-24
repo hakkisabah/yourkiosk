@@ -1,0 +1,123 @@
+{
+  "_aciklama": "ÜRETİLMİŞ DOSYA — elle düzenlemeyin. Kaynak: kiosk/core/model.py (üret: cd kiosk && python3 tools/model_disa_aktar.py)",
+  "surum": 1,
+  "yayin_alanlari": [
+    {
+      "ad": "start",
+      "tip": "tarih",
+      "zorunlu": true,
+      "etiket": "Başlangıç",
+      "aciklama": "Yayının gösterilmeye başladığı an (ISO 8601).",
+      "alias": [
+        "baslangic"
+      ]
+    },
+    {
+      "ad": "end",
+      "tip": "tarih",
+      "zorunlu": true,
+      "etiket": "Bitiş (son gösterim)",
+      "aciklama": "Son gösterim anı. Bu andan sonra yayın cihazda ve sunucuda temizlenir.",
+      "alias": [
+        "bitis",
+        "gosterimBitis"
+      ]
+    },
+    {
+      "ad": "contentUrl",
+      "tip": "https_adres",
+      "zorunlu": true,
+      "etiket": "Görsel adresi",
+      "aciklama": "https adres. Kendi kovamızdaysa içerik adlı (sha256) yol önerilir.",
+      "alias": [
+        "contentURL",
+        "url",
+        "gorsel"
+      ]
+    },
+    {
+      "ad": "duration",
+      "tip": "saniye",
+      "zorunlu": false,
+      "etiket": "Gösterim süresi",
+      "aciklama": "Saniye; kiosk ayarındaki en az/en çok aralığa kıstırılır.",
+      "alias": [
+        "sure"
+      ]
+    },
+    {
+      "ad": "ilceId",
+      "tip": "metin",
+      "zorunlu": false,
+      "etiket": "İlçe",
+      "aciklama": "Boş = kısıt yok. Yalnız bu ilçedeki cihazlar gösterir.",
+      "alias": [
+        "ilce_id",
+        "ilce"
+      ]
+    },
+    {
+      "ad": "bolgeId",
+      "tip": "metin",
+      "zorunlu": false,
+      "etiket": "Bölge",
+      "aciklama": "Boş = kısıt yok. İlçe ile birlikte daraltır.",
+      "alias": [
+        "bolge_id",
+        "bolge"
+      ]
+    },
+    {
+      "ad": "cihazId",
+      "tip": "metin",
+      "zorunlu": false,
+      "etiket": "Cihaz",
+      "aciklama": "Boş = kısıt yok. Tek cihaza özel yayın (en dar kapsam).",
+      "alias": [
+        "cihaz_id",
+        "clientID",
+        "clientId"
+      ]
+    }
+  ],
+  "durum_alanlari": [
+    {
+      "ad": "zaman",
+      "tip": "tarih",
+      "zorunlu": true,
+      "etiket": "Üretim anı",
+      "aciklama": "Belgenin yazıldığı an (ISO, UTC)."
+    },
+    {
+      "ad": "lastupdate",
+      "tip": "metin",
+      "zorunlu": true,
+      "etiket": "Veri damgası",
+      "aciklama": "`lastupdate.json` ile AYNI değer olmalı."
+    },
+    {
+      "ad": "tetik",
+      "tip": "nesne",
+      "zorunlu": false,
+      "etiket": "Tetikleyici",
+      "aciklama": "{zaman, ilceId, bolgeId, aciklama}."
+    },
+    {
+      "ad": "komut",
+      "tip": "nesne",
+      "zorunlu": false,
+      "etiket": "Komut işareti",
+      "aciklama": "{zaman, id} — gövde ayrı dosyada."
+    }
+  ],
+  "kapsam_kurallari": {
+    "bos_kisit_yok": true,
+    "coklu_alan": "VE",
+    "en_dar": [
+      "cihazId",
+      "bolgeId",
+      "ilceId"
+    ],
+    "bilinmeyen_cihaz": "hedefli yayın gösterilmez (fail-closed)"
+  }
+}

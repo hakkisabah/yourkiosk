@@ -64,13 +64,20 @@ export function tumKayitlar(veri: SistemVerisi | null | undefined): NobetKaydi[]
   if (!nobetler || typeof nobetler !== 'object') return kayitlar
   for (const blok of Object.values(nobetler as Record<string, unknown>)) {
     if (!blok || typeof blok !== 'object') continue
-    for (const ilceListesi of Object.values(blok as Record<string, unknown>)) {
+    for (const [ilceId, ilceListesi] of Object.entries(blok as Record<string, unknown>)) {
       if (!Array.isArray(ilceListesi)) continue
       for (const kutu of ilceListesi) {
         if (!kutu || typeof kutu !== 'object') continue
-        for (const liste of Object.values(kutu as Record<string, unknown>)) {
+        for (const [bolgeId, liste] of Object.entries(kutu as Record<string, unknown>)) {
           if (!Array.isArray(liste)) continue
-          for (const kayit of liste) if (_kayit_mi(kayit)) kayitlar.push(kayit)
+          for (const kayit of liste) {
+            if (!_kayit_mi(kayit)) continue
+            // Ağaç anahtarları kaydın İÇİNDE yoksa ekle: hedefleme (ilçe/bölge) ve ad indeksi
+            // bu alanlara dayanır. Kayıt kendi kimliğini taşıyorsa DOKUNMA.
+            if (!kayit.ilceId) kayit.ilceId = ilceId
+            if (!kayit.bolgeId) kayit.bolgeId = bolgeId
+            kayitlar.push(kayit)
+          }
         }
       }
     }
