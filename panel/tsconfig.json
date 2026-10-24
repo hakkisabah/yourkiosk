@@ -27,5 +27,9 @@
     "src/**/*.ts",
     "src/**/*.d.ts",
     "src/**/*.vue"
-  ]
+  ],
+  // NOT: test dosyaları ÜRETİM derlemesinde tip denetlenmez. Aksi hâlde test-only bağımlılıklar
+  // (@vue/test-utils, jsdom) kurulu değilse `npm run build` kırılır — 24.10'da yaşandı.
+  // Testlerin tip kontrolü: `npm run typecheck:test` (tsconfig.test.json).
+  "exclude": ["src/**/*.test.ts", "src/**/__tests__/**"]
 }

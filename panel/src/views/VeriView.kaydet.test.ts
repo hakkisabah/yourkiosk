@@ -73,7 +73,12 @@ const VERI = {
   },
 }
 
-type Kayitlar = { Nobetler: Record<string, Record<string, Array<Record<string, Record<string, Array<{ adres: string }>>>>>> }
+interface Kayit {
+  adres: string
+}
+type Kayitlar = {
+  Nobetler: { T20261024: { I1: Array<Record<string, Kayit[]>> } }
+}
 
 describe('VeriView: düzenle → kaydet', () => {
   beforeEach(() => {
@@ -92,20 +97,24 @@ describe('VeriView: düzenle → kaydet', () => {
     await new Promise((r) => setTimeout(r, 20))
 
     const girdiler = wrapper.findAll('input')
-    const adres = girdiler.find((g) => (g.element as HTMLInputElement).value === 'ESKİ ADRES')
+    const adres = girdiler.find(
+      (g: { element: Element }) => (g.element as HTMLInputElement).value === 'ESKİ ADRES',
+    )
     expect(adres, 'adres alanı bulunamadı (input değerleri farklı)').toBeTruthy()
 
     await adres!.setValue('YENİ ADRES')
     await wrapper.vm.$nextTick()
 
-    const kaydet = wrapper.findAll('button').find((b) => (b.text() ?? '').includes('Kaydet'))
+    const kaydet = wrapper.findAll('button').find((b: { text: () => string }) =>
+      (b.text() ?? '').includes('Kaydet'),
+    )
     expect(kaydet, 'Kaydet düğmesi yok').toBeTruthy()
     await kaydet!.trigger('click')
     await new Promise((r) => setTimeout(r, 60))
 
     const gonderilen = yazilanlar.find((y) => y.ad === 'lastSystemData.json')
     expect(gonderilen, 'sistem verisi yazılmadı').toBeTruthy()
-    const kayit = (gonderilen!.veri as Kayitlar).Nobetler.T20261024.I1[0].B1[0]
+    const kayit: Kayit = (gonderilen!.veri as Kayitlar).Nobetler.T20261024.I1[0].B1[0]
     expect(kayit.adres, 'DÜZENLEME KAYBOLDU (kaydedilen içerikte yok)').toBe('YENİ ADRES')
     wrapper.unmount()
   })

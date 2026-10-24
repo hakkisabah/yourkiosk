@@ -25,6 +25,14 @@ cd "$DIZIN"
 echo "=== .env.local denetimi ==="
 python3 "$DIZIN/infra/env_denetle.py" || { echo "✗ yayın durduruldu: .env.local yer tutucu/eksik"; exit 1; }
 
+echo "=== derleme araçları ==="
+# NODE_ENV=production export edilmişse `npm ci` devDependencies'i ATLAR ve `vue-tsc`/`vite`
+# bulunamaz → derleme anlaşılmaz hata verir. Eksikse açıkça kur.
+if ! npx --no-install vue-tsc --version >/dev/null 2>&1 || ! npx --no-install vite --version >/dev/null 2>&1; then
+  echo "  derleme bağımlılıkları eksik → npm ci --include=dev"
+  NODE_ENV=development npm ci --include=dev >/dev/null 2>&1 || NODE_ENV=development npm install --include=dev >/dev/null 2>&1
+fi
+
 echo "=== derleme ==="
 NODE_ENV=development npm run build
 
