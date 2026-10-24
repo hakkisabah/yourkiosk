@@ -130,3 +130,77 @@ def test_komut_dosyasi_da_kosullu_indirilir(sunucu, tmp_path, monkeypatch) -> No
     assert komut.getir() is True
     assert komut.getir() is False
     assert sunucu.govde_bayt == len(GOVDE), "komut.json değişmediyse gövde inmemeli"
+
+
+# ------------------------------------------------ i5 bulguları (2. tur): doğrulayıcı disiplini
+def test_yazma_hatasinda_dogrulayici_hatirlanmaz(sunucu, tmp_path, monkeypatch) -> None:
+    """ETag YALNIZ yerel yazma başarılıysa hatırlanır.
+
+    GERÇEK BULGU (i5, PR #78): doğrulayıcı gövde iner inmez saklanıyordu. Tek seferlik yazma hatası
+    (disk dolu, izin) sonrası sunucu hep 304 derse dosya BİR DAHA HİÇ İNMEZ — düzeltilen "sessizce
+    ölü" hatasının yeni bir yolu.
+    """
+    monkeypatch.setattr(tetik, "PROJE_KOK", tmp_path)
+    gercek_yaz = uzak.yerel_guncelle
+    durum_kutusu = {"yazilabilsin": False}
+
+    def sahte_yaz(yol, govde):
+        if not durum_kutusu["yazilabilsin"]:
+            return False  # disk dolu / izin yok
+        return gercek_yaz(yol, govde)
+
+    monkeypatch.setattr(uzak, "yerel_guncelle", sahte_yaz)
+
+    assert tetik.getir() is False
+    assert not tetik.dosya_yolu().is_file()
+    assert not uzak._ETAG, "yazma başarısızken doğrulayıcı hatırlanmamalı"
+
+    durum_kutusu["yazilabilsin"] = True  # hata geçti
+    assert tetik.getir() is True, "yazma düzelince dosya yeniden inmeli"
+    assert sunucu.govde_bayt == 2 * len(GOVDE), "doğrulayıcı hatırlanmadığı için gövde yeniden inmeli"
+    okunan = tetik.oku()
+    assert okunan is not None and okunan["zaman"] == "2026-10-24T07:10:00Z"
+
+
+def test_dogrulayici_taban_adrese_gore_ayrilir(sunucu, tmp_path, monkeypatch) -> None:
+    """ETag anahtarı tam URL olmalı: başka kaynağa `If-None-Match` sızmasın (i5 bulgusu)."""
+    monkeypatch.setattr(tetik, "PROJE_KOK", tmp_path)
+    assert tetik.getir() is True
+    assert sunucu.istekler[-1]["if-none-match"] == ""  # ilk tur: koşulsuz
+
+    # Aynı dosya adı, FARKLI taban adres → doğrulayıcı gönderilmemeli
+    yol = tmp_path / "baska-tetikle.json"
+    assert uzak.kosullu_indir_ve_yaz("tetikle.json", yol, taban=f"http://127.0.0.1:{sunucu.port}/alt") is True
+    assert sunucu.istekler[-1]["yol"] == "/alt/tetikle.json"
+    assert sunucu.istekler[-1]["if-none-match"] == "", "başka kaynağa ETag sızmamalı"
+
+
+def test_durum_json_da_kosullu_okunur(sunucu, monkeypatch) -> None:
+    """`durum.json` her turda TAM indiriliyordu; artık 304'te bellek kopyası döner (i5 bulgusu)."""
+    from core import durum
+
+    belge = {"zaman": "2026-10-24T09:12:00Z", "lastupdate": "2026-10-24 09:11:58",
+             "tetik": {"zaman": "2026-10-24T09:12:00Z", "ilceId": "", "bolgeId": ""}}
+    sunucu.icerik = json.dumps(belge).encode("utf-8")
+    monkeypatch.setattr(durum, "_son_belge", None)
+
+    assert durum.getir() == belge
+    assert sunucu.govde_bayt == len(sunucu.icerik)
+
+    assert durum.getir() == belge, "304'te bellek kopyası dönmeli"
+    assert sunucu.govde_bayt == len(sunucu.icerik), "304'te gövde HİÇ inmemeli"
+    assert sunucu.istekler[-1]["if-none-match"] == ETAG
+
+
+def test_durum_json_bozuksa_dogrulayici_hatirlanmaz(sunucu, monkeypatch) -> None:
+    """Bozuk JSON kalıcı 304'e dönüşmemeli: sonraki turda gövde yeniden iner."""
+    from core import durum
+
+    sunucu.icerik = b"{bozuk"
+    monkeypatch.setattr(durum, "_son_belge", None)
+    assert durum.getir() is None
+    assert not uzak._ETAG, "bozuk içerik için doğrulayıcı saklanmamalı"
+
+    assert durum.getir() is None
+    assert sunucu.govde_bayt == 2 * len(b"{bozuk"), "doğrulayıcı yoksa gövde yeniden iner"
+

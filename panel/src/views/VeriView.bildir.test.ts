@@ -185,4 +185,26 @@ describe('VeriView: Bildir akışı', () => {
     expect(belge.lastupdate, 'bellekteki ESKİ damga yazıldı → damga geri sardı').toBe('2026-10-24 10:30:00')
     wrapper.unmount()
   })
+
+  /**
+   * REGRESYON (i5 bulgusu, PR #78): damga karşılaştırması biçim doğrulamıyordu. Sunucudan nesne
+   * gelirse `String()` → `"[object Object]"` ve `"[" > "2"` olduğu için GEÇERLİ damga ezilirdi.
+   */
+  it('sunucudan çöp damga gelirse bellekteki geçerli damga korunur', async () => {
+    const d = useDosyalar()
+    d.lastupdate.veri = { lastupdate: '2026-10-24 09:00:00' }
+    DEPO['lastupdate.json'] = { lastupdate: { beklenmeyen: true } }
+    const wrapper = mount(VeriView, { global: { plugins: [createVuetify()] }, attachTo: document.body })
+    await wrapper.vm.$nextTick()
+    await new Promise((r) => setTimeout(r, 20))
+
+    await dugme(wrapper as never, 'Bildir')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 80))
+
+    const durum = yazilanlar.find((y) => y.ad === 'durum.json')
+    expect(durum, 'durum.json yazılmadı').toBeTruthy()
+    const belge = durum!.veri as { lastupdate: string }
+    expect(belge.lastupdate, 'çöp değer geçerli damgayı ezdi').toBe('2026-10-24 09:00:00')
+    wrapper.unmount()
+  })
 })

@@ -152,10 +152,7 @@ def getir() -> bool:
     """
     from core import uzak
 
-    govde = uzak.kosullu_getir(str(getattr(config, "KOMUT_DOSYASI", "komut.json")))
-    if not govde:
-        return False  # 304 (değişmedi) ya da dosya yok/hata
-    return uzak.yerel_guncelle(dosya_yolu(), govde)
+    return uzak.kosullu_indir_ve_yaz(str(getattr(config, "KOMUT_DOSYASI", "komut.json")), dosya_yolu())
 
 
 def durum_oku() -> dict:

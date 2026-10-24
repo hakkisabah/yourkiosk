@@ -27,19 +27,37 @@ log = logging.getLogger("kiosk.durum")
 
 AD = "durum.json"
 
+#: Son BAŞARILI belge (304'te gövde inmez → bellek kopyası kullanılır). 404'te temizlenir.
+_son_belge: dict | None = None
+
 
 def getir() -> dict | None:
-    """`durum.json` içeriği (yoksa/bozuksa None → çağıran eski yola düşer)."""
-    govde = uzak.getir(AD)
+    """`durum.json` içeriği (yoksa/bozuksa None → çağıran eski yola düşer).
+
+    KOŞULLU okuma: sunucu ETag/Last-Modified veriyorsa değişmeyen dosya için 304 alınır ve
+    ~1 tam gövde indirilmez; son başarılı belge bellekten döner (i5 bulgusu — maliyet hedefi).
+    Doğrulayıcı YALNIZ JSON başarıyla ayrıştırıldıktan sonra hatırlanır (bozuk içerik kalıcı
+    304'e dönüşmesin).
+    """
+    global _son_belge
+
+    govde, degismedi, dogrulayici = uzak.kosullu_getir(AD)
+    if degismedi:
+        return _son_belge  # 304: içerik değişmedi, gövde inmedi
     if not govde:
+        _son_belge = None  # 404/boş/hata → eski üç dosyalı yola düşülür
         return None
     try:
         belge = json.loads(govde)
     except ValueError:
         log.warning("durum.json bozuk JSON — yok sayıldı")
+        _son_belge = None
         return None
     if not isinstance(belge, dict):
+        _son_belge = None
         return None
+    _son_belge = belge
+    uzak.dogrulayici_kaydet(AD, dogrulayici)  # yalnız başarılı ayrıştırmadan sonra
     return belge
 
 

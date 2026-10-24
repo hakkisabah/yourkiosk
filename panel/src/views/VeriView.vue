@@ -22,6 +22,7 @@ import {
 import { useDosyalar } from '@/stores/dosyalar'
 import { mqttBildir } from '@/domain/push'
 import { durumBelgesi } from '@/domain/tetik'
+import { enYeniDamga } from '@/domain/damga'
 import { useBaglanti } from '@/stores/baglanti'
 import { silinecekYayinlar } from '@/domain/temizlik'
 import {
@@ -302,15 +303,18 @@ async function tetikBildir(): Promise<void> {
     // DAMGA: `lastupdate` SUNUCUDAN taze okunur. Panelin bellekteki değeri (`dosyalar.lastupdate.veri`)
     // az önce `kaydet()`in yazdığı taze damgadan ESKİ olabiliyordu → durum.json damgayı GERİ sarıyor,
     // cihazlar bir sonraki kayda kadar her turda gereksiz `lastupdate.json` çekiyordu (i5 bulgusu).
-    let lastupdate = String((dosyalar.lastupdate.veri as { lastupdate?: unknown })?.lastupdate ?? '')
+    // Biçim doğrulaması `domain/damga` içinde: geçersiz değer (nesne/boş) karşılaştırmaya girmez.
+    let sunucuDamgasi: unknown = ''
     try {
       const canli = await kaynak.oku<{ lastupdate?: unknown }>(DOSYALAR.lastupdate)
-      const sunucu = String((canli?.veri as { lastupdate?: unknown })?.lastupdate ?? '')
-      // İki damgadan YENİ olanı kullan: damga asla geri sarılmaz (okuma başarısızsa bellek değeri kalır).
-      if (sunucu > lastupdate) lastupdate = sunucu
+      sunucuDamgasi = (canli?.veri as { lastupdate?: unknown })?.lastupdate
     } catch {
       /* canlı damga okunamadı: bellekteki değerle devam (en azından eskisinden kötü olmaz) */
     }
+    const lastupdate = enYeniDamga(
+      (dosyalar.lastupdate.veri as { lastupdate?: unknown })?.lastupdate,
+      sunucuDamgasi,
+    )
     try {
       await kaynak.yaz(DOSYALAR.durum, durumBelgesi(belge, lastupdate, belge.zaman))
     } catch {

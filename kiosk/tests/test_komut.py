@@ -223,7 +223,8 @@ def test_senkron_icerik_degisince_yazar_ayniysa_dokunmaz(ortam, monkeypatch) -> 
 def test_komut_getir_yerel_kopyayi_gunceller(ortam, monkeypatch) -> None:
     monkeypatch.setattr(config, "DOSYA_ADRESI", "https://ornek.example/kiosk")
     belge = _belge(kimlik="uzaktan-1")
-    monkeypatch.setattr(uzak, "kosullu_getir", lambda ad, **_k: json.dumps(belge).encode() if ad == "komut.json" else None)
+    monkeypatch.setattr(uzak, "kosullu_getir",
+                        lambda ad, **_k: (json.dumps(belge).encode(), False, ('"e"', "")) if ad == "komut.json" else (None, False, ("", "")))
     assert komut.getir() is True
     okunan = komut.oku()
     assert okunan and okunan["id"] == "uzaktan-1"

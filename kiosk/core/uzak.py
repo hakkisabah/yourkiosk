@@ -77,7 +77,14 @@ def getir(ad: str, *, taban: str | None = None, en_buyuk_bayt: int = EN_BUYUK_KU
 
 
 #: Dosya adı → (ETag, Last-Modified). 304 yanıtı gövde indirmez; hatırlanan değerler gönderilir.
+#: ANAHTAR TAM URL'dir (taban adres + dosya adı): farklı kaynaklardan aynı ad istenirse
+#: doğrulayıcı sızmasın (i5 bulgusu — başka kaynağa `If-None-Match` gönderiliyordu).
 _ETAG: dict[str, tuple[str, str]] = {}
+
+
+def _anahtar(ad: str, taban: str | None = None) -> str:
+    kok = taban if taban is not None else taban_adres()
+    return f"{kok.rstrip('/')}/{ad}"
 
 
 def kosullu_getir(
@@ -85,25 +92,34 @@ def kosullu_getir(
     *,
     taban: str | None = None,
     en_buyuk_bayt: int = EN_BUYUK_KUCUK_BAYT,
-) -> bytes | None:
-    """`<taban>/<ad>`u KOŞULLU indirir: içerik değişmediyse (304) GÖVDE İNMEZ → None.
+) -> tuple[bytes | None, bool, tuple[str, str]]:
+    """`<taban>/<ad>`u KOŞULLU indirir.
 
-    NEDEN: `tetikle.json`/`komut.json` her yoklama turunda (Qt 20 sn, tarayıcı uzun yoklama ~3 sn)
-    tam gövde olarak indiriliyordu; dosya çoğu turda hiç değişmiyor. ETag/Last-Modified ile 304
+    Dönüş: `(gövde|None, degismedi_mi, (etag, son_degisiklik))`.
+    `degismedi_mi=True` → 304: içerik değişmedi, GÖVDE İNMEDİ (çağıran bellekteki kopyayı kullanır).
+    `gövde is None` + `degismedi_mi=False` → dosya yok (403/404) ya da ağ/politika hatası.
+
+    Doğrulayıcı BURADA hatırlanmaz: çağıran, yerel kopyayı gerçekten güncellediğini doğruladıktan
+    sonra `dogrulayici_kaydet()` çağırır. Aksi hâlde tek seferlik yazma hatası sonraki tüm turları
+    304'e düşürür ve dosya bir daha hiç inmez (i5 bulgusu — "sessizce ölü" hatasının yeni yolu).
+
+    NEDEN: `tetikle.json`/`komut.json`/`durum.json` her yoklama turunda (Qt 20 sn, tarayıcı uzun
+    yoklama ~3 sn) tam gövde olarak indiriliyordu; dosya çoğu turda hiç değişmiyor. ETag ile 304
     alınınca yanıt gövdesiz (birkaç yüz bayt) olur — 600 cihazda trafik/maliyet düşer.
 
     Sunucu ETag/Last-Modified vermiyorsa davranış eskisiyle aynıdır (gövde her turda iner).
     """
     kok = taban if taban is not None else taban_adres()
     if not kok:
-        return None
+        return None, False, ("", "")
     from security.network import AgHatasi, kosullu_indir
 
-    etag, tarih = _ETAG.get(ad, ("", ""))
+    etag, tarih = _ETAG.get(_anahtar(ad, taban), ("", ""))
     ayarlar = _ayarlar(en_buyuk_bayt)
     try:
         govde, tur, yeni_etag, yeni_tarih = kosullu_indir(
-            f"{kok}/{ad}", ayarlar, etag=etag, son_degisiklik=tarih, icerik_turu_denetle=False,
+            f"{kok.rstrip('/')}/{ad}", ayarlar, etag=etag, son_degisiklik=tarih,
+            icerik_turu_denetle=False,
         )
     except AgHatasi as hata:
         metin = str(hata)
@@ -111,19 +127,55 @@ def kosullu_getir(
             log.debug("küçük dosya yok (%s/%s): %s", kok, ad, metin)
         else:
             log.warning("küçük dosya alınamadı (%s/%s): %s", kok, ad, hata)
-        return None
+        return None, False, ("", "")
     except Exception:  # noqa: BLE001 - ağ hatası gösterimi durdurmamalı
         log.warning("küçük dosya alınamadı (%s/%s)", kok, ad, exc_info=True)
-        return None
-    if yeni_etag or yeni_tarih:
-        _ETAG[ad] = (yeni_etag or etag, yeni_tarih or tarih)
+        return None, False, ("", "")
+    dogrulayici = (yeni_etag or etag, yeni_tarih or tarih)
     if govde is None:
-        return None  # 304: içerik değişmedi, gövde inmedi
+        return None, True, dogrulayici  # 304: içerik değişmedi, gövde inmedi
     if tur and not (tur.startswith("application/json") or tur.startswith("text/plain")
                     or tur in ("", "application/octet-stream")):
         log.warning("küçük dosya beklenmeyen içerik türü (%s/%s): %s", kok, ad, tur)
-        return None
-    return govde
+        return None, False, ("", "")
+    return govde, False, dogrulayici
+
+
+def dogrulayici_kaydet(ad: str, dogrulayici: tuple[str, str], *, taban: str | None = None) -> None:
+    """ETag/Last-Modified'i ANCAK yerel kopya doğrulandıktan sonra hatırla.
+
+    Kural: doğrulayıcı sunucudan gelen içerikLE yerel kopya EŞLEŞTİĞİNDE (ya da hiç yoksa)
+    saklanmalı; aksi hâlde yazma hatası kalıcı 304'e dönüşür ve dosya bir daha inmez.
+    """
+    etag, tarih = dogrulayici
+    if not (etag or tarih):
+        return
+    _ETAG[_anahtar(ad, taban)] = (etag, tarih)
+
+
+def kosullu_indir_ve_yaz(ad: str, yol: Path, *, taban: str | None = None) -> bool:
+    """Koşullu indir + yerel dosyaya atomik yaz (değiştiyse True).
+
+    Doğrulayıcı YALNIZ içerik yerelde doğrulandıktan sonra hatırlanır:
+    - içerik aynı → dosyaya dokunulmaz, doğrulayıcı saklanır (sonraki tur 304 alır),
+    - içerik farklı → yazılır; **yazma başarısızsa doğrulayıcı SAKLANMAZ** → sonraki turda gövde
+      yeniden iner (yanlış 304 yüzünden dosyanın sonsuza dek eski kalması engellenir).
+    """
+    govde, _degismedi, dogrulayici = kosullu_getir(ad, taban=taban)
+    if govde is None:
+        return False
+    try:
+        ayni = yol.is_file() and yol.read_bytes() == govde
+    except OSError:
+        ayni = False
+    if ayni:
+        dogrulayici_kaydet(ad, dogrulayici, taban=taban)
+        return False
+    if not yerel_guncelle(yol, govde):
+        log.warning("yerel kopya yazılamadı, doğrulayıcı hatırlanmadı (sonraki turda yeniden denenecek): %s", yol)
+        return False
+    dogrulayici_kaydet(ad, dogrulayici, taban=taban)
+    return True
 
 
 def yerel_guncelle(yol: Path, govde: bytes) -> bool:

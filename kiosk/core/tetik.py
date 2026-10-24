@@ -119,10 +119,7 @@ def getir() -> bool:
     """
     from core import uzak
 
-    govde = uzak.kosullu_getir(str(getattr(config, "TETIK_DOSYASI", "tetikle.json")))
-    if not govde:
-        return False  # 304 (değişmedi) ya da dosya yok/hata
-    return uzak.yerel_guncelle(dosya_yolu(), govde)
+    return uzak.kosullu_indir_ve_yaz(str(getattr(config, "TETIK_DOSYASI", "tetikle.json")), dosya_yolu())
 
 
 def imza() -> str:
