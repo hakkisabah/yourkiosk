@@ -178,3 +178,40 @@ cd kiosk && python3 tools/chromium_dogrula.py --url http://127.0.0.1:8090/index.
 > Not: Chrome 145'te `--headless=new` ve `--user-data-dir` bu araçla uyumsuz
 > ("Multiple targets are not supported"); `--screenshot` **`=` biçiminde** verilmeli
 > (`--screenshot=/tmp/a.png`). Araç bunları zaten doğru kullanıyor.
+
+---
+
+## Canlı güncelleme teşhisi ("değişiklik gelmiyor")
+
+Kiosk **çalışırken** ayrı terminalde:
+
+```bash
+cd kiosk && .venv/bin/python tools/canli_test.py
+```
+
+Zincirin 4 halkasını ayrı ölçer ve nerede koptuğunu yazar:
+
+| # | Halka | Ne ölçülür |
+|---|---|---|
+| 1 | Panel/uzak | `durum.json` ile `lastupdate.json` damgası aynı mı (panel yazdı mı?) |
+| 2 | Cihaz diski | diskteki damga uzakla aynı mı |
+| 3 | MQTT | broker'a bağlanıp konuya abone olur, 15 sn mesaj bekler |
+| 4 | Yerel tetik | `tetikle.json` son yazım anı |
+
+Ölçüm tabanlı süreler (ayarlanabilir):
+
+| Durum | Yoklama | En kötü gecikme |
+|---|---|---|
+| MQTT bağlı | 120 sn | ~2 dk (anlıklık MQTT'den, ~2 sn) |
+| MQTT kopuk | 30 sn | ~30 sn |
+
+> 600 cihazda ~$15/ay (yalnız CloudFront isteği; dosyalar `no-store`).
+
+Her yoklama turu günlüğe **kalp atışı** yazar — sorun anında bu satıra bakın:
+
+```
+yoklama #7 · uzak=2026-10-24 18:03:30 · cihaz=2026-10-24 18:03:30 · MQTT=bağlı
+```
+
+İki damga farklıysa cihaz bir sonraki turda yeniler. Aynıysa panel yazmamıştır →
+`durum.json` / `lastupdate.json` kontrol edilir.
