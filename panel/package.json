@@ -11,7 +11,8 @@
     "preview": "NODE_ENV=production vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tip": "vue-tsc --noEmit"
+    "tip": "vue-tsc --noEmit",
+    "typecheck:test": "vue-tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity": "^3.700.0",
