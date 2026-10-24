@@ -36,6 +36,7 @@ class _Sunucu:
         self.govde_bayt = 0
         self.etag = ETAG
         self.icerik = GOVDE
+        self.kod = 200  # hata yolu testleri için (ör. 404 → doğrulayıcı unutulmalı)
         dis = self
 
         class Isleyici(BaseHTTPRequestHandler):
@@ -47,6 +48,10 @@ class _Sunucu:
                         "if-modified-since": self.headers.get("If-Modified-Since") or "",
                     }
                 )
+                if dis.kod != 200:
+                    self.send_response(dis.kod)
+                    self.end_headers()
+                    return
                 if dis.etag and self.headers.get("If-None-Match") == dis.etag:
                     self.send_response(304)
                     self.send_header("ETag", dis.etag)
@@ -218,6 +223,34 @@ def test_cok_derin_json_yoklama_turunu_dusurmez(sunucu, monkeypatch) -> None:
     sunucu.icerik = derin
     assert durum.getir() is None  # istisna sızdırmamalı
     assert not uzak._ETAG, "çözülemeyen gövde için doğrulayıcı saklanmamalı"
+
+
+def test_404_sonrasi_dogrulayici_unutulur(sunucu, monkeypatch) -> None:
+    """Sunucu 404 dönerse doğrulayıcı SİLİNMELİ (i5 4. tur bulgusu).
+
+    GERÇEK BULGU: `dogrulayici_kaydet` yalnız yazıyordu, hiç silmiyordu. `durum.json` bir süre
+    403/404 dönerse bellek kopyası temizleniyordu ama ETag kalıyordu → dosya AYNI içerikle
+    yeniden yaratıldığında `If-None-Match` eşleşip 304 alınıyor ve belge BİR DAHA HİÇ inmiyordu.
+    """
+    from core import durum
+
+    belge = {"zaman": "2026-10-24T09:12:00Z", "lastupdate": "2026-10-24 09:11:58"}
+    sunucu.icerik = json.dumps(belge).encode("utf-8")
+    monkeypatch.setattr(durum, "_son_belge", None)
+
+    assert durum.getir() == belge
+    assert uzak._ETAG, "ilk başarılı okumadan sonra doğrulayıcı saklanmalı"
+
+    sunucu.kod = 404  # dosya S3'ten geçici olarak kayboldu
+    assert durum.getir() is None
+    assert not uzak._ETAG, "404'ten sonra doğrulayıcı unutulmalı"
+
+    # Dosya AYNI içerik/ETag ile geri geldi → gövde yeniden inmeli
+    sunucu.kod = 200
+    onceki_bayt = sunucu.govde_bayt
+    assert durum.getir() == belge, "404 sonrası dosya yeniden indirilmeli"
+    assert sunucu.govde_bayt == onceki_bayt + len(sunucu.icerik), "aynı ETag'e rağmen gövde inmeli"
+    assert sunucu.istekler[-1]["if-none-match"] == "", "unutulan doğrulayıcı gönderilmemeli"
 
 
 def test_yerel_guncelle_sabit_tmp_adina_sembolik_bag_kurmaz(tmp_path) -> None:

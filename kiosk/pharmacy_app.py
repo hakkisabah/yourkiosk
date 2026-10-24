@@ -277,8 +277,11 @@ class PharmacyApp(QMainWindow):
             # (`tools/komut_gonder.py` doğrudan S3'e yazar). `durum.json` komut İŞARETİ
             # taşımıyorsa komut dosyası HİÇ indirilmiyordu → uzaktan komut sessizce ölüydü.
             # NOT: panel bugün `durum.json`a komut işareti yazmıyor (yalnız zaman/lastupdate/tetik),
-            # bu yüzden bu dal pratikte her turda çalışır; indirme KOŞULLU (ETag → 304) olduğu için
-            # maliyeti birkaç yüz bayttır. Panel işaret yazmaya başlarsa dal kendiliğinden seyrekleşir.
+            # bu yüzden bu dal HER çapraz kontrolde çalışır — ama çapraz kontrol 10 turda BİRDİR
+            # (`self._durum_tur % 10 == 1`), yani tur başına değil. İndirme KOŞULLU (ETag → 304)
+            # olduğu için tipik maliyet tur başına ~0, çapraz kontrol başına birkaç yüz bayt.
+            # Ölçülen oran (10 tur): 10 durum.json + 1 tetikle.json + 1 komut.json + 1 lastupdate.json.
+            # Panel işaret yazmaya başlarsa dal kendiliğinden seyrekleşir.
             if not isaret:
                 self._komut_capraz_kontrol()
         onceki = str(getattr(self.data_handler, "lastupdate", "") or "")

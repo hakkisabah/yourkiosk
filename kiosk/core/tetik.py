@@ -31,6 +31,7 @@ from datetime import datetime
 from pathlib import Path
 
 import config
+from core import zaman
 
 log = logging.getLogger("kiosk.tetik")
 
@@ -148,11 +149,16 @@ def uygulanmali(
     """
     if not isinstance(tetik, dict):
         return False
-    zaman = str(tetik.get("zaman") or "").strip()
-    if not zaman:
+    zaman_metni = str(tetik.get("zaman") or "").strip()
+    if not zaman_metni:
         return False
-    if son_uygulanan and zaman <= str(son_uygulanan):
-        return False  # ISO zaman damgaları sözlüksel karşılaştırılabilir
+    # SAAT DİLİMİ (i5 bulgusu): `_son_tetik` uygulanan tetiğin damgasını taşır ve bu damga iki
+    # biçimde gelebilir — panel/`durum.json` UTC (`...Z`), MQTT/yerel `tetik.yaz` yerel saat
+    # (uzantısız). Sözlüksel karşılaştırma UTC+3 cihazda yerel damgayı 3 saat ileri gösterip
+    # panelin YENİ tetiğini "eski" sayıyordu → "Bildir" sessizce yutuluyordu (farklı kapıdan
+    # aynı belirti). `zaman.yeni_mi` anları karşılaştırır, çözemezse sözlüksel davranışa düşer.
+    if son_uygulanan and not zaman.yeni_mi(zaman_metni, son_uygulanan):
+        return False
     ilce = str(tetik.get("ilceId") or "").strip()
     bolge = str(tetik.get("bolgeId") or "").strip()
     if not ilce or ilce == "*":

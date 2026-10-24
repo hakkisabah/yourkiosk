@@ -155,6 +155,16 @@ def dogrulayici_kaydet(ad: str, dogrulayici: tuple[str, str], *, taban: str | No
     _ETAG[_anahtar(ad, taban)] = (etag, tarih)
 
 
+def dogrulayici_unut(ad: str, *, taban: str | None = None) -> None:
+    """Hatırlanan ETag/Last-Modified'i SİL (i5 bulgusu).
+
+    NEDEN: `dogrulayici_kaydet` yalnız yazar, hiç silmezdi. Sunucu 403/404 dönerse çağıran
+    bellekteki belgeyi temizliyordu ama doğrulayıcı kalıyordu → dosya AYNI içerikle yeniden
+    yaratıldığında `If-None-Match` eşleşip 304 alınıyor ve dosya bir daha hiç inmiyordu.
+    """
+    _ETAG.pop(_anahtar(ad, taban), None)
+
+
 def kosullu_indir_ve_yaz(ad: str, yol: Path, *, taban: str | None = None) -> bool:
     """Koşullu indir + yerel dosyaya atomik yaz (değiştiyse True).
 

@@ -46,6 +46,9 @@ def getir() -> dict | None:
         return _son_belge  # 304: içerik değişmedi, gövde inmedi
     if not govde:
         _son_belge = None  # 404/boş/hata → eski üç dosyalı yola düşülür
+        # Doğrulayıcıyı da unut: dosya aynı içerikle yeniden yaratılırsa 304 alıp bir daha
+        # inmeme riski kalmasın (i5 bulgusu).
+        uzak.dogrulayici_unut(AD)
         return None
     try:
         belge = json.loads(govde)

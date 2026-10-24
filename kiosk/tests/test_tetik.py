@@ -186,6 +186,44 @@ def test_otomatik_acik_yalnizca_secili_modlarda(monkeypatch) -> None:
     assert tetik.otomatik_acik("tarayici") is False
 
 
+def test_uygulanmali_karisik_zaman_bicimlerinde_dogru() -> None:
+    """`_son_tetik` ile tetik damgası FARKLI biçimdeyse an karşılaştırılmalı (i5 4. tur bulgusu).
+
+    GERÇEK BULGU: `uygulanmali` sözlüksel karşılaştırıyordu. `_son_tetik` iki biçimde gelebiliyor —
+    panel/`durum.json` UTC (`2026-10-24T22:25:00.000Z`), MQTT/yerel `tetik.yaz` yerel saat
+    (`2026-10-25T01:25:00`, uzantısız). UTC+3 cihazda yerel damga 3 saat ileri görünüyor, panelin
+    YENİ tetiği "eski" sayılıp reddediliyordu → "Bildir" sessizce yutuluyordu.
+    """
+    from core import tetik as tetik_modulu
+
+    # Yerel biçimde uygulanmış tetik (cihaz saati +03: 01:25 = 22:25Z)
+    son = "2026-10-25T01:20:00"
+    # Panelin UTC damgalı YENİ tetiği (22:25Z = 01:25 yerel → son'dan 5 dk yeni)
+    yeni_utc = {"zaman": "2026-10-24T22:25:00.000Z", "ilceId": "", "bolgeId": ""}
+    assert tetik_modulu.uygulanmali(yeni_utc, "I1", "B1", son) is True, "panel tetiği uygulanmalı"
+
+    # Panelin UTC damgalı ESKİ tetiği (22:15Z = 01:15 yerel → son'dan eski)
+    eski_utc = {"zaman": "2026-10-24T22:15:00.000Z", "ilceId": "", "bolgeId": ""}
+    assert tetik_modulu.uygulanmali(eski_utc, "I1", "B1", son) is False, "eski tetik tekrar uygulanmamalı"
+
+    # Aynı an, farklı biçim → tekrar uygulanmamalı
+    ayni = {"zaman": "2026-10-24T22:20:00.000Z", "ilceId": "", "bolgeId": ""}  # = 01:20 yerel
+    assert tetik_modulu.uygulanmali(ayni, "I1", "B1", son) is False
+
+    # Saat dilimi taşıyan iki damga (Z vs +03:00) da doğru karşılaştırılmalı
+    assert tetik_modulu.uygulanmali(
+        {"zaman": "2026-10-24T22:30:00Z", "ilceId": "", "bolgeId": ""}, "I1", "B1", "2026-10-25T01:20:00+03:00"
+    ) is True
+
+
+def test_uygulanmali_cozulemeyen_damgada_sozluksele_duser() -> None:
+    """Biçim çözülemezse eski (sözlüksel) davranış korunmalı — çökme yok."""
+    from core import tetik as tetik_modulu
+
+    assert tetik_modulu.uygulanmali({"zaman": "bilinmeyen", "ilceId": ""}, "I1", "B1", "zzz") is False
+    assert tetik_modulu.uygulanmali({"zaman": "zzz", "ilceId": ""}, "I1", "B1", "bilinmeyen") is True
+
+
 def test_otomatik_acik_bos_liste_hicbir_mod(monkeypatch) -> None:
     from core import tetik
 
