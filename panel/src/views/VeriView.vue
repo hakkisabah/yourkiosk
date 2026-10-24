@@ -217,28 +217,34 @@ function geriAl(): void {
   hata.value = ''
 }
 
-async function kaydet(): Promise<void> {
-  hata.value = ''
+/** @returns kayıt gerçekten yazıldı mı (Bildir önce bunu bekler) */
+async function kaydet(sessiz = false): Promise<boolean> {
+  if (!sessiz) hata.value = ''
   // Karar SAF modülden gelir (`domain/nobetTaslak.ts`) → test edilebilir.
   const karar = kaydaHazirla(taslak.value, dosyalar.sistemVerisi, satirlar.value.map((s) => s.kayit))
   if (!karar.yazilsin) {
-    hata.value = karar.mesaj
-    return
+    if (!sessiz) hata.value = karar.mesaj
+    // "Değişiklik yok" bir HATA değil: Bildir akışı devam edebilsin diye true döner.
+    return !kirli.value
   }
   const gonderilen = kopya(taslak.value)
   const oldu = await dosyalar.kaydet('sistem', DOSYALAR.sistem, gonderilen)
   if (!oldu) {
     hata.value = dosyalar.sonUyari ?? 'Kaydedilemedi.'
-    return
+    return false
   }
   // YAZ-ve-DOĞRULA: S3'e giden içerik ile geri okunan içerik aynı mı?
   try {
     const geri = await kaynakOku()
-    if (!yazmaDogrulandiMi(gonderilen, geri)) hata.value = YAZMA_UYUSMAZLIGI
-    else hata.value = ''
+    if (!yazmaDogrulandiMi(gonderilen, geri)) {
+      hata.value = YAZMA_UYUSMAZLIGI
+      return false
+    }
+    hata.value = ''
   } catch {
     /* doğrulama yapılamadı: kayıt yine geçerli */
   }
+  return true
 }
 
 // ----------------------------------------------------- nöbet değişikliği bildirimi
@@ -269,6 +275,15 @@ async function tetikBildir(): Promise<void> {
   tetikBilgi.value = ''
   tetikGonderiliyor.value = true
   try {
+    // ÖNEMLİ: "Bildir" yalnız EKRANI tazeler; kaydedilmemiş bir düzenleme varsa önce onu yazar.
+    // Aksi hâlde kullanıcı "bildirdim ama değişmedi" görürdü (yaşandı): veri yazılmıyordu.
+    if (kirli.value) {
+      const yazildi = await kaydet(true)
+      if (!yazildi) {
+        hata.value = hata.value || 'Değişiklik kaydedilemedi; bildirim gönderilmedi.'
+        return
+      }
+    }
     const kaynak = baglanti.kaynak
     if (!kaynak) {
       hata.value = 'Bağlantı kurulmadan bildirim gönderilemez (S3/Cognito ayarlarını kontrol edin).'
@@ -283,7 +298,8 @@ async function tetikBildir(): Promise<void> {
     await kaynak.yaz('tetikle.json', belge)
     void mqttBildir('elle-bildirim', belge.zaman).catch(() => undefined)
     const kapsam = tetikIlce.value || 'tüm cihazlar'
-    tetikBilgi.value = `Gönderildi (${kapsam}) · ${belge.zaman}`
+    tetikBilgi.value = `Gönderildi (${kapsam}) · ${belge.zaman}` +
+      (kirli.value ? '' : ' · değişiklikler kaydedildi')
   } catch (e) {
     hata.value = `Bildirim gönderilemedi: ${(e as Error).message}`
   } finally {

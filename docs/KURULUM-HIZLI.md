@@ -24,7 +24,7 @@ cd kiosk && .venv/bin/python main.py                          # Qt modu
 | Bileşen | Makine | Kuran | Ne kurulur |
 |---|---|---|---|
 | **Kiosk (Qt / tarayıcı)** | gösterim cihazı | `./kur.sh kiosk` | `.venv`, PyQt6, **paho-mqtt**, `web/dist` |
-| Tarayıcı modu | gösterim cihazı | sistem | `chromium` (dağıtımın paket yöneticisi) |
+| Tarayıcı modu | gösterim cihazı | sistem | `chromium` + **20 paylaşımlı kütüphane** (aşağıdaki paketler) |
 | **Panel** | yönetim makinesi | `./kur.sh panel` | npm (dev dahil), `panel/.env.local`, derleme |
 | Panel yayını | yönetim makinesi | `./panel/infra/yayinla.sh` | S3 + CloudFront (yayın anahtarı) |
 | **MQTT broker** | VPS (Lightsail) | `./kur.sh broker` (root) | mosquitto + certbot + ufw + nginx |
@@ -144,3 +144,37 @@ kiosk/tools/test.sh tests -q          # kiosk testleri
 (cd web && npm test)                  # web testleri
 ./otomasyon/durum                     # i5/i3 otomasyon panosu
 ```
+
+---
+
+## Chromium bağımlılıkları (ölçülmüş liste)
+
+Chromium arka planda X11/NSS/GBM kütüphanelerine bağlıdır. Asgari kurulu bir makinede
+**20 kütüphane** eksik çıkar; tarayıcı modu (ve panelli doğrulama) çalışmaz.
+
+```bash
+# Arch / Manjaro
+sudo pacman -S --needed alsa-lib at-spi2-core cairo fontconfig libcups libx11 libxcb \
+  libxcomposite libxdamage libxext libxfixes libxkbcommon libxrandr mesa nspr nss pango ttf-liberation
+
+# Debian / Ubuntu
+sudo apt install -y libnss3 libnspr4 libx11-6 libxcb1 libxext6 libxcomposite1 libxdamage1 \
+  libxfixes3 libxrandr2 libxkbcommon0 libgbm1 libcairo2 libpango-1.0-0 libatk1.0-0 \
+  libatk-bridge2.0-0 libatspi2.0-0 libasound2 libcups2 fontconfig fonts-liberation
+```
+
+Doğrulama (tek komut — eksik kütüphane, sürüm ve **gerçek headless render**):
+
+```bash
+cd kiosk && python3 tools/chromium_dogrula.py
+```
+
+Sayfa inceleme (konsol hataları + ekran görüntüsü + DOM metni):
+
+```bash
+cd kiosk && python3 tools/chromium_dogrula.py --url http://127.0.0.1:8090/index.html --metin --ekran /tmp/kiosk.png
+```
+
+> Not: Chrome 145'te `--headless=new` ve `--user-data-dir` bu araçla uyumsuz
+> ("Multiple targets are not supported"); `--screenshot` **`=` biçiminde** verilmeli
+> (`--screenshot=/tmp/a.png`). Araç bunları zaten doğru kullanıyor.
