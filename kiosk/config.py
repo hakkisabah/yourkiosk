@@ -44,12 +44,12 @@ TETIK_DOSYASI = "tetikle.json"
 # 600 cihaz ölçeğinde maliyet: 3 küçük istek × (86400/süre) × cihaz.
 #   20 sn → ~234 M istek/ay (CloudFront ~$175/ay)   |   300 sn → ~15,6 M istek/ay (~$12/ay)
 # 20 sn'ye düşürmek isteyen `calistirma.degisiklik_kontrol_ms` ile ayarlar.
-DAMGA_KONTROL_MS = 300 * 1000
+DAMGA_KONTROL_MS = 120 * 1000
 #: MQTT push BAĞLIYKEN yoklama (anlıklık zaten push'tan gelir; bu yalnız emniyet ağı).
 #  600 cihaz × (86400/1800) × 1 istek ≈ 864 bin istek/ay ≈ $1 (3 dosyalı yol: ~$18).
-DAMGA_KONTROL_MS_PUSH = 1800 * 1000
+DAMGA_KONTROL_MS_PUSH = 120 * 1000
 #: MQTT KOPTUYSA yoklama (tek yol yoklama kalır).
-DAMGA_KONTROL_MS_PUSH_YOK = 60 * 1000
+DAMGA_KONTROL_MS_PUSH_YOK = 30 * 1000
 #: YEREL tetik izleyici: MQTT push `tetikle.json`u yazar; bu izleyici dosya değişimini görüp
 #  ANINDA yeniler. Ağa ÇIKMAZ (yalnız stat) → maliyeti sıfır, 600 cihazda da bedava.
 #  NEDEN GEREKLİ: yoklama aralığı 1800 sn'ye çıkınca push "dosya yazıldı ama kimse okumadı"

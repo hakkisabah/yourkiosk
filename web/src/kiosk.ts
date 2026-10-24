@@ -646,7 +646,7 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
     void canliBaslat()
     const periyotlar: Array<[number, () => void]> = [
       [sabit('REFRESH_INTERVAL_MS', 3_600_000), () => void yukle()],
-      [sabit('DAMGA_KONTROL_MS', 300_000), () => void damgaKontrol()],
+      [sabit('DAMGA_KONTROL_MS', 120_000), () => void damgaKontrol()],
       [1000, saatGuncelle],
       [sabit('KUSAK_ADIM_ARALIGI_MS', 30), kusakAdimi],
     ]

@@ -25,6 +25,9 @@ import config
 
 log = logging.getLogger("kiosk.push")
 
+#: Aktif paho istemcisi (gerçek bağlantı durumu için). Thread başlatılınca doldurulur.
+_istemci_ref: list = [None]
+
 #: Arka plan iş parçacığı ve son durum (--tani çıktısı için)
 _iş: threading.Thread | None = None
 _durum: dict = {"aktif": False, "bagli": False, "son_mesaj": "", "hata": ""}
@@ -43,7 +46,20 @@ def broker() -> str:
 
 
 def durum() -> dict:
-    return dict(_durum)
+    """Push durumu. `bagli` alanı MÜMKÜNSE paho'nun GERÇEK durumundan okunur.
+
+    NEDEN: `_durum["bagli"]` bayrağı on_connect/on_disconnect ile güncelleniyor ama kısa
+    kopmalarda bayat kalabiliyordu (log: "MQTT bağlandı" → 2 sn sonra "KOPUK"). Yoklama aralığı
+    bu bayrağa bağlı olduğu için aralık yanlış hesaplanıyordu.
+    """
+    anlik = dict(_durum)
+    istemci = _istemci_ref[0]
+    if istemci is not None:
+        try:
+            anlik["bagli"] = bool(istemci.is_connected())
+        except Exception:  # noqa: BLE001
+            pass
+    return anlik
 
 
 def _tetik_yaz(kaynak: str = "mqtt") -> Path:
@@ -131,15 +147,24 @@ def _dongu(durdur: threading.Event) -> None:
         except Exception:  # noqa: BLE001 - thread ölmesin
             log.warning("MQTT mesajı işlenemedi", exc_info=True)
 
+    _istemci_ref[0] = istemci
     istemci.on_connect = _baglandi
     istemci.on_disconnect = lambda *_: _durum.update(bagli=False)
     istemci.on_message = _mesaj
 
+    # paho'nun kendi yeniden bağlanması (loop_start + reconnect_delay) kullanılır; dış döngüde
+    # tekrar `connect()` çağırmak çift bağlantı/çift abonelik üretiyordu.
+    try:
+        istemci.reconnect_delay_set(min_delay=2, max_delay=60)
+    except Exception:  # noqa: BLE001
+        pass
     while not durdur.is_set():
         try:
             istemci.connect(adres, port, keepalive=60)
             istemci.loop_start()
             while not durdur.is_set():
+                if not istemci.is_connected():
+                    _durum["bagli"] = False
                 time.sleep(1.0)
         except Exception as hata:  # noqa: BLE001 - ağ hatasında yeniden dene
             _durum.update(bagli=False, denendi=True, hata=str(hata)[:200])

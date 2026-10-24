@@ -35,3 +35,10 @@ class TimerManager:
         self.tetik_timer.start(getattr(config, "DAMGA_KONTROL_MS", 1800 * 1000))
         # ANLIK yol: yerel dosya izleyici (maliyetsiz). Push ölü olsa bile yoklama çalışır.
         self.tetik_izleyici.start(getattr(config, "TETIK_IZLEME_MS", 2000))
+        # ÖNEMLİ: aralık, İLK turu beklemeden bugünkü bağlantı durumuna göre kurulur.
+        # Aksi hâlde `ayarlar.json`daki `tetik.kontrol_ms` (ör. 300000) yüzünden ilk yoklama
+        # 5 dakika sonra yapılıyordu — "değişiklik gelmiyor" şikâyetinin bir kaynağı buydu.
+        try:
+            app_instance.yoklama_ayarla()
+        except Exception:  # noqa: BLE001
+            pass
