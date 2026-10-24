@@ -23,6 +23,14 @@ import { useDosyalar } from '@/stores/dosyalar'
 import { mqttBildir } from '@/domain/push'
 import { useBaglanti } from '@/stores/baglanti'
 import { silinecekYayinlar } from '@/domain/temizlik'
+import {
+  bolgeSecenekleri as hedefBolgeleri,
+  cihazSecenekleri as hedefCihazlari,
+  hedefEtiketi,
+  ilceSecenekleri as hedefIlceleri,
+} from '@/domain/hedef'
+import { kapsamiYaz, yayinDogrula, type YayinDto } from '@/domain/model'
+import HedefSecimi from '@/components/HedefSecimi.vue'
 
 const dosyalar = useDosyalar()
 const baglanti = useBaglanti()
@@ -92,6 +100,67 @@ const yayinlar = computed<Array<{ gun: string; veri: unknown }>>(() => {
 const suresiGecenler = computed(() =>
   silinecekYayinlar(dosyalar.sistemVerisi, new Date(), ekSaat.value, baglanti.kova, baglanti.onEk),
 )
+
+// ----------------------------------------------------- yayın hedefleme (ilçe/bölge/cihaz)
+/** Yayın listesi — kimlik + kayıt (veri dosyasındaki sıra korunur). */
+const hedefliYayinlar = computed<Array<{ id: string; kayit: YayinDto }>>(() => {
+  const y = (taslak.value.Yayinlar ?? {}) as Record<string, YayinDto>
+  return Object.entries(y).map(([id, kayit]) => ({ id, kayit }))
+})
+
+const hedefIlceListesi = computed(() => hedefIlceleri(dosyalar.match, dosyalar.sistemVerisi))
+const duzenlenen = ref<string>('')
+const duzenlenenKapsam = ref({ ilceId: '', bolgeId: '', cihazId: '' })
+const hedefHata = ref('')
+
+const aktifKayit = computed<YayinDto | null>(() => {
+  const bulunan = hedefliYayinlar.value.find((y) => y.id === duzenlenen.value)
+  return bulunan ? bulunan.kayit : null
+})
+
+const duzenlenenBolgeler = computed(() =>
+  hedefBolgeleri(dosyalar.match, dosyalar.sistemVerisi, duzenlenenKapsam.value.ilceId),
+)
+const duzenlenenCihazlar = computed(() =>
+  hedefCihazlari(dosyalar.match, duzenlenenKapsam.value.ilceId, duzenlenenKapsam.value.bolgeId),
+)
+
+function hedefDuzenle(id: string): void {
+  const kayit = hedefliYayinlar.value.find((y) => y.id === id)?.kayit
+  if (!kayit) return
+  hedefHata.value = ''
+  duzenlenen.value = id
+  duzenlenenKapsam.value = {
+    ilceId: String(kayit.ilceId ?? ''),
+    bolgeId: String(kayit.bolgeId ?? ''),
+    cihazId: String(kayit.cihazId ?? ''),
+  }
+}
+
+/** Hedefi taslağa yazar; kullanıcı sonra "Kaydet" ile yayınlar. */
+function hedefUygula(): void {
+  const kayit = aktifKayit.value
+  if (!kayit) return
+  const yeni = kapsamiYaz(kayit, duzenlenenKapsam.value)
+  const hatalar = yayinDogrula(yeni)
+  if (hatalar.length) {
+    hedefHata.value = hatalar[0]
+    return
+  }
+  const yayinlar = (taslak.value.Yayinlar ?? {}) as Record<string, YayinDto>
+  yayinlar[duzenlenen.value] = yeni
+  taslak.value = { ...taslak.value }
+  duzenlenen.value = ''
+  hedefHata.value = ''
+}
+
+function hedefTemizle(id: string): void {
+  const kayit = hedefliYayinlar.value.find((y) => y.id === id)?.kayit
+  if (!kayit) return
+  const yayinlar = (taslak.value.Yayinlar ?? {}) as Record<string, YayinDto>
+  yayinlar[id] = kapsamiYaz(kayit, {})
+  taslak.value = { ...taslak.value }
+}
 
 async function temizle(): Promise<void> {
   hata.value = ''
@@ -281,6 +350,79 @@ async function tetikBildir(): Promise<void> {
             (eczane – telefon) nöbet kayıtlarından üretilir.
           </v-card-subtitle>
           <v-card-text>
+            <!-- HEDEFLEME: ilçe/bölge/cihaz. Boş = tüm cihazlar. -->
+            <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+              <strong>Hedefleme:</strong> bir yayını yalnız belirli ilçe/bölge/cihaza gösterebilirsiniz.
+              Boş bırakılan seviye kısıt sayılmaz; birden fazlası seçilirse <strong>hepsi eşleşmeli</strong>.
+              Değişiklik <em>Kaydet</em> ile yayınlanır ve hedef dışı cihazlar görseli hiç indirmez.
+            </v-alert>
+
+            <v-table density="compact" class="mb-3">
+              <thead>
+                <tr>
+                  <th style="width: 1%">#</th>
+                  <th>Görsel</th>
+                  <th style="width: 1%">Pencere</th>
+                  <th style="width: 1%">Hedef</th>
+                  <th style="width: 1%">İşlem</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="y in hedefliYayinlar" :key="y.id">
+                  <td class="text-caption">{{ y.id }}</td>
+                  <td class="text-caption" style="max-width: 320px; overflow-wrap: anywhere">
+                    {{ String(y.kayit.contentUrl ?? y.kayit.contentURL ?? y.kayit.url ?? '—') }}
+                  </td>
+                  <td class="text-caption" style="white-space: nowrap">
+                    {{ String(y.kayit.start ?? '?') }} → {{ String(y.kayit.end ?? '?') }}
+                  </td>
+                  <td>
+                    <v-chip size="x-small" variant="tonal" :color="(y.kayit.ilceId || y.kayit.bolgeId || y.kayit.cihazId) ? 'primary' : 'grey'">
+                      {{ hedefEtiketi({ ilceId: String(y.kayit.ilceId ?? ''), bolgeId: String(y.kayit.bolgeId ?? ''), cihazId: String(y.kayit.cihazId ?? '') }, dosyalar.sistemVerisi, dosyalar.match) }}
+                    </v-chip>
+                  </td>
+                  <td style="white-space: nowrap">
+                    <v-btn size="x-small" variant="text" prepend-icon="mdi-target" @click="hedefDuzenle(y.id)">Hedef</v-btn>
+                    <v-btn
+                      v-if="y.kayit.ilceId || y.kayit.bolgeId || y.kayit.cihazId"
+                      size="x-small"
+                      variant="text"
+                      @click="hedefTemizle(y.id)"
+                    >Tümü</v-btn>
+                  </td>
+                </tr>
+              </tbody>
+            </v-table>
+
+            <v-dialog :model-value="!!duzenlenen" max-width="640" @update:model-value="(v: boolean) => { if (!v) duzenlenen = '' }">
+              <v-card>
+                <v-card-title class="text-subtitle-1">Yayın hedefi · #{{ duzenlenen }}</v-card-title>
+                <v-card-subtitle class="text-caption">
+                  {{ aktifKayit ? String(aktifKayit.contentUrl ?? aktifKayit.contentURL ?? aktifKayit.url ?? '') : '' }}
+                </v-card-subtitle>
+                <v-card-text>
+                  <HedefSecimi
+                    v-model="duzenlenenKapsam"
+                    :ilceler="hedefIlceListesi"
+                    :bolgeler="duzenlenenBolgeler"
+                    :cihazlar="duzenlenenCihazlar"
+                  />
+                  <v-alert v-if="hedefHata" type="error" variant="tonal" density="compact" class="mt-3">
+                    {{ hedefHata }}
+                  </v-alert>
+                  <div class="text-caption text-medium-emphasis mt-3">
+                    Kaydettikten sonra bu sayfadaki <strong>Kaydet</strong> düğmesine basın; yayın
+                    <code>{{ DOSYALAR.sistem }}</code> dosyasına yazılır ve cihazlar tetiklenir.
+                  </div>
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn variant="text" @click="duzenlenen = ''">Vazgeç</v-btn>
+                  <v-btn color="primary" variant="flat" @click="hedefUygula">Uygula</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+
             <v-expansion-panels variant="accordion">
               <v-expansion-panel v-for="y in yayinlar" :key="y.gun" :title="gunEtiketi(y.gun)">
                 <v-expansion-panel-text>

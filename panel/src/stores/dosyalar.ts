@@ -30,6 +30,15 @@ interface DosyaDurumu<T> {
   yuklendi: boolean
 }
 
+/** S3'te okunup/YAZILAN dosya anahtarları — `DOSYALAR` ile birebir eşleşmek zorunda (tip zorlar). */
+export type DosyaAnahtari = keyof typeof DOSYALAR
+
+/**
+ * Panelin OKUMADIĞI (yalnız yazdığı) dosyalar.
+ * `durum.json` cihazın tek istekle tükettiği özettir; panelde gösterilecek bir şey taşımaz.
+ */
+export const PANEL_OKUMAZ: readonly DosyaAnahtari[] = ['durum']
+
 interface Durum {
   ayarlar: DosyaDurumu<AyarBelgesi>
   kapsam: DosyaDurumu<KapsamBelgesi>
@@ -38,6 +47,8 @@ interface Durum {
   match: DosyaDurumu<Record<string, unknown>>
   lastupdate: DosyaDurumu<Record<string, unknown>>
   makine: DosyaDurumu<Record<string, unknown>>
+  /** `durum.json` — panel YAZAR (cihaz tek istekte okur); panelde gösterilmez. */
+  durum: DosyaDurumu<Record<string, unknown>>
   mesgul: boolean
   sonUyari: string | null
   sonBasari: string | null
@@ -54,6 +65,7 @@ export const useDosyalar = defineStore('dosyalar', {
     match: bos<Record<string, unknown>>(),
     lastupdate: bos<Record<string, unknown>>(),
     makine: bos<Record<string, unknown>>(),
+    durum: bos<Record<string, unknown>>(),
     mesgul: false,
     sonUyari: null,
     sonBasari: null,
@@ -76,7 +88,7 @@ export const useDosyalar = defineStore('dosyalar', {
       }
       return { kaynak, baglanti }
     },
-    async dosyaYukle<T>(anahtar: keyof Durum, ad: string): Promise<void> {
+    async dosyaYukle<T>(anahtar: DosyaAnahtari, ad: string): Promise<void> {
       const baglan = this._baglan()
       if (!baglan) return
       const sonuc = await baglan.kaynak.oku<T>(ad)
@@ -104,7 +116,11 @@ export const useDosyalar = defineStore('dosyalar', {
           anahtarlar = null
         }
         const plan = new Map(okumaPlani(anahtarlar, baglan.baglanti.onEk).map((k) => [k.ad, k.varMi]))
-        const adlar = Object.entries(DOSYALAR) as Array<[keyof Durum, string]>
+        const adlar = (Object.entries(DOSYALAR) as Array<[DosyaAnahtari, string]>)
+          // `durum.json` cihazın tükettiği bir dosyadır; panelde GÖSTERİLMEZ ve okunmaz.
+          // (Bu satır yokken state'te olmayan anahtar undefined'a yazılıyordu:
+          //  "Cannot set properties of undefined (setting 'veri')")
+          .filter(([anahtar]) => anahtar in this.$state && !PANEL_OKUMAZ.includes(anahtar))
         await Promise.all(
           adlar.map(async ([anahtar, ad]) => {
             if (plan.get(ad) === false) {
@@ -127,7 +143,7 @@ export const useDosyalar = defineStore('dosyalar', {
     },
     /** Tek bir dosyayı yazar (ETag denetimiyle) ve durumu tazeler. */
     async kaydet(
-      anahtar: 'ayarlar' | 'kapsam' | 'sistem' | 'sablon' | 'match' | 'lastupdate' | 'makine',
+      anahtar: DosyaAnahtari,
       ad: string,
       veri: unknown,
     ): Promise<boolean> {
@@ -190,7 +206,7 @@ export const useDosyalar = defineStore('dosyalar', {
       }
     },
     /** Yerel düzenlemeyi (kaydetmeden) duruma yazar. */
-    yerelAyarla(anahtar: 'ayarlar' | 'kapsam' | 'sistem' | 'sablon' | 'match', veri: unknown): void {
+    yerelAyarla(anahtar: Exclude<DosyaAnahtari, 'lastupdate' | 'makine' | 'durum'>, veri: unknown): void {
       const hedef = this[anahtar] as DosyaDurumu<unknown>
       hedef.veri = veri
     },

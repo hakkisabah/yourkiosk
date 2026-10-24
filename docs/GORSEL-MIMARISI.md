@@ -252,3 +252,39 @@ Görsel egress (içerik adlı + immutable, 304 yok):
 | 304 doğrulama istekleri (içerik değişmedi) | 0 (immutable) | $0 |
 
 **Asıl kalem cihaz başına yoklama isteğiydi; 1 istek + seyrek aralıkla ~$1/ay'a indi.**
+
+---
+
+## 10) HEDEF SEÇİMİ (panel UX) + veri modeli tek kaynağı (24.10.2026)
+
+### 10.1 Panel arayüzü
+`VeriView → Yayınlar` sekmesinde yayın tablosu:
+
+| Kolon | İçerik |
+|---|---|
+| `#` | yayın kimliği |
+| Görsel | adres (satır kırılır) |
+| Pencere | `start → end` |
+| **Hedef** | chip: `Tüm cihazlar` ya da `Çayırova (…306) · 1. Bölge · 3 cihaz` |
+| İşlem | **Hedef** (diyalog) · **Tümü** (temizle) |
+
+Diyalogda üç bağımlı seçim: **İlçe → Bölge → Cihaz (isteğe bağlı)**. Üst seviye değişince alt
+seviyeler temizlenir. Seçimler `domain/model.ts` → `yayinDogrula()` ile doğrulanır, `kapsamiYaz()`
+boş alanları kayıttan **siler**. "Uygula" taslağa yazar; sayfadaki **Kaydet** yayınlar
+(`lastSystemData.json` + `lastupdate.json` + `durum.json`, sonra cihaz tetiklenir).
+
+İlçe/bölge adları nöbet kayıtlarından, cihaz listesi `match.json`'dan gelir (`domain/hedef.ts`).
+Kimlik kayıt içinde yoksa **ağaç anahtarından** türetilir (`tumKayitlar` düzeltmesi).
+
+### 10.2 Veri modeli tek kaynağı (DTO)
+`kiosk/core/model.py` → `kiosk/tools/model_disa_aktar.py` →
+`panel/src/domain/model.generated.json` + `web/src/veri/model.generated.json`.
+Ayar şemasındaki (`sema.ts`) desenin aynısı: kiosk testi dosya güncel değilse kırılır.
+
+İçerik: 7 yayın alanı (tip/zorunlu/alias/açıklama), `durum.json` alanları, kapsam kuralları.
+
+### 10.3 Bu turda bulunan iki gerçek hata
+| Hata | Neden | Düzeltme |
+|---|---|---|
+| `Cannot set properties of undefined (setting 'veri')` (panel açılışta) | `DOSYALAR.durum` eklendi, store **state**'ine eklenmedi; `hepsiniYukle` `this['durum'].veri` yazdı | state'e `durum` + `PANEL_OKUMAZ` dışlaması + **regresyon testi** (`dosyalar-tutarlilik.test.ts`): DOSYALAR ↔ state birebir |
+| "Bildir" anlık çalışmıyordu | `durum.json` tek-istek yolu, MQTT'nin yazdığı **yerel** `tetikle.json`'u okumuyordu | `durum.secili_tetik()` (uzak → yerel) + her 10 turda `lastupdate.json` çapraz kontrolü |

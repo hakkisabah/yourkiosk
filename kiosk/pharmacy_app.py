@@ -52,6 +52,7 @@ class PharmacyApp(QMainWindow):
         self._son_komut_isareti = ""  # durum.json komut işareti (değişince komut indirilir)
         self._yoklama_ms = 0
         self._kopuk_tur = 0
+        self._durum_tur = 0
         self.ticker_x = self.screen_w
         self.ticker_items = []
         self.ticker_index = 0
@@ -202,14 +203,27 @@ class PharmacyApp(QMainWindow):
 
         # 2) veri damgası
         yeni_damga = durum_modulu.damga(belge)
+        # ÇAPRAZ KONTROL: panel `durum.json`ı yazamazsa cihaz 30 dk eski veride kalırdı.
+        # Her 10 turda bir `lastupdate.json` da okunur (1800 sn'de ~5 saatte 1 ek istek).
+        self._durum_tur = getattr(self, "_durum_tur", 0) + 1
+        if self._durum_tur % 10 == 1:
+            try:
+                capraz = veri_kaynagi.lastupdate_taze()
+                if capraz and capraz != yeni_damga:
+                    log.debug("durum.json damgası (%s) ile lastupdate.json (%s) farklı → lastupdate kullanılıyor",
+                              yeni_damga, capraz)
+                    yeni_damga = capraz
+            except Exception:  # noqa: BLE001
+                pass
         onceki = str(getattr(self.data_handler, "lastupdate", "") or "")
         if yeni_damga and onceki and yeni_damga != onceki:
             log.info("nöbet verisi değişti (damga %s → %s) → hemen yenileniyor", onceki, yeni_damga)
             self.load_data()
             return
 
-        # 3) tetikleyici (kapsam: tümü / kendi ilçesi / kendi bölgesi)
-        tetik = durum_modulu.tetik(belge)
+        # 3) tetikleyici: UZAK (panel → durum.json) VEYA YEREL (MQTT push → tetikle.json)
+        #    MQTT mesajı yerel dosyaya yazılır; burada okunmazsa push sessizce ölür.
+        tetik = durum_modulu.secili_tetik(belge, tetik_modulu.oku)
         konum = getattr(self.data_handler, "konum", None)
         ilce = str(getattr(konum, "ilce_id", "") or "")
         bolge = str(getattr(konum, "bolge_id", "") or "")
