@@ -161,4 +161,28 @@ describe('VeriView: Bildir akışı', () => {
     expect(tetik.zaman).toBe(belge.tetik.zaman)
     wrapper.unmount()
   })
+
+  /**
+   * REGRESYON (i5 bulgusu, PR #78): `durum.json`a yazılan `lastupdate` panelin BELLEKTEKİ
+   * değerinden alınıyordu. "Düzenle + Kaydet + Bildir" akışında `kaydet()` sunucuya TAZE damga
+   * yazıyor, ardından Bildir bellekteki ESKİ damgayı `durum.json`a yazıp damgayı GERİ sarıyordu →
+   * cihazlar her turda gereksiz `lastupdate.json` çekiyordu.
+   */
+  it('Bildir durum.json damgasını sunucudaki TAZE değerden alır (damga geri sarılmaz)', async () => {
+    const d = useDosyalar()
+    d.lastupdate.veri = { lastupdate: '2026-10-24 09:00:00' } // bellek: eski
+    DEPO['lastupdate.json'] = { lastupdate: '2026-10-24 10:30:00' } // sunucu: taze
+    const wrapper = mount(VeriView, { global: { plugins: [createVuetify()] }, attachTo: document.body })
+    await wrapper.vm.$nextTick()
+    await new Promise((r) => setTimeout(r, 20))
+
+    await dugme(wrapper as never, 'Bildir')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 80))
+
+    const durum = yazilanlar.find((y) => y.ad === 'durum.json')
+    expect(durum, 'durum.json yazılmadı').toBeTruthy()
+    const belge = durum!.veri as { lastupdate: string }
+    expect(belge.lastupdate, 'bellekteki ESKİ damga yazıldı → damga geri sardı').toBe('2026-10-24 10:30:00')
+    wrapper.unmount()
+  })
 })

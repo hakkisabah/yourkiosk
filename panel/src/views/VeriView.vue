@@ -299,11 +299,20 @@ async function tetikBildir(): Promise<void> {
     await kaynak.yaz('tetikle.json', belge)
     // `durum.json`: cihaz bu dosya varsa `tetikle.json`u İNDİRMEZ (tek istek maliyet kararı).
     // Yalnız tetikle.json yazmak Qt kioskta "Bildir"i görünmez yapıyordu; tetik iki yere de yazılır.
+    // DAMGA: `lastupdate` SUNUCUDAN taze okunur. Panelin bellekteki değeri (`dosyalar.lastupdate.veri`)
+    // az önce `kaydet()`in yazdığı taze damgadan ESKİ olabiliyordu → durum.json damgayı GERİ sarıyor,
+    // cihazlar bir sonraki kayda kadar her turda gereksiz `lastupdate.json` çekiyordu (i5 bulgusu).
+    let lastupdate = String((dosyalar.lastupdate.veri as { lastupdate?: unknown })?.lastupdate ?? '')
     try {
-      await kaynak.yaz(
-        DOSYALAR.durum,
-        durumBelgesi(belge, String((dosyalar.lastupdate.veri as { lastupdate?: unknown })?.lastupdate ?? ''), belge.zaman),
-      )
+      const canli = await kaynak.oku<{ lastupdate?: unknown }>(DOSYALAR.lastupdate)
+      const sunucu = String((canli?.veri as { lastupdate?: unknown })?.lastupdate ?? '')
+      // İki damgadan YENİ olanı kullan: damga asla geri sarılmaz (okuma başarısızsa bellek değeri kalır).
+      if (sunucu > lastupdate) lastupdate = sunucu
+    } catch {
+      /* canlı damga okunamadı: bellekteki değerle devam (en azından eskisinden kötü olmaz) */
+    }
+    try {
+      await kaynak.yaz(DOSYALAR.durum, durumBelgesi(belge, lastupdate, belge.zaman))
     } catch {
       /* durum.json yazılamadı: cihaz eski üç dosyalı yola düşer (tetikle.json yazıldı) */
     }

@@ -236,6 +236,7 @@ def kosullu_indir(
     *,
     etag: str = "",
     son_degisiklik: str = "",
+    icerik_turu_denetle: bool = True,
 ) -> tuple[bytes | None, str, str, str]:
     """Koşullu GET: içerik değişmediyse (304) GÖVDE İNDİRİLMEZ.
 
@@ -244,11 +245,17 @@ def kosullu_indir(
 
     NEDEN: her veri güncellemesinde 600 cihazın aynı görselleri yeniden indirmesi hem bant
     genişliği hem AWS maliyeti demekti. 304 yanıtının gövdesi yoktur (birkaç yüz bayt).
+
+    `icerik_turu_denetle=False` → JSON kontrol dosyaları (`tetikle.json`, `komut.json`) için:
+    görsel türü beyaz listesi uygulanmaz, JSON geçerliliği çağıranda ayrıştırılarak doğrulanır.
     """
     ayarlar.dogrula_url(url)
+    kabul = "image/png,image/jpeg,image/webp,*/*;q=0.1"
+    if not icerik_turu_denetle:
+        kabul = "application/json,text/plain;q=0.9,*/*;q=0.1"
     basliklar = {
         "User-Agent": ayarlar.kullanici_ajani,
-        "Accept": "image/png,image/jpeg,image/webp,*/*;q=0.1",
+        "Accept": kabul,
         "Accept-Encoding": "identity",
         "Connection": "close",
     }
@@ -266,7 +273,7 @@ def kosullu_indir(
             if yanit.status != 200:
                 raise AgHatasi(f"HTTP {yanit.status}")
             tur = (yanit.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-            if tur not in IZINLI_ICERIK_TURLERI:
+            if icerik_turu_denetle and tur not in IZINLI_ICERIK_TURLERI:
                 raise AgHatasi(f"içerik türü kabul edilmiyor: {tur or 'yok'}")
             ilan = yanit.headers.get("Content-Length")
             if ilan is not None and ilan.isdigit() and int(ilan) > ayarlar.en_buyuk_bayt:

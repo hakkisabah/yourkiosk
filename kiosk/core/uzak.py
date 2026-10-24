@@ -30,14 +30,11 @@ def taban_adres() -> str:
     return adres.rstrip("/")
 
 
-def getir(ad: str, *, taban: str | None = None, en_buyuk_bayt: int = EN_BUYUK_KUCUK_BAYT) -> bytes | None:
-    """`<taban>/<ad>` içeriğini indirir (politika ihlali/bağlantı hatası → None)."""
-    kok = taban if taban is not None else taban_adres()
-    if not kok:
-        return None
-    from security.network import AgAyarlari, AgHatasi, indir
+def _ayarlar(en_buyuk_bayt: int = EN_BUYUK_KUCUK_BAYT):
+    """Ağ politikası ayarları (indirme ve koşullu indirme AYNI politikayı kullanır)."""
+    from security.network import AgAyarlari
 
-    ayarlar = AgAyarlari(
+    return AgAyarlari(
         zaman_asimi_s=float(getattr(config, "HTTP_TIMEOUT_S", 10.0)),
         en_buyuk_bayt=en_buyuk_bayt,
         izinli_hostlar=tuple(getattr(config, "ALLOWED_HOSTS", ()) or ()),
@@ -46,6 +43,16 @@ def getir(ad: str, *, taban: str | None = None, en_buyuk_bayt: int = EN_BUYUK_KU
         yonlendirme_izinli=bool(getattr(config, "AG_YONLENDIRME_IZINLI", False)),
         en_buyuk_url=int(getattr(config, "MAX_URL_UZUNLUK", 2048)),
     )
+
+
+def getir(ad: str, *, taban: str | None = None, en_buyuk_bayt: int = EN_BUYUK_KUCUK_BAYT) -> bytes | None:
+    """`<taban>/<ad>` içeriğini indirir (politika ihlali/bağlantı hatası → None)."""
+    kok = taban if taban is not None else taban_adres()
+    if not kok:
+        return None
+    from security.network import AgHatasi, indir
+
+    ayarlar = _ayarlar(en_buyuk_bayt)
     # NOT: `indir()` varsayılan olarak GÖRSEL içerik türü beyaz listesini uygular (png/jpeg/webp).
     # tetikle.json / komut.json `application/json` gelir → bu yüzden denetim KAPATILIR; JSON
     # geçerliliği çağıran tarafta (core/tetik.py, core/komut.py) ayrıştırılarak doğrulanır.
@@ -65,6 +72,56 @@ def getir(ad: str, *, taban: str | None = None, en_buyuk_bayt: int = EN_BUYUK_KU
         return None
     except Exception:  # noqa: BLE001 - ağ hatası gösterimi durdurmamalı
         log.warning("küçük dosya alınamadı (%s/%s)", kok, ad, exc_info=True)
+        return None
+    return govde
+
+
+#: Dosya adı → (ETag, Last-Modified). 304 yanıtı gövde indirmez; hatırlanan değerler gönderilir.
+_ETAG: dict[str, tuple[str, str]] = {}
+
+
+def kosullu_getir(
+    ad: str,
+    *,
+    taban: str | None = None,
+    en_buyuk_bayt: int = EN_BUYUK_KUCUK_BAYT,
+) -> bytes | None:
+    """`<taban>/<ad>`u KOŞULLU indirir: içerik değişmediyse (304) GÖVDE İNMEZ → None.
+
+    NEDEN: `tetikle.json`/`komut.json` her yoklama turunda (Qt 20 sn, tarayıcı uzun yoklama ~3 sn)
+    tam gövde olarak indiriliyordu; dosya çoğu turda hiç değişmiyor. ETag/Last-Modified ile 304
+    alınınca yanıt gövdesiz (birkaç yüz bayt) olur — 600 cihazda trafik/maliyet düşer.
+
+    Sunucu ETag/Last-Modified vermiyorsa davranış eskisiyle aynıdır (gövde her turda iner).
+    """
+    kok = taban if taban is not None else taban_adres()
+    if not kok:
+        return None
+    from security.network import AgHatasi, kosullu_indir
+
+    etag, tarih = _ETAG.get(ad, ("", ""))
+    ayarlar = _ayarlar(en_buyuk_bayt)
+    try:
+        govde, tur, yeni_etag, yeni_tarih = kosullu_indir(
+            f"{kok}/{ad}", ayarlar, etag=etag, son_degisiklik=tarih, icerik_turu_denetle=False,
+        )
+    except AgHatasi as hata:
+        metin = str(hata)
+        if "HTTP 403" in metin or "HTTP 404" in metin:
+            log.debug("küçük dosya yok (%s/%s): %s", kok, ad, metin)
+        else:
+            log.warning("küçük dosya alınamadı (%s/%s): %s", kok, ad, hata)
+        return None
+    except Exception:  # noqa: BLE001 - ağ hatası gösterimi durdurmamalı
+        log.warning("küçük dosya alınamadı (%s/%s)", kok, ad, exc_info=True)
+        return None
+    if yeni_etag or yeni_tarih:
+        _ETAG[ad] = (yeni_etag or etag, yeni_tarih or tarih)
+    if govde is None:
+        return None  # 304: içerik değişmedi, gövde inmedi
+    if tur and not (tur.startswith("application/json") or tur.startswith("text/plain")
+                    or tur in ("", "application/octet-stream")):
+        log.warning("küçük dosya beklenmeyen içerik türü (%s/%s): %s", kok, ad, tur)
         return None
     return govde
 

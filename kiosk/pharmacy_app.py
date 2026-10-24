@@ -266,7 +266,8 @@ class PharmacyApp(QMainWindow):
             # ÇAPRAZ KONTROL: `tetikle.json`u YALNIZ yazan akışlar (panel "Bildir", elle yazım)
             # `durum.json`a dokunmayabilir. Bu yol artık tetikleyiciyi indirmediği için bu akışlar
             # cihazda SESSİZCE görünmüyordu (Qt kioskta "Bildir" tepkisizdi — yaşandı).
-            # İndirme yerel dosyanın mtime'ını değiştirir → `tetik_izle` 2 sn içinde turu tetikler.
+            # MALİYET: `getir()` KOŞULLU indirir (ETag/Last-Modified → 304) — dosya değişmediyse
+            # gövde inmez. İndirme yerel dosyanın mtime'ını değiştirirse `tetik_izle` turu tetikler.
             try:
                 if tetik_modulu.getir():
                     log.info("tetikle.json sunucudan yenilendi (durum.json tetiği yok/eskimiş olabilir)")

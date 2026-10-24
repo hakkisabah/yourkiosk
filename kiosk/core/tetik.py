@@ -110,14 +110,18 @@ def sil() -> bool:
 def getir() -> bool:
     """Panelin S3'e yazdığı `tetikle.json`u yerel kopyaya indirir (değiştiyse True).
 
+    KOŞULLU indirme: sunucu ETag/Last-Modified veriyorsa değişmeyen dosya için 304 alınır ve
+    gövde HİÇ inmez. Önceden her yoklama turunda (tarayıcı uzun yoklamasında ~3 sn'de bir) tam
+    gövde indirilip bayt karşılaştırması yapılıyordu — dosya çoğu turda değişmiyordu.
+
     Tarayıcı modunda yerel sunucu imzası bu dosyanın mtime'ına baktığı için, indirme anında
     arayüz de uzun yoklama ile haberdar olur.
     """
     from core import uzak
 
-    govde = uzak.getir(str(getattr(config, "TETIK_DOSYASI", "tetikle.json")))
+    govde = uzak.kosullu_getir(str(getattr(config, "TETIK_DOSYASI", "tetikle.json")))
     if not govde:
-        return False
+        return False  # 304 (değişmedi) ya da dosya yok/hata
     return uzak.yerel_guncelle(dosya_yolu(), govde)
 
 

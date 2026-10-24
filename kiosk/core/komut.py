@@ -146,14 +146,15 @@ def oku() -> dict | None:
 def getir() -> bool:
     """Panelin/S3'ün yazdığı `komut.json`u yerel kopyaya indirir (değiştiyse True).
 
+    KOŞULLU indirme (ETag/Last-Modified → 304): değişmeyen komut dosyası için gövde inmez.
     İndirme tek başına bir şey ÇALIŞTIRMAZ; komut ancak `dogrula` + `uygula` ile (imza ve beyaz
     liste denetiminden geçerek) uygulanır.
     """
     from core import uzak
 
-    govde = uzak.getir(str(getattr(config, "KOMUT_DOSYASI", "komut.json")))
+    govde = uzak.kosullu_getir(str(getattr(config, "KOMUT_DOSYASI", "komut.json")))
     if not govde:
-        return False
+        return False  # 304 (değişmedi) ya da dosya yok/hata
     return uzak.yerel_guncelle(dosya_yolu(), govde)
 
 
