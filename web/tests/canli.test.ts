@@ -199,7 +199,9 @@ describe('canlı değişiklik — yansıma', () => {
     durum.bildirim = { degisti: true, imza: 'İMZA2', damga: 'D1', tetik: null }
     await vi.advanceTimersByTimeAsync(1_000)
     expect(kiosk.durum.kayitlar[0]?.eczane).toBe('YENİ')
-    expect(kiosk.durum.gunluk.some((s) => s.includes('yerel veri değişti'))).toBe(true)
+    // Davranış: bildirim gelince önbellek ATLANIR (metin değişebilir, kural değişmez)
+    expect(kiosk.durum.gunluk.some((s) => s.includes('anlık bildirim'))).toBe(true)
+    expect(kiosk.durum.gunluk.some((s) => s.includes('önbellek atlanıp'))).toBe(true)
     kiosk.durdur()
   })
 

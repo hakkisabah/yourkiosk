@@ -509,27 +509,60 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
   /**
    * CANLI DÖNGÜ (uzun yoklama): yerel sunucu imza değişene kadar isteği açık tutar →
    * nöbet değişikliği tipik olarak <1 sn içinde ekrana yansır (20 sn beklenmez).
-   * Uç yoksa döngü sessizce biter; `damgaKontrol` yoklaması devam eder.
+   *
+   * HATA SINIFLARI (gerçek olaylarla):
+   *  · Döngü TEK istekte ölüyordu: `!bildirim` durumunda `return` ediliyordu. Uç geçici olarak
+   *    yanıt veremezse (sunucu meşgul/404/bağlantı) canlı akış TAMAMEN bitiyor, geriye 120 sn'lik
+   *    yoklama kalıyordu → "değişiklik gelmiyor".
+   *  · İlk gerçek değişiklik YUTULUYORDU: `ilkTur` bayrağı ilk bildirimi yok sayıyordu. Kullanıcı
+   *    tarayıcıyı açıp panelden ilk değişikliği yaptığında ekran hiç güncellenmiyordu.
+   *  · Beklenmeyen istisna (ağ/CORS/ayrıştırma) döngüyü sessizce öldürüyordu; `void` çağrı
+   *    olduğu için kimse görmüyordu.
+   *
+   * KURAL: bu döngü KOLAY ÖLMEZ — hata/boş yanıtta kısa bir nefes verip devam eder.
    */
   async function canliBaslat(): Promise<void> {
     canliAcik = true
-    let ilkTur = true
+    let ardisikBos = 0
     while (canliAcik) {
-      const bildirim = await secenekler.kaynak.degisiklikBekle(
-        degisiklikImzasi,
-        sabit('DEGISIKLIK_BEKLEME_S', 30),
-      )
+      let bildirim: Awaited<ReturnType<typeof secenekler.kaynak.degisiklikBekle>> = null
+      try {
+        bildirim = await secenekler.kaynak.degisiklikBekle(
+          degisiklikImzasi,
+          sabit('DEGISIKLIK_BEKLEME_S', 30),
+        )
+      } catch (hata) {
+        log(`anlık döngü hatası: ${String(hata)} → 5 sn sonra yeniden`)
+        await new Promise<void>((coz) => {
+          zamanla(coz, 5_000)
+        })
+        continue
+      }
       if (!canliAcik) return
       if (!bildirim) {
-        log('anlık değişiklik ucu yok → 20 sn damga yoklaması kullanılıyor')
-        return
+        ardisikBos += 1
+        // 3 kez üst üste boş → uç gerçekten yok (statik sunum). O zaman dur; aksi hâlde
+        // geçici bir aksaklık yüzünden canlı akışı sonsuza kadar kaybetmeyelim.
+        if (ardisikBos >= 3) {
+          log('anlık değişiklik ucu yok (3 deneme) → 120 sn damga yoklaması kullanılıyor')
+          return
+        }
+        log(`anlık bildirim alınamadı (${ardisikBos}/3) → 3 sn sonra yeniden`)
+        await new Promise<void>((coz) => {
+          zamanla(coz, 3_000)
+        })
+        continue
       }
+      ardisikBos = 0
       const oncekiImza = degisiklikImzasi
       degisiklikImzasi = bildirim.imza
       // HIZLI DÖNME KORUMASI: imza DEĞİŞTİYSE beklemeden işlenir (gerçek değişiklik);
       // aynı imzayla anında yanıt gelirse (sunucu sorunu) kısa bir nefes verilir.
       const ayniImza = Boolean(bildirim.imza) && bildirim.imza === oncekiImza
-      const bekleme = !bildirim.imza ? 5_000 : ayniImza ? 800 : 0
+      // TUR BAŞINA EN AZ NEFES: sunucu her turda anında yanıt verirse (imza sürekli değişen
+      // bozuk bir dosya/istek fırtınası) döngü CPU'yu yiyip tarayıcıyı kilitler. 150 ms, "anlık"
+      // beklentisini bozmaz ama sonsuz hızlı döngüyü imkânsız kılar.
+      const bekleme = !bildirim.imza ? 5_000 : ayniImza ? 800 : 150
       if (bekleme > 0) {
         await new Promise<void>((coz) => {
           zamanla(coz, bekleme)
@@ -544,19 +577,18 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
             (bildirim.tetik.ilceId ? ` · ilçe=${bildirim.tetik.ilceId}` : ' · tüm cihazlar'),
         )
       }
-      if (ilkTur) {
-        ilkTur = false // ilk tur yalnız imzayı öğrenir (veri biraz önce yüklendi)
-        continue
-      }
-      const damgaDegisti = Boolean(bildirim.damga) && bildirim.damga !== durum.damga
-      if (bildirim.degisti && (damgaDegisti || !bildirim.damga)) {
-        log(`anlık bildirim: nöbet verisi değişti (damga=${bildirim.damga || '-'}) → yenileniyor`)
-        await yukle(!damgaDegisti) // damga değişmediyse yalnız yerel içerik değişti → önbelleği atla
-      } else if (bildirim.degisti) {
-        log('anlık bildirim: yerel veri değişti (damga aynı) → önbellek atlanıp tazeleniyor')
-        await yukle(true)
-      } else if (tetikGerekli) {
-        log('anlık bildirim: tetikleyici uygulanıyor → tazeleniyor')
+      // NOT: eskiden burada `ilkTur` bayrağı vardı ve İLK bildirimi yutuyordu
+      // ("ilk değişiklik kayboldu"). İmza zaten yanıttan öğreniliyor; ekstra tur gerekmez.
+      // DEĞİŞİKLİK BİLDİRİMİ → ÖNBELLEĞİ ATLA.
+      // Eski kod `damgaDegisti`yi YEREL `lastupdate.json` ile karşılaştırıyordu; `veri=https`
+      // modunda yerel dosya çok eski olduğu için karşılaştırma anlamsızdı ve `yukle(false)`
+      // çağrılıp eski gövde önbellekten servis edilebiliyordu. Bildirim varsa veri tazedir:
+      // tek doğru davranış önbelleği atlayıp indirmektir (263 KB, yalnız değişiklik anında).
+      if (bildirim.degisti || tetikGerekli) {
+        log(
+          `anlık bildirim: ${bildirim.degisti ? 'veri değişti' : 'tetikleyici'}` +
+            ` (damga=${bildirim.damga || '-'}) → önbellek atlanıp yenileniyor`,
+        )
         await yukle(true)
       }
     }
