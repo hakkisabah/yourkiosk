@@ -72,11 +72,12 @@ export function tumKayitlar(veri: SistemVerisi | null | undefined): NobetKaydi[]
           if (!Array.isArray(liste)) continue
           for (const kayit of liste) {
             if (!_kayit_mi(kayit)) continue
-            // Ağaç anahtarları kaydın İÇİNDE yoksa ekle: hedefleme (ilçe/bölge) ve ad indeksi
-            // bu alanlara dayanır. Kayıt kendi kimliğini taşıyorsa DOKUNMA.
-            if (!kayit.ilceId) kayit.ilceId = ilceId
-            if (!kayit.bolgeId) kayit.bolgeId = bolgeId
-            kayitlar.push(kayit)
+            // DİKKAT: kaydı MUTASYONA UĞRATMA. Bu fonksiyon store verisiyle de çağrılıyor;
+            // mutasyon derin watcher'ı tetikleyip panelin düzenleme taslağını sıfırlıyordu
+            // (kullanıcı "kaydettim ama değişmedi" görüyordu). Kimlik gerekiyorsa KOPYA döndürülür.
+            kayitlar.push(
+              kayit.ilceId && kayit.bolgeId ? kayit : { ...kayit, ilceId: kayit.ilceId ?? ilceId, bolgeId: kayit.bolgeId ?? bolgeId },
+            )
           }
         }
       }

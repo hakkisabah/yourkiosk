@@ -30,6 +30,12 @@ import {
   ilceSecenekleri as hedefIlceleri,
 } from '@/domain/hedef'
 import { kapsamiYaz, yayinDogrula, type YayinDto } from '@/domain/model'
+import {
+  kaydaHazirla,
+  kirliMi,
+  yazmaDogrulandiMi,
+  YAZMA_UYUSMAZLIGI,
+} from '@/domain/nobetTaslak'
 import HedefSecimi from '@/components/HedefSecimi.vue'
 
 const dosyalar = useDosyalar()
@@ -41,18 +47,27 @@ const hata = ref('')
 /** Son gösterimden sonra beklenecek güvenlik payı (saat) — temizlik önizlemesi/silme için. */
 const ekSaat = ref(2)
 
+const gunler = computed(() => Object.keys(gunBloklari(taslak.value)).sort())
+const ozet = computed(() => ozetle(taslak.value))
+const kirli = computed(() => kirliMi(taslak.value, dosyalar.sistemVerisi))
+
+// NOT: bu watcher `kirli`den SONRA tanımlanmalı — `immediate: true` çalışırken `kirli` hazır olmalı.
 watch(
   () => dosyalar.sistem.veri,
   (yeni) => {
+    // KORUMA: kullanıcının KAYDEDİLMEMİŞ düzenlemesi varsa taslağı EZME (veri kaybı olmasın).
+    // Önceden store verisi her değiştiğinde taslak sıfırlanıyordu; o anda yapılan düzenleme
+    // sessizce kayboluyor, "Kaydet" eski içeriği yazıyordu.
+    if (kirli.value && Object.keys(taslak.value ?? {}).length) {
+      hata.value = 'Veri başka bir yerden güncellendi; kaydedilmemiş düzenlemeniz korundu. Kaydedin ya da Geri Al.'
+      return
+    }
     taslak.value = kopya(yeni ?? {})
     seciliGun.value = Object.keys(gunBloklari(taslak.value)).sort()[0] ?? ''
   },
   { deep: true, immediate: true },
 )
 
-const gunler = computed(() => Object.keys(gunBloklari(taslak.value)).sort())
-const ozet = computed(() => ozetle(taslak.value))
-const kirli = computed(() => JSON.stringify(taslak.value) !== JSON.stringify(dosyalar.sistemVerisi))
 
 /** Seçili günün kayıtları (ilçe/bölge ayrımı yapmadan düz liste + konum bilgisi). */
 interface Satir {
@@ -162,6 +177,14 @@ function hedefTemizle(id: string): void {
   taslak.value = { ...taslak.value }
 }
 
+/** YAZ-VE-DOĞRULA: kaydettikten sonra dosyayı geri okuyup gönderdiğimiz içerikle karşılaştırır. */
+async function kaynakOku(): Promise<unknown> {
+  const kaynak = baglanti.kaynak
+  if (!kaynak) return null
+  const geri = await kaynak.oku<SistemVerisi>(DOSYALAR.sistem)
+  return geri?.veri ?? {}
+}
+
 async function temizle(): Promise<void> {
   hata.value = ''
   await dosyalar.yayinlariTemizle(false, ekSaat.value)
@@ -196,12 +219,26 @@ function geriAl(): void {
 
 async function kaydet(): Promise<void> {
   hata.value = ''
-  const bozuk = satirlar.value.find((s) => !String(s.kayit.start ?? '').trim() || !String(s.kayit.end ?? '').trim())
-  if (bozuk) {
-    hata.value = 'Her kaydın başlangıç ve bitiş zamanı olmalı (ör. 15/10/2026 08:30).'
+  // Karar SAF modülden gelir (`domain/nobetTaslak.ts`) → test edilebilir.
+  const karar = kaydaHazirla(taslak.value, dosyalar.sistemVerisi, satirlar.value.map((s) => s.kayit))
+  if (!karar.yazilsin) {
+    hata.value = karar.mesaj
     return
   }
-  await dosyalar.kaydet('sistem', DOSYALAR.sistem, taslak.value)
+  const gonderilen = kopya(taslak.value)
+  const oldu = await dosyalar.kaydet('sistem', DOSYALAR.sistem, gonderilen)
+  if (!oldu) {
+    hata.value = dosyalar.sonUyari ?? 'Kaydedilemedi.'
+    return
+  }
+  // YAZ-ve-DOĞRULA: S3'e giden içerik ile geri okunan içerik aynı mı?
+  try {
+    const geri = await kaynakOku()
+    if (!yazmaDogrulandiMi(gonderilen, geri)) hata.value = YAZMA_UYUSMAZLIGI
+    else hata.value = ''
+  } catch {
+    /* doğrulama yapılamadı: kayıt yine geçerli */
+  }
 }
 
 // ----------------------------------------------------- nöbet değişikliği bildirimi

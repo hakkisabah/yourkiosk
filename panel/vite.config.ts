@@ -48,5 +48,10 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // Bileşen testleri Vuetify'ı içe aktarır; Vuetify CSS'i Node'da yüklenemez
+    // ("Unknown file extension .css"). `css: false` CSS importlarını boşaltır.
+    css: false,
+    // Vuetify ESM olarak servis edilir; testte de dönüştürülmesi gerekir.
+    server: { deps: { inline: ['vuetify'] } },
   },
 })

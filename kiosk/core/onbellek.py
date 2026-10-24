@@ -264,6 +264,14 @@ def gorsel_yaz(url: str, govde: bytes, icerik_turu: str = "", etag: str = "", so
     log.info("görsel önbelleğe alındı: %s (%d bayt)", anahtar, len(govde))
 
 
+def veri_kayit(ad: str) -> dict:
+    """Veri dosyasının dizin kaydı ({lastupdate, alindi, bayt, sha256}). Yoksa boş sözlük."""
+    if not aktif():
+        return {}
+    kayit = _dizin_oku()["veri"].get(str(ad))
+    return dict(kayit) if isinstance(kayit, dict) else {}
+
+
 def gorsel_kayit(url: str) -> dict | None:
     """Görsel dizin kaydı (etag/son_degisiklik/bayat). Yoksa None."""
     if not aktif():

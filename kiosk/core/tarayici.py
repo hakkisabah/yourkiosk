@@ -309,6 +309,31 @@ def tani_raporu(client_id: str, port: int | None = None) -> list[str]:
         gun_sayisi = len((veri or {}).get("Nobetler", {})) if isinstance(veri, dict) else 0
         yayin_sayisi = len((veri or {}).get("Yayinlar", {})) if isinstance(veri, dict) else 0
         satirlar.append(f"veri içeriği    : {gun_sayisi} gün bloğu · {yayin_sayisi} yayın kaydı")
+        # GÜNCELLEME ZİNCİRİ: panel → durum.json/lastupdate → cihaz. Uyuşmazlık burada görünür.
+        try:
+            from core import durum as _durum
+            from core import onbellek as _onbellek
+
+            belge = _durum.getir()
+            durum_damga = _durum.damga(belge)
+            ag_damga = veri_kaynagi.lastupdate_taze()
+            kayitli = ""
+            try:
+                kayitli = str(_onbellek.veri_kayit("lastSystemData.json").get("lastupdate", "") or "")
+            except Exception:  # noqa: BLE001
+                kayitli = ""
+            satirlar.append(f"damga (durum)   : {durum_damga or '(durum.json yok)'}")
+            satirlar.append(f"damga (lastupd) : {ag_damga or '(okunamadı)'}")
+            satirlar.append(f"damga (disk)    : {kayitli or '(yok)'}")
+            if durum_damga and ag_damga and durum_damga != ag_damga:
+                satirlar.append("UYARI           : durum.json ile lastupdate.json FARKLI → panel yarım yazmış olabilir")
+            if ag_damga and kayitli and ag_damga != kayitli:
+                satirlar.append("UYARI           : disk önbelleği eski → bir sonraki turda yenilenecek")
+            tetik = _durum.tetik(belge) or {}
+            if tetik:
+                satirlar.append(f"tetikleyici     : {tetik.get('zaman','-')} · kapsam={tetik.get('ilceId') or 'tümü'}")
+        except Exception as hata:  # noqa: BLE001
+            satirlar.append(f"güncelleme     : okunamadı ({hata})")
     except Exception as hata:  # noqa: BLE001 - rapor her durumda yazılsın
         satirlar.append(f"veri kontrolü   : yapılamadı ({hata})")
 
