@@ -150,6 +150,7 @@ TARAYICI_YOLU = "chromium"                # tarayıcı çalıştırılabilir dos
 TARAYICI_EK_BAYRAKLAR = ""                # boşlukla ayrılmış ek Chromium bayrakları
 TARAYICI_PROFIL_KLASORU = ".tarayici-profil"   # kalıcı profil (disk önbelleği burada kalır)
 TARAYICI_PENCERE_BOYUTU = "1920,1080"     # --window-size (kiosk modunda yok sayılır)
+TARAYICI_OTOMATIK_DERLE = True      # web/dist bayatsa açılışta `npm run build`
 TARAYICI_YENIDEN_BASLAT_S = 5             # tarayıcı kapanırsa kaç saniye sonra yeniden açılsın
 WEB_KLASORU = "web"                       # HTML/JS arayüzünün bulunduğu klasör (proje kökü altında)
 WEB_SUNUCU_ADRESI = "127.0.0.1"           # yerel sunucu (yalnızca bu makineden erişilir)

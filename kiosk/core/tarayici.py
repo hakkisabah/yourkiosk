@@ -209,7 +209,19 @@ def tani_raporu(client_id: str, port: int | None = None) -> list[str]:
 
     satirlar: list[str] = []
     satirlar.append(f"arayüz kökü     : {web_kok()}")
-    satirlar.append(f"derlenmiş mi    : {'EVET' if derlenmis_mi() else 'HAYIR → cd web && npm run build'}")
+    _pd = dist_durumu()
+    if not _pd["var"]:
+        satirlar.append("derlenmiş mi    : HAYIR → cd web && npm run build")
+        satirlar.append("paket durumu    : ✗ YOK — tarayıcı modu eski/boş arayüzle çalışır")
+    elif _pd["bayat"]:
+        satirlar.append("derlenmiş mi    : EVET (ancak BAYAT)")
+        satirlar.append(
+            f"paket durumu    : ✗ BAYAT — web/{_pd['en_yeni_kaynak']} paketten yeni; "
+            "ekran ESKİ kodu çalıştırır → ./kur.sh kiosk"
+        )
+    else:
+        satirlar.append("derlenmiş mi    : EVET")
+        satirlar.append("paket durumu    : ✓ GÜNCEL")
     # Hangi paketin çalıştığı görünsün: eski dist ile yeni kaynak karışmasın (beyaz ekran hataları)
     try:
         import json as _j
@@ -892,6 +904,19 @@ def baslat(
         print(mesaj)
         return 4
 
+    # PAKET TAZELİĞİ: `web/dist` git'te YOK (.gitignore) → `git pull` eski arayüzü bırakır.
+    # Bayatsa otomatik derlenir; derlenemezse YÜKSEK SESLE uyarılır (sessiz eski arayüz yasak).
+    if bool(getattr(config, "TARAYICI_OTOMATIK_DERLE", True)):
+        _oldu, _mesaj = web_derle()
+        if _oldu and _mesaj == "derlendi":
+            log.info("tarayıcı paketi derlendi (web/dist güncellendi)")
+        elif not _oldu:
+            log.warning("%s (%s)", paket_uyarisi() or "tarayıcı paketi güncellenemedi", _mesaj)
+    else:
+        _uyari = paket_uyarisi()
+        if _uyari:
+            log.warning("%s", _uyari)
+
     profil_kok().mkdir(parents=True, exist_ok=True)
     #: tarayıcı profili yalnızca sahibi okuyabilsin (kimlik/çerez içerebilir)
     try:
@@ -1076,3 +1101,103 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
+
+
+#: Bayatlık toleransı (sn): dosya sistemi mtime çözünürlüğü/vardiya farkı.
+_BAYAT_TOLERANS_S = 1.0
+
+#: `web/dist` içine derlenen kaynaklar (bunlardan biri yeniyse paket BAYAT).
+_DERLEME_GIRDISI = ("src", "index.html", "package.json", "vite.config.ts", "tsconfig.json")
+
+
+def _web_proje_koku() -> Path:
+    """Web projesinin kökü: `kiosk/` komşusu (`<proje>/web`). Testler `KOK`u taşır."""
+    for aday in (KOK.parent / "web", KOK / "web"):
+        if (aday / "package.json").is_file() or (aday / "src").is_dir():
+            return aday
+    return KOK.parent / "web"
+
+
+def dist_durumu() -> dict:
+    """Tarayıcının yüklediği derlenmiş paket (`web/dist`) GÜNCEL mi?
+
+    NEDEN: `web/dist/` .gitignore'da → `git pull` derlenmiş paketi GETİRMEZ. Sunucu tarafı
+    düzeltilse bile cihaz **eski JavaScript**'i çalıştırır ve ekranda hiçbir şey değişmez.
+    Gerçek olay: Qt güncelleniyordu, tarayıcı güncellenmiyordu; `web/dist` 8 saat eskiydi.
+
+    Dönüş: `{"var": bool, "bayat": bool, "en_yeni_kaynak": str, "dist_mtime": float}`.
+    """
+    kok = _web_proje_koku()
+    dist = kok / "dist"
+    index = dist / "index.html"
+    if not index.is_file():
+        return {"var": False, "bayat": True, "en_yeni_kaynak": "", "dist_mtime": 0.0}
+    try:
+        damga = index.stat().st_mtime
+    except OSError:
+        return {"var": False, "bayat": True, "en_yeni_kaynak": "", "dist_mtime": 0.0}
+
+    en_yeni_zaman, en_yeni_yol = 0.0, ""
+    for parca in _DERLEME_GIRDISI:
+        yol = kok / parca
+        if not yol.exists():
+            continue
+        adaylar = [yol] if yol.is_file() else [x for x in yol.rglob("*") if x.is_file()]
+        for aday in adaylar:
+            try:
+                zaman = aday.stat().st_mtime
+            except OSError:
+                continue
+            if zaman > en_yeni_zaman:
+                en_yeni_zaman, en_yeni_yol = zaman, aday
+
+    bayat = en_yeni_zaman > damga + _BAYAT_TOLERANS_S
+    return {
+        "var": True,
+        "bayat": bayat,
+        "en_yeni_kaynak": str(en_yeni_yol.relative_to(kok)) if en_yeni_yol else "",
+        "dist_mtime": damga,
+    }
+
+
+def web_derle(zorla: bool = False) -> tuple[bool, str]:
+    """`web/dist` bayatsa derler (`npm run build`). Dönüş: (başarılı, mesaj).
+
+    Cihazda node/npm yoksa derleme YAPILAMAZ → çağıran taraf yüksek sesle uyarır; sessizce
+    eski paketle devam etmek "değişiklik gelmiyor" şikâyetini üretir.
+    """
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    durum = dist_durumu()
+    if not zorla and not durum["bayat"]:
+        return True, "paket güncel"
+    npm = _shutil.which("npm")
+    if not npm:
+        return False, "npm bulunamadı — cihazda derleme yapılamaz (paket elle kopyalanmalı)"
+    web = _web_proje_koku()
+    try:
+        sonuc = _subprocess.run(
+            [npm, "run", "build"], cwd=web, capture_output=True, text=True, timeout=600,
+        )
+    except (_subprocess.SubprocessError, OSError) as hata:
+        return False, f"derleme çalıştırılamadı: {hata}"
+    if sonuc.returncode != 0:
+        kuyruk = (sonuc.stderr or sonuc.stdout or "")[-300:]
+        return False, f"derleme başarısız (çıkış {sonuc.returncode}): {kuyruk}"
+    if dist_durumu()["bayat"]:
+        return False, "derleme bitti ama paket hâlâ bayat görünüyor"
+    return True, "derlendi"
+
+
+def paket_uyarisi() -> str:
+    """Bayat/eksik paket için TEK satırlık, eyleme dönük uyarı (boş = sorun yok)."""
+    durum = dist_durumu()
+    if not durum["var"]:
+        return "TARAYICI PAKETİ YOK: cd web && npm run build (tarayıcı modu açılamaz)"
+    if durum["bayat"]:
+        return (
+            f"TARAYICI PAKETİ BAYAT: web/{durum['en_yeni_kaynak']} paketten yeni → "
+            "ekrandaki arayüz ESKİ koddur. Düzelt: ./kur.sh kiosk"
+        )
+    return ""
