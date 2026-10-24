@@ -22,3 +22,18 @@ export function tetikGerekir(ad: string): boolean {
 export function tetikBelgesi(ad: string, zaman: string = new Date().toISOString()): Record<string, unknown> {
   return { zaman, ilceId: '', bolgeId: '', aciklama: `panel: ${ad}` }
 }
+
+/**
+ * `durum.json` gövdesi — cihazın TEK istekte okuduğu özet (`kiosk/core/durum.py`).
+ *
+ * NEDEN GEREKLİ: cihaz `durum.json` varsa `tetikle.json`u İNDİRMEZ (3 istek → 1 istek maliyet
+ * kararı). Bu yüzden yalnız `tetikle.json` yazan akışlar (ör. "Bildir") cihazda GÖRÜNMEZ —
+ * gerçek olay: Qt kiosk "Bildir"e tepki vermiyordu. Tetikleyici her iki dosyaya da yazılmalı.
+ */
+export function durumBelgesi(
+  tetik: Record<string, unknown>,
+  lastupdate: string,
+  zaman: string = new Date().toISOString(),
+): Record<string, unknown> {
+  return { zaman, lastupdate: String(lastupdate ?? ''), tetik }
+}

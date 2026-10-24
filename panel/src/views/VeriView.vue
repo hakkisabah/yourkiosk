@@ -21,6 +21,7 @@ import {
 } from '@/domain/veri'
 import { useDosyalar } from '@/stores/dosyalar'
 import { mqttBildir } from '@/domain/push'
+import { durumBelgesi } from '@/domain/tetik'
 import { useBaglanti } from '@/stores/baglanti'
 import { silinecekYayinlar } from '@/domain/temizlik'
 import {
@@ -296,6 +297,16 @@ async function tetikBildir(): Promise<void> {
       aciklama: 'Panelden bildirildi',
     }
     await kaynak.yaz('tetikle.json', belge)
+    // `durum.json`: cihaz bu dosya varsa `tetikle.json`u İNDİRMEZ (tek istek maliyet kararı).
+    // Yalnız tetikle.json yazmak Qt kioskta "Bildir"i görünmez yapıyordu; tetik iki yere de yazılır.
+    try {
+      await kaynak.yaz(
+        DOSYALAR.durum,
+        durumBelgesi(belge, String((dosyalar.lastupdate.veri as { lastupdate?: unknown })?.lastupdate ?? ''), belge.zaman),
+      )
+    } catch {
+      /* durum.json yazılamadı: cihaz eski üç dosyalı yola düşer (tetikle.json yazıldı) */
+    }
     void mqttBildir('elle-bildirim', belge.zaman).catch(() => undefined)
     const kapsam = tetikIlce.value || 'tüm cihazlar'
     tetikBilgi.value = `Gönderildi (${kapsam}) · ${belge.zaman}` +

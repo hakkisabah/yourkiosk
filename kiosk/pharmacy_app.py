@@ -263,6 +263,15 @@ class PharmacyApp(QMainWindow):
                     yeni_damga = capraz
             except Exception:  # noqa: BLE001
                 pass
+            # ÇAPRAZ KONTROL: `tetikle.json`u YALNIZ yazan akışlar (panel "Bildir", elle yazım)
+            # `durum.json`a dokunmayabilir. Bu yol artık tetikleyiciyi indirmediği için bu akışlar
+            # cihazda SESSİZCE görünmüyordu (Qt kioskta "Bildir" tepkisizdi — yaşandı).
+            # İndirme yerel dosyanın mtime'ını değiştirir → `tetik_izle` 2 sn içinde turu tetikler.
+            try:
+                if tetik_modulu.getir():
+                    log.info("tetikle.json sunucudan yenilendi (durum.json tetiği yok/eskimiş olabilir)")
+            except Exception:  # noqa: BLE001
+                pass
         onceki = str(getattr(self.data_handler, "lastupdate", "") or "")
         # KALP ATIŞI: her turda INFO. "Neden güncellenmiyor?" sorusunun yanıtı bu satırda:
         # uzak damga ile cihazdaki damga yan yana görünür, MQTT durumu eklenir.

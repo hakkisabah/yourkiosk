@@ -135,4 +135,30 @@ describe('VeriView: Bildir akışı', () => {
     expect(yazilanlar.some((y) => y.ad === 'tetikle.json')).toBe(true)
     wrapper.unmount()
   })
+
+  /**
+   * REGRESYON: cihaz `durum.json` VARSA `tetikle.json`u indirmez (tek istek maliyet kararı).
+   * Bildir yalnız `tetikle.json` yazdığı için Qt kiosk "Bildir"e hiç tepki vermiyordu.
+   */
+  it('Bildir tetikleyiciyi durum.json içine de yazar (cihaz tek istekle görsün)', async () => {
+    const d = useDosyalar()
+    d.lastupdate.veri = { lastupdate: '2026-10-24 09:00:00' }
+    const wrapper = mount(VeriView, { global: { plugins: [createVuetify()] }, attachTo: document.body })
+    await wrapper.vm.$nextTick()
+    await new Promise((r) => setTimeout(r, 20))
+
+    await dugme(wrapper as never, 'Bildir')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 80))
+
+    const durum = yazilanlar.find((y) => y.ad === 'durum.json')
+    expect(durum, 'durum.json yazılmadı → cihaz tetiği hiç görmez').toBeTruthy()
+    const belge = durum!.veri as { lastupdate: string; tetik: { zaman: string; ilceId: string } }
+    expect(belge.tetik?.zaman, 'durum.json tetik zamanı yok').toBeTruthy()
+    expect(belge.tetik?.ilceId).toBe('')
+    expect(belge.lastupdate, 'mevcut damga korunmalı').toBe('2026-10-24 09:00:00')
+
+    const tetik = yazilanlar.find((y) => y.ad === 'tetikle.json')!.veri as { zaman: string }
+    expect(tetik.zaman).toBe(belge.tetik.zaman)
+    wrapper.unmount()
+  })
 })
