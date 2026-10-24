@@ -161,6 +161,13 @@ class DurumYoluTetikTesti(unittest.TestCase):
         nesne.cihaz_kimligi = cihaz_kimligi
         nesne.load_data = load_data
         nesne._durum_uygula = types.MethodType(pharmacy_app.PharmacyApp._durum_uygula, nesne)
+        # komut çapraz kontrolü ayrı testte ölçülür; burada yan etkisiz
+        nesne.komut_kontrolleri = 0
+
+        def _komut_capraz_kontrol(self):
+            self.komut_kontrolleri += 1
+
+        nesne._komut_capraz_kontrol = types.MethodType(_komut_capraz_kontrol, nesne)
 
         def _getir():
             nesne.indirilen += 1
@@ -203,6 +210,57 @@ class DurumYoluTetikTesti(unittest.TestCase):
             nesne._durum_uygula(belge)  # istisna SIZMAMALI
 
         self.assertTrue(nesne.yuklemeler, "durum.json tetiği yine de uygulanmalı")
+
+
+class KomutCaprazKontrolTesti(unittest.TestCase):
+    """`durum.json` komut İŞARETİ taşımıyorsa `komut.json` yine de indirilmeli.
+
+    `tools/komut_gonder.py` komutu doğrudan S3'e yazıyor; `durum.json`a işaret koymuyor.
+    Eski kod işaret yoksa komut dosyasını hiç indirmiyordu → uzaktan komut sessizce ölüydü.
+    """
+
+    def test_isaret_yoksa_komut_indirilir_ve_uygulanir(self):
+        import pharmacy_app
+
+        nesne = types.SimpleNamespace()
+        nesne.indirilen = 0
+        nesne.tazelenen = 0
+
+        def cihaz_kimligi():
+            return "98273648723468273"
+
+        def update_display():
+            nesne.tazelenen += 1
+
+        nesne.cihaz_kimligi = cihaz_kimligi
+        nesne.update_display = update_display
+        nesne._komut_capraz_kontrol = types.MethodType(
+            pharmacy_app.PharmacyApp._komut_capraz_kontrol, nesne
+        )
+
+        sonuc = types.SimpleNamespace(uygulama_ici=True)
+
+        def _getir():
+            nesne.indirilen += 1
+            return True
+
+        with mock.patch("core.komut.getir", side_effect=_getir), mock.patch(
+            "core.komut.kontrol", return_value=(object(), sonuc)
+        ), mock.patch("core.komut.sonuc_metni", return_value="ekrani-yenile → uygulama içi"):
+            nesne._komut_capraz_kontrol()
+
+        self.assertEqual(nesne.indirilen, 1, "komut.json sunucudan indirilmeli")
+        self.assertEqual(nesne.tazelenen, 1, "uygulama içi komut ekranı tazelemeli")
+
+    def test_indirme_hatasi_turu_oldurmez(self):
+        import pharmacy_app
+
+        nesne = types.SimpleNamespace(cihaz_kimligi=lambda: "X")
+        nesne._komut_capraz_kontrol = types.MethodType(
+            pharmacy_app.PharmacyApp._komut_capraz_kontrol, nesne
+        )
+        with mock.patch("core.komut.getir", side_effect=OSError("ağ")):
+            nesne._komut_capraz_kontrol()  # istisna SIZMAMALI
 
 
 if __name__ == "__main__":

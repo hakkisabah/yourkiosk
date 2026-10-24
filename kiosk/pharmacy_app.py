@@ -272,6 +272,11 @@ class PharmacyApp(QMainWindow):
                     log.info("tetikle.json sunucudan yenilendi (durum.json tetiği yok/eskimiş olabilir)")
             except Exception:  # noqa: BLE001
                 pass
+            # ÇAPRAZ KONTROL (komut): `komut.json` panelden BAĞIMSIZ yüklenebiliyor
+            # (`tools/komut_gonder.py` doğrudan S3'e yazar). `durum.json` komut İŞARETİ
+            # taşımıyorsa komut dosyası HİÇ indirilmiyordu → uzaktan komut sessizce ölüydü.
+            if not isaret:
+                self._komut_capraz_kontrol()
         onceki = str(getattr(self.data_handler, "lastupdate", "") or "")
         # KALP ATIŞI: her turda INFO. "Neden güncellenmiyor?" sorusunun yanıtı bu satırda:
         # uzak damga ile cihazdaki damga yan yana görünür, MQTT durumu eklenir.
@@ -299,6 +304,26 @@ class PharmacyApp(QMainWindow):
                 tetik.get("zaman"), tetik.get("ilceId") or "tüm cihazlar",
             )
             self.load_data(zorla=True)
+
+    def _komut_capraz_kontrol(self):
+        """`durum.json` komut işareti taşımıyorsa komut dosyasını doğrudan indirir ve uygular.
+
+        NEDEN: `komut.json` panelden bağımsız yüklenebiliyor (`tools/komut_gonder.py` doğrudan
+        S3'e yazar). `durum.json` içinde `komut` işareti yoksa eski kod komut dosyasını HİÇ
+        indirmiyordu → uzaktan komut sessizce ölüydü. 10 turda bir (ucuz) çapraz kontrol yapılır;
+        `komut.kontrol` tek seferliktir, aynı komut iki kez uygulanmaz.
+        """
+        try:
+            komut_modulu.getir()
+            _karar, sonuc = komut_modulu.kontrol(cihaz_id=self.cihaz_kimligi())
+        except Exception:  # noqa: BLE001 - komut denetimi gösterimi durdurmamalı
+            log.warning("komut çapraz kontrolü yapılamadı", exc_info=True)
+            return
+        if sonuc is None:
+            return
+        log.warning("UZAKTAN KOMUT: %s", komut_modulu.sonuc_metni(sonuc))
+        if sonuc.uygulama_ici:
+            self.update_display()
 
     def uzak_kontrol(self):
         """Küçük kontrol dosyalarını sunucudan tazeler ve UZAKTAN KOMUT varsa uygular.
