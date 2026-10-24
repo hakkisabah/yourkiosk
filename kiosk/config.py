@@ -50,6 +50,11 @@ DAMGA_KONTROL_MS = 300 * 1000
 DAMGA_KONTROL_MS_PUSH = 1800 * 1000
 #: MQTT KOPTUYSA yoklama (tek yol yoklama kalır).
 DAMGA_KONTROL_MS_PUSH_YOK = 60 * 1000
+#: YEREL tetik izleyici: MQTT push `tetikle.json`u yazar; bu izleyici dosya değişimini görüp
+#  ANINDA yeniler. Ağa ÇIKMAZ (yalnız stat) → maliyeti sıfır, 600 cihazda da bedava.
+#  NEDEN GEREKLİ: yoklama aralığı 1800 sn'ye çıkınca push "dosya yazıldı ama kimse okumadı"
+#  durumunda kalıyordu; değişiklik ancak uygulama yeniden başlatılınca görünüyordu.
+TETIK_IZLEME_MS = 2 * 1000
 #: Tarayıcı modunda anlık değişiklik ucu: tek istekte en fazla kaç saniye beklenir
 DEGISIKLIK_BEKLEME_S = 30
 # --- UZAKTAN KOMUT (S3 → cihaz): yeniden başlat / uygulamayı yeniden başlat / ekranı yenile ---

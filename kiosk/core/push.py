@@ -118,6 +118,7 @@ def _dongu(durdur: threading.Event) -> None:
 
     def _baglandi(_c, _u, _f, rc, _p=None):  # paho 2.x 5 argüman geçer (properties)
         _durum["bagli"] = rc == 0
+        _durum["denendi"] = True
         if rc == 0:
             istemci.subscribe(konu(), qos=1)
             log.info("MQTT bağlandı (%s:%s) · konu=%s", adres, port, konu())
@@ -141,7 +142,7 @@ def _dongu(durdur: threading.Event) -> None:
             while not durdur.is_set():
                 time.sleep(1.0)
         except Exception as hata:  # noqa: BLE001 - ağ hatasında yeniden dene
-            _durum.update(bagli=False, hata=str(hata)[:200])
+            _durum.update(bagli=False, denendi=True, hata=str(hata)[:200])
             log.warning("MQTT bağlantı hatası: %s — 10 sn sonra yeniden", hata)
             time.sleep(10)
 
@@ -157,7 +158,7 @@ def baslat() -> bool:
         return False
     if _iş and _iş.is_alive():
         return True
-    _durum.update(aktif=True, hata="")
+    _durum.update(aktif=True, hata="", denendi=False)
     durdur = threading.Event()
     _iş = threading.Thread(target=_dongu, args=(durdur,), name="mqtt-push", daemon=True)
     _iş.start()

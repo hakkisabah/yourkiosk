@@ -53,6 +53,7 @@ class PharmacyApp(QMainWindow):
         self._yoklama_ms = 0
         self._kopuk_tur = 0
         self._durum_tur = 0
+        self._son_yerel_imza = ""
         self.ticker_x = self.screen_w
         self.ticker_items = []
         self.ticker_index = 0
@@ -104,6 +105,41 @@ class PharmacyApp(QMainWindow):
                 # Eğer eczane listesi değiştiyse veya ilk yükleme ise ekranı güncelle
                 # Basitlik için her yüklemede değil, sadece mod değişmediyse güncelliyoruz
                 self.update_display()
+
+    def _yerel_imza(self) -> str:
+        """Yerel tetikleyici dosyalarının (mtime+boyut) imzası — AĞ YOK."""
+        from pathlib import Path as _Yol
+
+        kok = _Yol(__file__).resolve().parent  # kiosk/ klasörü (cihaz dosyaları burada)
+        parcalar = []
+        for ad in ("tetikle.json", "lastupdate.json", "durum.json"):
+            try:
+                durum = (kok / ad).stat()
+                parcalar.append(f"{ad}:{durum.st_mtime_ns}:{durum.st_size}")
+            except OSError:
+                parcalar.append(f"{ad}:-")
+        return "|".join(parcalar)
+
+    def tetik_izle(self):
+        """YEREL tetik dosyası değiştiyse anında yenile (MQTT push'un ANLIK yolu).
+
+        NEDEN: yoklama aralığı maliyet için 1800 sn'ye çıkarıldı; MQTT mesajı yalnız
+        `tetikle.json` yazıyordu ve bunu okuyan zamanlayıcı 30 dk sonra çalışıyordu →
+        değişiklik ancak uygulama yeniden başlatılınca görünüyordu. Bu izleyici yalnız `stat`
+        yapar (ağ yok), değişimi görünce `tetik_kontrol`ü çalıştırır.
+        """
+        try:
+            imza = self._yerel_imza()
+        except Exception:  # noqa: BLE001
+            return
+        if imza == getattr(self, "_son_yerel_imza", ""):
+            return
+        onceki = getattr(self, "_son_yerel_imza", "")
+        self._son_yerel_imza = imza
+        if not onceki:  # ilk tur: yalnız imzayı kaydet
+            return
+        log.debug("yerel tetik dosyası değişti → tetik_kontrol")
+        self.tetik_kontrol()
 
     def yoklama_araligi(self) -> int:
         """MQTT bağlıysa seyrek (maliyet), koptuysa sık ama ARTAN aralıkla (güvenilirlik + maliyet).
