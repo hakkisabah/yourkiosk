@@ -411,8 +411,13 @@ def uzak_yoklama_gerekli() -> bool:
     """
     from core import push as push_modulu
 
+    # DİKKAT: `acik()` yalnız AYARIN açık olduğunu söyler. Bağlantı DENENDİ ve KOPTUysa push
+    # mesaj getirmez; uzun yoklama da hiçbir şey öğrenmez → değişiklik yeniden başlatmaya kalırdı.
+    # (Başlangıçta henüz denenmemişse push'a güvenilir; gereksiz uzak istek yapılmaz.)
     if push_modulu.acik():
-        return False
+        durum = push_modulu.durum() or {}
+        if bool(durum.get("bagli")) or not bool(durum.get("denendi")):
+            return False
     return str(getattr(config, "WEB_VERI_MODU", "yerel")).lower() == "https" or str(
         getattr(config, "KAYNAK", "dosya")
     ).lower() == "https"

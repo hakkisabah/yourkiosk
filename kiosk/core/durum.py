@@ -59,13 +59,22 @@ def secili_tetik(belge: dict | None, yerel_oku) -> dict | None:
     "Bildir" anlık çalışmaz (yaşandı). `yerel_oku` enjekte edilir → test edilebilir.
     """
     uzak_tetik = tetik(belge)
-    if uzak_tetik:
-        return uzak_tetik
     try:
         yerel = yerel_oku()
     except Exception:  # noqa: BLE001 - yerel okuma hatası gösterimi durdurmamalı
-        return None
-    return yerel if isinstance(yerel, dict) and yerel else None
+        yerel = None
+    if not isinstance(yerel, dict) or not yerel:
+        return uzak_tetik
+
+    # İKİSİ DE VARSA **DAHA YENİ** olanı seç. Sabit öncelik yanlıştı: `durum.json` her panel
+    # kaydında yazıldığı için uzak tetik hep dolu; MQTT'nin daha yeni tetiği hiç uygulanmıyordu
+    # (değişiklik ancak uygulama yeniden başlatılınca görünüyordu).
+    if not uzak_tetik:
+        return yerel
+    uzak_zaman = str(uzak_tetik.get("zaman", "") or "")
+    yerel_zaman = str(yerel.get("zaman", "") or "")
+    # ISO 8601 UTC damgaları sözlüksel karşılaştırılabilir (aynı biçim).
+    return yerel if yerel_zaman > uzak_zaman else uzak_tetik
 
 
 def komut_isareti(belge: dict | None) -> str:

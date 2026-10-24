@@ -41,19 +41,20 @@ class ModelTekKaynakTesti(unittest.TestCase):
 class DurumYoluTetikTesti(unittest.TestCase):
     """`durum.secili_tetik`: durum.json'da tetik yoksa YEREL (MQTT) tetikle.json kullanılmalı."""
 
-    def test_durum_tetigi_onde_gelir(self):
+    def test_durum_tetigi_daha_yeniyse_secillir(self):
+        """Kural: iki tetik varsa **daha yeni** olan uygulanır (sabit öncelik yanlıştı)."""
         from core import durum as durum_modulu
 
-        belge = {"lastupdate": "D1", "tetik": {"zaman": "UZAK", "ilceId": ""}}
-        secilen = durum_modulu.secili_tetik(belge, lambda: {"zaman": "YEREL"})
-        self.assertEqual((secilen or {})["zaman"], "UZAK")
+        belge = {"lastupdate": "D1", "tetik": {"zaman": "2026-10-24T10:00:09Z", "ilceId": ""}}
+        secilen = durum_modulu.secili_tetik(belge, lambda: {"zaman": "2026-10-24T10:00:05Z"})
+        self.assertEqual((secilen or {})["zaman"], "2026-10-24T10:00:09Z")
 
     def test_durum_tetigi_yoksa_yerel_kullanilir(self):
         from core import durum as durum_modulu
 
-        secilen = durum_modulu.secili_tetik({"lastupdate": "D1"}, lambda: {"zaman": "YEREL"})
+        secilen = durum_modulu.secili_tetik({"lastupdate": "D1"}, lambda: {"zaman": "2026-10-24T10:00:05Z"})
         self.assertIsNotNone(secilen, "MQTT push'un yazdığı yerel tetik yok sayılmamalı")
-        self.assertEqual((secilen or {})["zaman"], "YEREL")
+        self.assertEqual((secilen or {})["zaman"], "2026-10-24T10:00:05Z")
 
     def test_ikisi_de_yoksa_none(self):
         from core import durum as durum_modulu
