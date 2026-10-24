@@ -121,6 +121,54 @@ def mqtt_test(sure: float = 15.0) -> tuple[bool, str]:
     return True, f"mesaj ALINDI ({sonuc['mesaj']}) — push halkası sağlam"
 
 
+def surec_denetimi() -> tuple[bool, str]:
+    """Kiosk süreci GERÇEKTEN çalışıyor mu, hangi kodla, ne zaman başladı?
+
+    NEDEN: disk damgası hiç ilerlemiyorsa ilk şüphe "kod hatası" değil, "süreç ölü/eski kod".
+    Bu kontrol süreç yoksa ya da süreç, düzeltme commit'inden ÖNCE başladıysa bunu söyler.
+    """
+    import subprocess
+    from datetime import datetime as _dt
+
+    bulunan = []
+    for kok_dizin in Path("/proc").iterdir():
+        if not kok_dizin.name.isdigit():
+            continue
+        try:
+            cmdline = (kok_dizin / "cmdline").read_bytes().replace(b"\x00", b" ").decode(errors="replace")
+        except OSError:
+            continue
+        if ("main.py" not in cmdline and "tarayici_kiosk.py" not in cmdline) or "canli_test" in cmdline:
+            continue
+        try:
+            cwd = str((kok_dizin / "cwd").resolve())
+            baslama = float((kok_dizin / "stat").read_text().rsplit(")", 1)[1].split()[19]) / 100  # starttime (s, boot)
+            # gerçek başlama anı: /proc/uptime ile
+            with open("/proc/uptime") as u:
+                calisma = float(u.read().split()[0])
+            baslama_ts = time.time() - (calisma - baslama)
+        except (OSError, ValueError, IndexError):
+            cwd, baslama_ts = "?", 0.0
+        bulunan.append((kok_dizin.name, cmdline.strip(), cwd, baslama_ts))
+
+    if not bulunan:
+        return False, "kiosk süreci ÇALIŞMIYOR (main.py / tarayici_kiosk.py bulunamadı)"
+
+    satirlar = []
+    for pid, cmd, cwd, ts in bulunan:
+        ne_zaman = _dt.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else "?"
+        # süreç, çalıştığı dizindeki kodun SON commit'inden önce mi başlamış?
+        eski = ""
+        try:
+            mtime = (Path(cwd) / "pharmacy_app.py").stat().st_mtime
+            if ts and mtime > ts:
+                eski = " ← ESKİ KOD (dosyalar süreç başladıktan SONRA değişti: YENİDEN BAŞLAT)"
+        except OSError:
+            pass
+        satirlar.append(f"pid {pid} · başlama {ne_zaman} · dizin {cwd}{eski}")
+    return True, " | ".join(satirlar)
+
+
 def main() -> int:
     print("=" * 62)
     print("CANLI ZİNCİR TESTİ — kiosk çalışırken çalıştırın")
@@ -128,6 +176,12 @@ def main() -> int:
 
     sorun = 0
     l_damga = ""
+
+    _bas("0) ÇALIŞAN KIOSK SÜRECİ")
+    var, metin = surec_denetimi()
+    print(("✓ " if var else "✗ ") + metin)
+    if not var:
+        sorun += 1
 
     _bas("1) PANEL / UZAK VERİ")
     try:

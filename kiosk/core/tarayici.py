@@ -442,7 +442,12 @@ def degisiklik_bekle(imza: str, sure_s: float, izinli: bool = True, uzak_kaynak:
     # https modunda veri UZAKTA: yerel `tetikle.json` ancak indirilince imza değişir. Uzun yoklama
     # sırasında tetikleyiciyi KENDİMİZ çekiyoruz; aksi hâlde yenileme arka plan turunu (20 sn)
     # bekliyordu — "anlık" beklentisini karşılamıyordu.
-    kontrol_s = max(1.0, float(getattr(config, "TETIK_KONTROL_MS", 3000)) / 1000.0)
+    # ÜST SINIR: `ayarlar.json` içinde `tetik.kontrol_ms` 300000 (5 dk) yazılı olabiliyor.
+    # Uzun yoklamada tetikleyici çekimi bu değere uyarsa "anlık" beklentisi 5 dakikaya düşer.
+    # En fazla `DAMGA_KONTROL_MS` (120 sn) kullanılır.
+    _kontrol = float(getattr(config, "TETIK_KONTROL_MS", 3000)) / 1000.0
+    _tavan = float(getattr(config, "DAMGA_KONTROL_MS", 120_000)) / 1000.0
+    kontrol_s = max(1.0, min(_kontrol, _tavan))
     sonraki_cekim = time.monotonic() + kontrol_s
     while time.monotonic() < bitis:
         time.sleep(0.4)
