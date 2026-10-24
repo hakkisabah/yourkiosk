@@ -20,6 +20,7 @@ from core.data_handler import DataHandler
 from core.broadcast_manager import BroadcastManager
 from core import durum as durum_modulu
 from core import onbellek
+from core import push as push_modulu
 from core import tetik as tetik_modulu
 from core import komut as komut_modulu
 from core import veri_kaynagi
@@ -142,21 +143,23 @@ class PharmacyApp(QMainWindow):
         self.tetik_kontrol()
 
     def yoklama_araligi(self) -> int:
-        """MQTT bağlıysa seyrek (maliyet), koptuysa sık ama ARTAN aralıkla (güvenilirlik + maliyet).
+        """Yoklama aralığı — MQTT'nin GERÇEK bağlantı durumuna göre.
 
-        Kopukluk uzarsa 60 sn'de ısrar etmek 600 cihazda ~$30/gün olurdu; aralık 300 sn'ye kadar
-        katlanır (en kötü ~$6/gün) — bağlantı dönünce yeniden seyrek moda geçilir.
+        | Durum | Aralık | Gerekçe |
+        |---|---|---|
+        | MQTT bağlı | 120 sn | anlıklık push'tan gelir; bu emniyet ağı (600 cihazda ~$15/ay) |
+        | MQTT kopuk | 30 sn | tek yol yoklama; en kötü gecikme yarım dakika |
+
+        NOT: 1800 sn'lik "tasarruf" push sessizce öldüğünde 30 dakikalık gecikmeye dönüşüyordu
+        (kullanıcı: "kapatıp açmadan düzelmiyor"). Emniyet ağı artık gerçekten emniyet ağı.
         """
         try:
             bagli = bool(push_modulu.durum().get("bagli"))
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - push durumu okunamazsa yoklama sıkı moda düşer
             bagli = False
         if bagli:
-            self._kopuk_tur = 0
-            return int(getattr(config, "DAMGA_KONTROL_MS_PUSH", 1800_000))
-        self._kopuk_tur = min(getattr(self, "_kopuk_tur", 0) + 1, 8)
-        taban = int(getattr(config, "DAMGA_KONTROL_MS_PUSH_YOK", 60_000))
-        return min(taban * (2 ** (self._kopuk_tur - 1)), 300_000)
+            return int(getattr(config, "DAMGA_KONTROL_MS_PUSH", 120_000))
+        return int(getattr(config, "DAMGA_KONTROL_MS_PUSH_YOK", 30_000))
 
     def yoklama_ayarla(self) -> None:
         """Zamanlayıcı aralığını bağlantı durumuna göre günceller (değişmediyse dokunmaz)."""
@@ -166,8 +169,10 @@ class PharmacyApp(QMainWindow):
         self._yoklama_ms = hedef
         try:
             self.timer_manager.tetik_timer.setInterval(hedef)
-            log.info("yoklama aralığı: %d sn (MQTT %s)", hedef // 1000,
-                     "bağlı" if hedef == getattr(config, "DAMGA_KONTROL_MS_PUSH", 1800_000) else "KOPUK")
+            log.info(
+                "yoklama aralığı: %d sn (MQTT %s)", hedef // 1000,
+                "bağlı" if hedef == getattr(config, "DAMGA_KONTROL_MS_PUSH", 120_000) else "KOPUK",
+            )
         except Exception:  # noqa: BLE001
             pass
 
@@ -183,7 +188,14 @@ class PharmacyApp(QMainWindow):
           · uzaktan komut varsa (imzalı, beyaz listede) uygulanır (`core/komut.py`).
         """
         self.yoklama_ayarla()  # bağlantı durumu değiştiyse aralığı uyarla
+        try:
+            self._tetik_kontrol_govde()
+        except Exception:  # noqa: BLE001
+            # TEK bir istisna turu öldürmemeli: aksi hâlde cihaz "kapatıp açılana kadar" donar.
+            log.warning("yoklama turu başarısız (sonraki turda yeniden denenecek)", exc_info=True)
 
+    def _tetik_kontrol_govde(self):
+        """Yoklama turunun gövdesi (istisna kalkanı `tetik_kontrol` içinde)."""
         # MALİYET: tek istekle damga + tetikleyici + komut işareti (`durum.json`).
         # Yoksa (eski kurulum / 404) eski üç dosyalı yola düşülür.
         belge = durum_modulu.getir()
@@ -252,6 +264,14 @@ class PharmacyApp(QMainWindow):
             except Exception:  # noqa: BLE001
                 pass
         onceki = str(getattr(self.data_handler, "lastupdate", "") or "")
+        # KALP ATIŞI: her turda INFO. "Neden güncellenmiyor?" sorusunun yanıtı bu satırda:
+        # uzak damga ile cihazdaki damga yan yana görünür, MQTT durumu eklenir.
+        self._tur = getattr(self, "_tur", 0) + 1
+        log.info(
+            "yoklama #%d · uzak=%s · cihaz=%s · MQTT=%s",
+            self._tur, yeni_damga or "-", onceki or "-",
+            "bağlı" if push_modulu.durum().get("bagli") else "kopuk",
+        )
         if yeni_damga and onceki and yeni_damga != onceki:
             log.info("nöbet verisi değişti (damga %s → %s) → hemen yenileniyor", onceki, yeni_damga)
             self.load_data()
