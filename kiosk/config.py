@@ -45,6 +45,11 @@ TETIK_DOSYASI = "tetikle.json"
 #   20 sn → ~234 M istek/ay (CloudFront ~$175/ay)   |   300 sn → ~15,6 M istek/ay (~$12/ay)
 # 20 sn'ye düşürmek isteyen `calistirma.degisiklik_kontrol_ms` ile ayarlar.
 DAMGA_KONTROL_MS = 300 * 1000
+#: MQTT push BAĞLIYKEN yoklama (anlıklık zaten push'tan gelir; bu yalnız emniyet ağı).
+#  600 cihaz × (86400/1800) × 1 istek ≈ 864 bin istek/ay ≈ $1 (3 dosyalı yol: ~$18).
+DAMGA_KONTROL_MS_PUSH = 1800 * 1000
+#: MQTT KOPTUYSA yoklama (tek yol yoklama kalır).
+DAMGA_KONTROL_MS_PUSH_YOK = 60 * 1000
 #: Tarayıcı modunda anlık değişiklik ucu: tek istekte en fazla kaç saniye beklenir
 DEGISIKLIK_BEKLEME_S = 30
 # --- UZAKTAN KOMUT (S3 → cihaz): yeniden başlat / uygulamayı yeniden başlat / ekranı yenile ---

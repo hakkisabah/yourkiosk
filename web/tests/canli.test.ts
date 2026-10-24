@@ -3,10 +3,14 @@
  *
  * İki yol vardır:
  *  1) ANLIK (uzun yoklama `/degisiklik`): imza değiştiği an bildirim → yenileme (tipik <1 sn),
- *  2) YOKLAMA (`DAMGA_KONTROL_MS`, 20 sn): `lastupdate.json` + `tetikle.json` (küçük dosyalar).
+ *  2) YOKLAMA (`DAMGA_KONTROL_MS`, varsayılan **300 sn** — anlıklık push/uzun yoklamayla gelir;
+ *     20 sn'lik süre 600 cihazda ~$268/ay istek maliyeti demekti): `lastupdate.json` + `tetikle.json`.
  * Ayrıca panelin yazdığı TETİKLEYİCİ yalnızca ilgili ilçenin cihazında hemen uygulanır.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+/** kiosk.ts varsayılanı (`sabit('DAMGA_KONTROL_MS', 300_000)`) */
+const YOKLAMA_MS = 300_000
 
 import { createKiosk, tetikUygulanmali } from '@/kiosk'
 import { Onbellek, type OnbellekDeposu, type Yanit } from '@/veri/onbellek'
@@ -127,7 +131,7 @@ describe('canlı değişiklik — yansıma', () => {
     // nöbet değişikliği: sunucudaki damga + veri değişti
     durum.damga = 'D2'
     durum.eczane = 'YENİ'
-    await vi.advanceTimersByTimeAsync(20_100) // DAMGA_KONTROL_MS
+    await vi.advanceTimersByTimeAsync(YOKLAMA_MS + 100) // DAMGA_KONTROL_MS
     expect(kiosk.durum.damga).toBe('D2')
     expect(kiosk.durum.kayitlar[0]?.eczane).toBe('YENİ')
     expect(kiosk.durum.gunluk.some((s) => s.includes('nöbet verisi değişti'))).toBe(true)
@@ -167,12 +171,12 @@ describe('canlı değişiklik — yansıma', () => {
     // başka ilçe: hemen yenilenmemeli
     durum.tetik = tetik('2026-10-17T09:00:00', 'I9')
     durum.eczane = 'YENİ'
-    await vi.advanceTimersByTimeAsync(20_100)
+    await vi.advanceTimersByTimeAsync(YOKLAMA_MS + 100)
     expect(kiosk.durum.kayitlar[0]?.eczane).toBe('ESKİ')
 
     // kendi ilçesi: yenilenmeli
     durum.tetik = tetik('2026-10-17T09:30:00', 'I1')
-    await vi.advanceTimersByTimeAsync(20_100)
+    await vi.advanceTimersByTimeAsync(YOKLAMA_MS + 100)
     expect(kiosk.durum.kayitlar[0]?.eczane).toBe('YENİ')
     expect(kiosk.durum.gunluk.some((s) => s.includes('tetikleyici'))).toBe(true)
     kiosk.durdur()
@@ -215,7 +219,7 @@ describe('canlı değişiklik — yansıma', () => {
     await vi.advanceTimersByTimeAsync(50)
     const indexOnce = kiosk.durum.index
     durum.damga = 'D2'
-    await vi.advanceTimersByTimeAsync(20_100)
+    await vi.advanceTimersByTimeAsync(YOKLAMA_MS + 100)
     expect(kiosk.durum.hazir).toBe(true)
     expect(kiosk.durum.hata).toBe('')
     expect(kiosk.durum.index).toBe(indexOnce) // yenileme indeksi sıfırlamaz

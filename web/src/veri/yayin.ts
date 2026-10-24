@@ -23,6 +23,55 @@ export interface YayinKaydi {
 
 const ADRES_ALANLARI = ['contentUrl', 'contentURL', 'url'] as const
 
+/**
+ * HEDEFLEME (kapsam) — Qt `core/yayin_kapsam.py` ile BİREBİR aynı kurallar.
+ *
+ * Alanlar isteğe bağlıdır; boş/yok = kısıt yok (mevcut veri böyle çalışır).
+ * Hepsi doluysa üçü de eşleşmeli. Eşleşmeyen cihaz yayını hiç görmez/indirmez.
+ */
+export interface YayinKapsami {
+  ilceId?: string
+  bolgeId?: string
+  cihazId?: string
+}
+
+const KAPSAM_ALANLARI = {
+  ilceId: ['ilceId', 'ilce_id', 'ilce'],
+  bolgeId: ['bolgeId', 'bolge_id', 'bolge'],
+  cihazId: ['cihazId', 'cihaz_id', 'clientID', 'clientId'],
+} as const
+
+/** Yayın kaydındaki kapsam alanlarını normalize eder (boş = kısıt yok). */
+export function yayinKapsami(yayin: YayinKaydi | null | undefined): Required<YayinKapsami> {
+  const sonuc = { ilceId: '', bolgeId: '', cihazId: '' }
+  if (!yayin || typeof yayin !== 'object') return sonuc
+  for (const [anahtar, adlar] of Object.entries(KAPSAM_ALANLARI)) {
+    for (const ad of adlar) {
+      const deger = String((yayin as Record<string, unknown>)[ad] ?? '').trim()
+      if (deger) {
+        sonuc[anahtar as keyof YayinKapsami] = deger
+        break
+      }
+    }
+  }
+  return sonuc
+}
+
+/** Yayın bu cihaz için geçerli mi? (boş kapsam = tüm cihazlar) */
+export function kapsamUygun(
+  yayin: YayinKaydi | null | undefined,
+  cihaz: YayinKapsami = {},
+): boolean {
+  const kapsam = yayinKapsami(yayin)
+  const ilce = String(cihaz.ilceId ?? '').trim()
+  const bolge = String(cihaz.bolgeId ?? '').trim()
+  const kimlik = String(cihaz.cihazId ?? '').trim()
+  if (kapsam.ilceId && kapsam.ilceId !== ilce) return false
+  if (kapsam.bolgeId && kapsam.bolgeId !== bolge) return false
+  if (kapsam.cihazId && kapsam.cihazId !== kimlik) return false
+  return true
+}
+
 /** Yayının pencere sınırları (okunamayan alan için null). */
 export function yayinPenceresi(yayin: YayinKaydi | null | undefined): { bas: Date | null; bit: Date | null } {
   if (!yayin || typeof yayin !== 'object') return { bas: null, bit: null }
@@ -75,8 +124,10 @@ export function aktifYayinlar(
   veri: SistemVerisi | null | undefined,
   an: Date = new Date(),
   enBuyuk = 20,
+  cihaz: YayinKapsami = {},
 ): YayinKaydi[] {
   return yayinSirasi(veri)
+    .filter((yayin) => kapsamUygun(yayin, cihaz))
     .filter((yayin) => yayinAktifMi(yayin, an))
     .slice(0, Math.max(0, enBuyuk))
 }

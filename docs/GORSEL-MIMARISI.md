@@ -175,3 +175,80 @@ sonra bu geçerli değil**: içerik değişmedikçe gövde inmiyor.
 | 5 | Bölge bazlı yayın (`ilceId`) | bölgesel kampanya | 1 gün (veri modeli + panel) | orta |
 
 Sıralama önerisi: **3 → 1 → 2 → 4 → 5**.
+
+---
+
+## 8) UYGULANANLAR (24.10.2026)
+
+### 8.1 Hedefleme (ilçe / bölge / cihaz) — veri modeli genişletildi
+
+`Yayinlar.<id>` kaydına **isteğe bağlı** alanlar eklendi (geriye uyumlu; mevcut 60 kayıt değişmedi):
+
+```json
+{"start":"…","end":"…","contentUrl":"…","duration":30,
+ "ilceId":"30607352906750376",   // boş/yok = kısıt yok
+ "bolgeId":"73154087615041151",
+ "cihazId":"98273648723468273"}  // en dar kapsam
+```
+
+| Kural | Davranış |
+|---|---|
+| Alanlar boş | tüm cihazlar (bugünkü davranış) |
+| Birden fazlası dolu | **VE** — hepsi eşleşmeli |
+| Eşleşmeyen cihaz | yayını **hiç görmez**, indirmez, önbelleğe almaz (maliyet düşer) |
+| Alias'lar | `ilce_id`, `ilce`, `bolge_id`, `bolge`, `cihaz_id`, `clientID` de kabul |
+
+Uygulama noktaları:
+- Qt: `core/yayin_kapsam.py` (+ `BroadcastManager.get_active_yayinlar(..., ilce_id, bolge_id, cihaz_id)`)
+- Tarayıcı: `web/src/veri/yayin.ts` → `kapsamUygun()` / `aktifYayinlar(..., cihaz)`; **havuza** girmeden süzer
+- Testler: `kiosk/tests/test_yayin_kapsam.py` (14) + `web/tests/yayin-kapsam.test.ts`
+
+> Not: `Yayinlar` bugün **bölge alanı taşımıyordu**; bu eklemeyle bölgesel kampanya mümkün.
+> Panelde yayınlar salt-okunur görüntülendiği için **arayüz değişmedi**; alanlar veri dosyasından
+> (ya da ileride yükleme ekranından) yazılır.
+
+### 8.2 `durum.json` — yoklama turu 3 istek → 1 istek
+
+Panel her kayıtta `durum.json` yazar:
+
+```json
+{"zaman":"…","lastupdate":"2026-10-24 09:11:58",
+ "tetik":{"zaman":"…","ilceId":"","aciklama":"panel: sistem"},
+ "komut":{"zaman":"…","id":"…"}}
+```
+
+Cihaz (`kiosk/core/durum.py`): tek istekle damgayı, tetikleyiciyi ve komut işaretini alır.
+`durum.json` yoksa (eski kiosk/ilk kurulum) **eski üç dosyalı yola** düşer — kırılma yok.
+
+### 8.3 Uyarlanabilir yoklama (maliyet)
+
+| Durum | Aralık | Gerekçe |
+|---|---|---|
+| MQTT **bağlı** | **1800 sn** | anlıklık push'tan gelir; yoklama emniyet ağı |
+| MQTT **koptu** | 60 sn → 120 → 240 → **300 sn** (katlanır) | bağlantı yokken tek yol yoklama; ısrar maliyeti sınırlanır |
+
+### 8.4 WebP hattı
+
+- `panel/src/domain/gorselYukleme.ts`: doğrula → küçült (≤1920 px) → WebP q82 → `sha256[:16]` →
+  `kiosk/yayin-gorselleri/<hash>.webp` → `Cache-Control: immutable`. 14 test.
+- `kiosk/tools/gorsel_webp.py`: mevcut görselleri toplu çevirir (`--s3` ile yükler).
+  **Gerçek ölçüm (Qt kodlayıcısı):** `a.png 2473 KB → 221 KB (%91)`, `b.png 366 KB → 31 KB (%92)`.
+
+## 9) MALİYET — yeni mimari (600 cihaz)
+
+| Senaryo | İstek/ay | CloudFront | S3 GET | **Toplam** |
+|---|---|---|---|---|
+| Eski: 3 dosya · 300 sn | 15,55 M | $11,66 | $6,22 | **$17,88** |
+| Yeni: `durum.json` · 1800 sn (MQTT bağlı) | 0,86 M | $0,65 | $0,35 | **~$1,00** |
+| Daha agresif: 3600 sn | 0,43 M | $0,32 | $0,17 | **~$0,50** |
+| MQTT kopuk (en kötü, 300 sn'de sabitlenir) | 5,18 M | $3,88 | $2,07 | ~$5,95 (geçici) |
+
+Görsel egress (içerik adlı + immutable, 304 yok):
+
+| Kalem | Hesap | Aylık |
+|---|---|---|
+| Yeni kampanya görseli (600 cihaz) | 600 × 220 KB = 132 MB | **$0,011** |
+| Depolama (100 görsel × 220 KB) | 22 MB | ~$0 |
+| 304 doğrulama istekleri (içerik değişmedi) | 0 (immutable) | $0 |
+
+**Asıl kalem cihaz başına yoklama isteğiydi; 1 istek + seyrek aralıkla ~$1/ay'a indi.**

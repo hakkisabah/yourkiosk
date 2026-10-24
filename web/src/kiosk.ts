@@ -18,7 +18,7 @@ import { KusakAnimasyonu, kusakOgeleri, kusakMetni, kusakX } from '@/veri/kusak'
 import { VeriKaynagi } from '@/veri/kaynak'
 import { gosterilecekKayitlar, type CihazKonumu, type NobetKaydi } from '@/veri/nobet'
 import { Onbellek } from '@/veri/onbellek'
-import { aktifYayinlar, yayinAdresi, yayinSuresiMs, yayinSirasi, type YayinKaydi } from '@/veri/yayin'
+import { aktifYayinlar, kapsamUygun, yayinAdresi, yayinSuresiMs, yayinSirasi, type YayinKaydi } from '@/veri/yayin'
 import type { TetikBilgisi } from '@/veri/kaynak'
 import { sabit, varsayilanlar, yerlesim } from '@/stiller/olcu'
 
@@ -74,6 +74,8 @@ export interface KioskState {
   kusak: { metin: string; x: number; gorunur: boolean; ogeler: string[]; index: number }
   saat: { saat: string; tarih: string; gun: string }
   ozellikler: { nobet_listesi: boolean; yayinlar: boolean; kayan_yazi: boolean; saat_tarih: boolean }
+  /** Bu cihazın hedefleme kapsamı (ilçe/bölge/cihaz) — yayın süzgeci için. */
+  kapsam: { ilceId: string; bolgeId: string; cihazId: string }
   damga: string
   gunluk: string[]
 }
@@ -104,6 +106,7 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
     kusak: { metin: '-', x: 0, gorunur: false, ogeler: ['-'], index: 0 },
     saat: { saat: '', tarih: '', gun: '' },
     ozellikler: { nobet_listesi: true, yayinlar: true, kayan_yazi: true, saat_tarih: true },
+    kapsam: { ilceId: '', bolgeId: '', cihazId: '' },
     damga: '',
     gunluk: [],
   })
@@ -248,7 +251,15 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
 
       durum.kayitlar = kayitlar
       // yayın havuzu: Qt `MAX_AKTIF_YAYIN * 10` kadar kayıt bellekte tutulur
-      durum.yayinlar = yayinSirasi(sistem).slice(0, sabit('MAX_AKTIF_YAYIN', 20) * 10)
+      // KAPSAM: bu cihazı ilgilendirmeyen yayınlar HAVUZA hiç girmez → indirilmez, önbelleğe alınmaz.
+      durum.kapsam = {
+        ilceId: String(konumHam.ilceId ?? ''),
+        bolgeId: String(konumHam.bolgeId ?? ''),
+        cihazId: String(clientId ?? ''),
+      }
+      durum.yayinlar = yayinSirasi(sistem)
+        .filter((y) => kapsamUygun(y, durum.kapsam))
+        .slice(0, sabit('MAX_AKTIF_YAYIN', 20) * 10)
       durum.index = Math.min(durum.index, kayitlar.length - 1)
       durum.kusak.ogeler = kusakOgeleri(
         kayitlar.map((k) => ({ eczane: k.eczane, tel: k.tel, bolge: k.bolge })),
@@ -355,6 +366,7 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
         { Yayinlar: Object.fromEntries(durum.yayinlar.map((y, i) => [String(i), y])) },
         zaman(),
         sabit('MAX_AKTIF_YAYIN', 20),
+        durum.kapsam,
       )
     if (!liste.length) {
       log('yayın moduna geçilemedi: aktif yayın yok')
