@@ -176,7 +176,7 @@ def pencere_fabrikasi(qapp, monkeypatch):
     from core.broadcast_manager import BroadcastManager
 
     monkeypatch.setattr(
-        BroadcastManager, "get_active_yayinlar", lambda self, yayinlar, simdi=None: list(yayinlar or [])[:1]
+        BroadcastManager, "get_active_yayinlar", lambda self, yayinlar, simdi=None, ilce_id="", bolge_id="", cihaz_id="": list(yayinlar or [])[:1]
     )
     pencereler: list[PharmacyApp] = []
 

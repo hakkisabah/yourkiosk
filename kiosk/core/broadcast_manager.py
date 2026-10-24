@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 
 import config
+from core.yayin_kapsam import kapsam_uygun
 from security.veri_dogrulama import liste_sinirla
 
 log = logging.getLogger("kiosk.yayin")
@@ -34,11 +35,18 @@ class BroadcastManager:
                     continue
         return None
 
-    def get_active_yayinlar(self, yayinlar, simdi=None):
+    def get_active_yayinlar(self, yayinlar, simdi=None, ilce_id="", bolge_id="", cihaz_id=""):
+        """Aktif yayınlar — KAPSAM süzgeciyle (ilçe/bölge/cihaz).
+
+        Kapsam alanları boşsa (bugünkü veri) davranış değişmez: tüm cihazlar görür.
+        Eşleşmeyen yayın hiç indirilmez → cihaz bant genişliği ve CDN maliyeti düşer.
+        """
         an = simdi or datetime.now()
         aktif = []
         for yayin in yayinlar or []:
             if not isinstance(yayin, dict):
+                continue
+            if not kapsam_uygun(yayin, ilce_id, bolge_id, cihaz_id):
                 continue
             baslangic = self._zaman(yayin.get("start"))
             bitis = self._zaman(yayin.get("end"))

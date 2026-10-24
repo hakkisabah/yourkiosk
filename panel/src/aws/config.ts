@@ -27,6 +27,7 @@ export const DOSYALAR = {
   ayarlar: 'ayarlar.json',
   kapsam: 'kapsam-ayarlari.json',
   sistem: 'lastSystemData.json',
+  durum: 'durum.json',
   sablon: 'sablon.json',
   match: 'match.json',
   lastupdate: 'lastupdate.json',

@@ -60,7 +60,7 @@ def pencere(qapp, monkeypatch):
     monkeypatch.setattr(
         BroadcastManager,
         "get_active_yayinlar",
-        lambda self, yayinlar, simdi=None: list(yayinlar or [])[:2],
+        lambda self, yayinlar, simdi=None, ilce_id="", bolge_id="", cihaz_id="": list(yayinlar or [])[:2],
     )
     uygulama = PharmacyApp(tam_ekran=False)
     uygulama.resize(1280, 720)

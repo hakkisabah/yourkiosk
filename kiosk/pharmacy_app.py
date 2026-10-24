@@ -18,6 +18,7 @@ from ui.nobet_widget import NobetWidget
 from ui.yayin_widget import YayinWidget
 from core.data_handler import DataHandler
 from core.broadcast_manager import BroadcastManager
+from core import durum as durum_modulu
 from core import onbellek
 from core import tetik as tetik_modulu
 from core import komut as komut_modulu
@@ -48,6 +49,9 @@ class PharmacyApp(QMainWindow):
         self.is_broadcast_mode = False
         #: Son uygulanan nöbet değişikliği tetikleyicisinin zamanı (aynısı tekrar uygulanmaz)
         self._son_tetik = ""
+        self._son_komut_isareti = ""  # durum.json komut işareti (değişince komut indirilir)
+        self._yoklama_ms = 0
+        self._kopuk_tur = 0
         self.ticker_x = self.screen_w
         self.ticker_items = []
         self.ticker_index = 0
@@ -100,6 +104,36 @@ class PharmacyApp(QMainWindow):
                 # Basitlik için her yüklemede değil, sadece mod değişmediyse güncelliyoruz
                 self.update_display()
 
+    def yoklama_araligi(self) -> int:
+        """MQTT bağlıysa seyrek (maliyet), koptuysa sık ama ARTAN aralıkla (güvenilirlik + maliyet).
+
+        Kopukluk uzarsa 60 sn'de ısrar etmek 600 cihazda ~$30/gün olurdu; aralık 300 sn'ye kadar
+        katlanır (en kötü ~$6/gün) — bağlantı dönünce yeniden seyrek moda geçilir.
+        """
+        try:
+            bagli = bool(push_modulu.durum().get("bagli"))
+        except Exception:  # noqa: BLE001
+            bagli = False
+        if bagli:
+            self._kopuk_tur = 0
+            return int(getattr(config, "DAMGA_KONTROL_MS_PUSH", 1800_000))
+        self._kopuk_tur = min(getattr(self, "_kopuk_tur", 0) + 1, 8)
+        taban = int(getattr(config, "DAMGA_KONTROL_MS_PUSH_YOK", 60_000))
+        return min(taban * (2 ** (self._kopuk_tur - 1)), 300_000)
+
+    def yoklama_ayarla(self) -> None:
+        """Zamanlayıcı aralığını bağlantı durumuna göre günceller (değişmediyse dokunmaz)."""
+        hedef = self.yoklama_araligi()
+        if hedef == getattr(self, "_yoklama_ms", 0):
+            return
+        self._yoklama_ms = hedef
+        try:
+            self.timer_manager.tetik_timer.setInterval(hedef)
+            log.info("yoklama aralığı: %d sn (MQTT %s)", hedef // 1000,
+                     "bağlı" if hedef == getattr(config, "DAMGA_KONTROL_MS_PUSH", 1800_000) else "KOPUK")
+        except Exception:  # noqa: BLE001
+            pass
+
     def tetik_kontrol(self):
         """NÖBET DEĞİŞİKLİĞİNİ BEKLEMEDEN yansıt (panel tetikleyicisi ya da damga değişikliği).
 
@@ -111,17 +145,24 @@ class PharmacyApp(QMainWindow):
             (`core/tetik.uygulanmali`: tüm cihazlar / kendi ilçesi / kendi bölgesi),
           · uzaktan komut varsa (imzalı, beyaz listede) uygulanır (`core/komut.py`).
         """
-        # UZAKTAN KOMUT + küçük dosya senkronu (her turda; hızlı ve ucuz)
+        self.yoklama_ayarla()  # bağlantı durumu değiştiyse aralığı uyarla
+
+        # MALİYET: tek istekle damga + tetikleyici + komut işareti (`durum.json`).
+        # Yoksa (eski kurulum / 404) eski üç dosyalı yola düşülür.
+        belge = durum_modulu.getir()
+        if belge is not None:
+            self._durum_uygula(belge)
+            return
+
+        # UZAKTAN KOMUT + küçük dosya senkronu (eski yol)
         self.uzak_kontrol()
 
-        # OTO TETİKLEME KAPALI ise yayın değişikliğinde ANINDA yenilenme yapılmaz;
-        # cihaz normal aralıkta (`data_timer`) güncellenir. Uzaktan komutlar yine çalışır.
         if not tetik_modulu.otomatik_acik("qt"):
             return
 
         try:
             damga = veri_kaynagi.lastupdate_taze()
-        except Exception:  # noqa: BLE001 - denetim hatası gösterimi durdurmamalı
+        except Exception:  # noqa: BLE001
             log.warning("damga denetimi yapılamadı", exc_info=True)
             damga = ""
         onceki = str(getattr(self.data_handler, "lastupdate", "") or "")
@@ -138,6 +179,46 @@ class PharmacyApp(QMainWindow):
             self._son_tetik = str(tetik.get("zaman", ""))
             kapsam = tetik.get("ilceId") or "tüm cihazlar"
             log.info("tetikleyici uygulanıyor (%s · kapsam=%s) → hemen yenileniyor", tetik.get("zaman"), kapsam)
+            self.load_data(zorla=True)
+
+    def _durum_uygula(self, belge):
+        """`durum.json` ile TEK istekte: damga değişimi + tetikleyici + komut işareti."""
+        # 1) uzaktan komut: yalnız işaret DEĞİŞTİĞİNDE gövde indirilir (nadir)
+        isaret = durum_modulu.komut_isareti(belge)
+        if isaret and isaret != self._son_komut_isareti:
+            self._son_komut_isareti = isaret
+            try:
+                komut_modulu.getir()
+                _karar, sonuc = komut_modulu.kontrol(cihaz_id=self.cihaz_kimligi())
+                if sonuc is not None:
+                    log.warning("UZAKTAN KOMUT: %s", komut_modulu.sonuc_metni(sonuc))
+                    if sonuc.uygulama_ici:
+                        self.update_display()
+            except Exception:  # noqa: BLE001
+                log.warning("uzaktan komut denetimi yapılamadı", exc_info=True)
+
+        if not tetik_modulu.otomatik_acik("qt"):
+            return
+
+        # 2) veri damgası
+        yeni_damga = durum_modulu.damga(belge)
+        onceki = str(getattr(self.data_handler, "lastupdate", "") or "")
+        if yeni_damga and onceki and yeni_damga != onceki:
+            log.info("nöbet verisi değişti (damga %s → %s) → hemen yenileniyor", onceki, yeni_damga)
+            self.load_data()
+            return
+
+        # 3) tetikleyici (kapsam: tümü / kendi ilçesi / kendi bölgesi)
+        tetik = durum_modulu.tetik(belge)
+        konum = getattr(self.data_handler, "konum", None)
+        ilce = str(getattr(konum, "ilce_id", "") or "")
+        bolge = str(getattr(konum, "bolge_id", "") or "")
+        if tetik and tetik_modulu.uygulanmali(tetik, ilce, bolge, self._son_tetik):
+            self._son_tetik = str(tetik.get("zaman", ""))
+            log.info(
+                "tetikleyici uygulanıyor (%s · kapsam=%s) → hemen yenileniyor",
+                tetik.get("zaman"), tetik.get("ilceId") or "tüm cihazlar",
+            )
             self.load_data(zorla=True)
 
     def uzak_kontrol(self):
@@ -514,7 +595,11 @@ class PharmacyApp(QMainWindow):
 
         self.current_index += 1
         if self.current_index >= len(self.pharmacies):
-            active_yayinlar = self.broadcast_manager.get_active_yayinlar(self.yayinlar)
+            konum_kapsami = self._kapsam()
+            active_yayinlar = self.broadcast_manager.get_active_yayinlar(
+                self.yayinlar,
+                ilce_id=konum_kapsami[0], bolge_id=konum_kapsami[1], cihaz_id=konum_kapsami[2],
+            )
             log.debug("nöbet listesi bitti: havuz=%d · aktif yayın=%d", len(self.yayinlar), len(active_yayinlar))
             if active_yayinlar:
                 self.start_broadcast_mode(active_yayinlar)
@@ -524,10 +609,23 @@ class PharmacyApp(QMainWindow):
         else:
             self.update_display()
 
+    def _kapsam(self):
+        """(ilçe, bölge, cihaz) — yayın hedeflemesi için."""
+        konum = getattr(self.data_handler, "konum", None)
+        return (
+            str(getattr(konum, "ilce_id", "") or ""),
+            str(getattr(konum, "bolge_id", "") or ""),
+            self.cihaz_kimligi(),
+        )
+
     def _yalniz_yayin_dongusu(self):
         """Nöbet ekranı kapalıyken: aktif yayın varsa göster, yoksa sade ekranda bekle."""
+        konum_kapsami = self._kapsam()
         aktif = (
-            self.broadcast_manager.get_active_yayinlar(self.yayinlar)
+            self.broadcast_manager.get_active_yayinlar(
+                self.yayinlar,
+                ilce_id=konum_kapsami[0], bolge_id=konum_kapsami[1], cihaz_id=konum_kapsami[2],
+            )
             if ayarlar.ozellik("yayinlar")
             else []
         )

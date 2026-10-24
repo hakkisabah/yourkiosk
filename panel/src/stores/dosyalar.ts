@@ -150,10 +150,22 @@ export const useDosyalar = defineStore('dosyalar', {
         // "değişmedi" sanıp ÖNBELLEKTEN eski gövdeyi gösterir (push ulaşmazsa hiç güncellenmez).
         // Bu yüzden veriyi değiştiren her kayıttan sonra damga da tazelenir.
         if (tetikGerekir(ad)) {
+          const an = new Date()
+          const damga = zamanDamgasi(an)
           try {
-            await baglan.kaynak.yaz(DOSYALAR.lastupdate, { lastupdate: zamanDamgasi(new Date()) })
+            await baglan.kaynak.yaz(DOSYALAR.lastupdate, { lastupdate: damga })
           } catch {
             /* damga yazılamadı: cihaz yine tetikleyici/MQTT ile haberdar edilir */
+          }
+          // MALİYET: cihaz her turda 3 dosya yerine TEK dosya okur (`core/durum.py`).
+          try {
+            await baglan.kaynak.yaz(DOSYALAR.durum, {
+              zaman: an.toISOString(),
+              lastupdate: damga,
+              tetik: { ...tetikBelgesi(ad, an.toISOString()), zaman: an.toISOString() },
+            })
+          } catch {
+            /* durum.json yazılamadı: cihaz eski üç dosyalı yola düşer */
           }
         }
         // Ekranda görüneni değiştiren her yayın cihazı tetikler (cihazda `tetik.aktif` /
