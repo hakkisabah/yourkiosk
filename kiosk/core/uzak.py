@@ -12,6 +12,8 @@ sınırı, yönlendirme kapalı. Bu dosyalar **komut değil, veri**dir: içeriğ
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from pathlib import Path
 
 import config
@@ -182,16 +184,34 @@ def yerel_guncelle(yol: Path, govde: bytes) -> bool:
     """İçerik FARKLIYSA yerel dosyayı atomik yazar; değiştiyse True.
 
     İçerik aynıysa dokunulmaz → gereksiz mtime değişimi (ve gereksiz arayüz bildirimi) olmaz.
+
+    GÜVENLİK: geçici dosya `mkstemp` ile TAHMİN EDİLEMEZ adla ve `O_EXCL` olarak açılır. Önceden
+    `<ad>.tmp` sabit adına yazılıyordu; uygulama dizinine yazabilen daha az yetkili bir yerel
+    kullanıcı o ada sembolik bağ kurup içeriği başka yere yönlendirebilirdi (i5 bulgusu).
+    `os.replace` hedefte sembolik bağ olsa bile BAĞI değiştirir, hedefini izlemez.
     """
     try:
         if yol.is_file() and yol.read_bytes() == govde:
             return False
-        gecici = yol.with_suffix(yol.suffix + ".tmp")
-        gecici.write_bytes(govde)
-        gecici.replace(yol)
+    except OSError:
+        pass
+    gecici = ""
+    try:
+        tanitici, gecici = tempfile.mkstemp(prefix=f".{yol.name}.", suffix=".tmp", dir=str(yol.parent))
+        with os.fdopen(tanitici, "wb") as dosya:
+            dosya.write(govde)
+            dosya.flush()
+            os.fsync(dosya.fileno())
+        os.chmod(gecici, 0o644)  # eski davranış: diğer süreçler okuyabilsin (içerik zaten herkese açık)
+        os.replace(gecici, yol)
         return True
     except OSError:
         log.warning("yerel dosya yazılamadı: %s", yol, exc_info=True)
+        if gecici:
+            try:
+                os.unlink(gecici)
+            except OSError:
+                pass
         return False
 
 

@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import logging
 
-from core import uzak
+from core import uzak, zaman
 
 log = logging.getLogger("kiosk.durum")
 
@@ -49,8 +49,10 @@ def getir() -> dict | None:
         return None
     try:
         belge = json.loads(govde)
-    except ValueError:
-        log.warning("durum.json bozuk JSON — yok sayıldı")
+    except (ValueError, RecursionError):
+        # RecursionError: 64 KB sınırı içinde DERİN iç içe gövde ayrıştırmayı patlatır; yakalanmazsa
+        # istisna yoklama turunu düşürür (i5 bulgusu).
+        log.warning("durum.json bozuk/çok derin JSON — yok sayıldı")
         _son_belge = None
         return None
     if not isinstance(belge, dict):
@@ -91,8 +93,11 @@ def secili_tetik(belge: dict | None, yerel_oku) -> dict | None:
         return yerel
     uzak_zaman = str(uzak_tetik.get("zaman", "") or "")
     yerel_zaman = str(yerel.get("zaman", "") or "")
-    # ISO 8601 UTC damgaları sözlüksel karşılaştırılabilir (aynı biçim).
-    return yerel if yerel_zaman > uzak_zaman else uzak_tetik
+    # SAAT DİLİMİ: panel UTC (`...Z`), yerel tetikleyici yerel saat (`...` uzantısız) yazar.
+    # Sözlüksel karşılaştırma UTC+3 cihazda yerel damgayı hep 3 saat ileri gösterip panelin YENİ
+    # tetiğini "eski" sayıyordu (panel "Bildir" sessizce yutuluyordu — i5 bulgusu).
+    # `zaman.yeni_mi` anları karşılaştırır; çözemezse sözlüksel davranışa düşer.
+    return yerel if zaman.yeni_mi(yerel_zaman, uzak_zaman) else uzak_tetik
 
 
 def komut_isareti(belge: dict | None) -> str:

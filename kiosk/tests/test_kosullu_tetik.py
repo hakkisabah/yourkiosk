@@ -58,8 +58,11 @@ class _Sunucu:
                 if dis.etag:
                     self.send_header("ETag", dis.etag)
                 self.end_headers()
-                self.wfile.write(dis.icerik)
+                # SAYAÇ YARIŞI: sayacı gövdeyi YAZMADAN ÖNCE artır. Önceden yazdıktan sonra
+                # artırılıyordu; istemci baytları alır almaz assert'e geçtiği için test 10 koşunun
+                # 2'sinde rastgele düşüyordu (i5 bulgusu).
                 dis.govde_bayt += len(dis.icerik)
+                self.wfile.write(dis.icerik)
 
             def log_message(self, format, *args):  # noqa: A002 - sessiz günlük
                 return
@@ -203,4 +206,30 @@ def test_durum_json_bozuksa_dogrulayici_hatirlanmaz(sunucu, monkeypatch) -> None
 
     assert durum.getir() is None
     assert sunucu.govde_bayt == 2 * len(b"{bozuk"), "doğrulayıcı yoksa gövde yeniden iner"
+
+
+def test_cok_derin_json_yoklama_turunu_dusurmez(sunucu, monkeypatch) -> None:
+    """RecursionError yakalanmalı (i5 bulgusu): 64 KB içinde derin iç içe gövde ayrıştırmayı patlatır."""
+    from core import durum
+
+    monkeypatch.setattr(durum, "_son_belge", None)
+    monkeypatch.setattr(uzak, "_ETAG", {})
+    derin = (b"[" * 20000) + (b"]" * 20000)
+    sunucu.icerik = derin
+    assert durum.getir() is None  # istisna sızdırmamalı
+    assert not uzak._ETAG, "çözülemeyen gövde için doğrulayıcı saklanmamalı"
+
+
+def test_yerel_guncelle_sabit_tmp_adina_sembolik_bag_kurmaz(tmp_path) -> None:
+    """`.tmp` sabit adı saldırısı: geçici dosya mkstemp ile tahmin edilemez adla açılmalı (i5 bulgusu)."""
+    hedef = tmp_path / "tetikle.json"
+    kurban = tmp_path / "kurban.txt"
+    kurban.write_text("DOKUNULMAMALI", encoding="utf-8")
+    # Eski zafiyetin kurulumu: tahmin edilebilir geçici ad → sembolik bağ
+    (tmp_path / "tetikle.json.tmp").symlink_to(kurban)
+
+    assert uzak.yerel_guncelle(hedef, b'{"zaman":"2026-10-24T07:10:00Z"}') is True
+    assert hedef.read_bytes() == b'{"zaman":"2026-10-24T07:10:00Z"}'
+    assert kurban.read_text(encoding="utf-8") == "DOKUNULMAMALI", "sembolik bağ izlenmemeli"
+
 

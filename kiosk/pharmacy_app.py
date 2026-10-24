@@ -276,6 +276,9 @@ class PharmacyApp(QMainWindow):
             # ÇAPRAZ KONTROL (komut): `komut.json` panelden BAĞIMSIZ yüklenebiliyor
             # (`tools/komut_gonder.py` doğrudan S3'e yazar). `durum.json` komut İŞARETİ
             # taşımıyorsa komut dosyası HİÇ indirilmiyordu → uzaktan komut sessizce ölüydü.
+            # NOT: panel bugün `durum.json`a komut işareti yazmıyor (yalnız zaman/lastupdate/tetik),
+            # bu yüzden bu dal pratikte her turda çalışır; indirme KOŞULLU (ETag → 304) olduğu için
+            # maliyeti birkaç yüz bayttır. Panel işaret yazmaya başlarsa dal kendiliğinden seyrekleşir.
             if not isaret:
                 self._komut_capraz_kontrol()
         onceki = str(getattr(self.data_handler, "lastupdate", "") or "")
