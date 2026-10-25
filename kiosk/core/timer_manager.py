@@ -34,7 +34,10 @@ class TimerManager:
         # Saatlik kontrolü beklemeden değişikliği yansıtır (`DAMGA_KONTROL_MS`: push BAĞLI 120 sn,
         # KOPUK 30 sn — `DAMGA_KONTROL_MS_PUSH` / `DAMGA_KONTROL_MS_PUSH_YOK`; aralığı
         # `pharmacy_app.yoklama_araligi` bağlantı durumuna göre seçer, `yoklama_ayarla` uygular).
-        self.tetik_timer.start(getattr(config, "DAMGA_KONTROL_MS", 1800 * 1000))
+        # Varsayılan YOK: sabit `config` içinde tanımlı (120 sn). Eski sürüm `getattr(...,
+        # 1800 * 1000)` ile 30 dk'lık bir varsayılan taşıyordu ve `config` sınıfı bozulursa
+        # yoklama sessizce 30 dakikaya düşüyordu (i5 bulgusu).
+        self.tetik_timer.start(config.DAMGA_KONTROL_MS)
         # ANLIK yol: yerel dosya izleyici (maliyetsiz). Push ölü olsa bile yoklama çalışır.
         self.tetik_izleyici.start(getattr(config, "TETIK_IZLEME_MS", 2000))
         # ÖNEMLİ: aralık, İLK turu beklemeden bugünkü bağlantı durumuna göre kurulur.

@@ -41,18 +41,22 @@ TETIK_DOSYASI = "tetikle.json"
 #: büyük veri dosyaları damga değişmedikçe indirilmez.
 # Emniyet ağı yoklaması. ANLIK güncelleme MQTT push (tetik.push_*) ve tarayıcıda `/degisiklik`
 # uzun yoklamasıyla gelir; bu süre yalnızca "push kaçtı" durumu içindir.
-# 600 cihaz ölçeğinde maliyet: 3 küçük istek × (86400/süre) × cihaz.
-#   20 sn → ~234 M istek/ay (CloudFront ~$175/ay)   |   300 sn → ~15,6 M istek/ay (~$12/ay)
-# 20 sn'ye düşürmek isteyen `calistirma.degisiklik_kontrol_ms` ile ayarlar.
+# 600 cihaz ölçeğinde maliyet (3 küçük istek × 86400/süre × 600 cihaz × 30 gün):
+#   120 sn (bu değer, push BAĞLI) → ~38,9 M istek/ay (~$29/ay)
+#    30 sn (push KOPUK)          → ~155,5 M istek/ay (~$116/ay)
+# Ölçü: 20 sn iken ~233 M istek/ay (~$175/ay) idi — 120 sn'ye çekilmesinin nedeni bu.
+# Aralığı `pharmacy_app.yoklama_araligi` bağlantı durumuna göre seçer; bu sabit yalnız
+# "push kaçtı" emniyet ağının üst sınırıdır, anlıklık MQTT push / `/degisiklik` ucundan gelir.
 DAMGA_KONTROL_MS = 120 * 1000
 #: MQTT push BAĞLIYKEN yoklama (anlıklık zaten push'tan gelir; bu yalnız emniyet ağı).
-#  600 cihaz × (86400/1800) × 1 istek ≈ 864 bin istek/ay ≈ $1 (3 dosyalı yol: ~$18).
+#  600 cihaz × (86400/120) × 1 istek × 30 gün ≈ 13,0 M istek/ay ≈ $10/ay
+#  (damga+tetik+komut işareti tek dosyada olduğu için 1 istek; eski 3 dosyalı yol ~$29).
 DAMGA_KONTROL_MS_PUSH = 120 * 1000
 #: MQTT KOPTUYSA yoklama (tek yol yoklama kalır).
 DAMGA_KONTROL_MS_PUSH_YOK = 30 * 1000
 #: YEREL tetik izleyici: MQTT push `tetikle.json`u yazar; bu izleyici dosya değişimini görüp
 #  ANINDA yeniler. Ağa ÇIKMAZ (yalnız stat) → maliyeti sıfır, 600 cihazda da bedava.
-#  NEDEN GEREKLİ: yoklama aralığı 1800 sn'ye çıkınca push "dosya yazıldı ama kimse okumadı"
+#  NEDEN GEREKLİ: yoklama aralığı dakikalara çıkınca push "dosya yazıldı ama kimse okumadı"
 #  durumunda kalıyordu; değişiklik ancak uygulama yeniden başlatılınca görünüyordu.
 TETIK_IZLEME_MS = 2 * 1000
 #: Tarayıcı modunda anlık değişiklik ucu: tek istekte en fazla kaç saniye beklenir
@@ -169,9 +173,13 @@ TETIK_PUSH_PAROLA = ""
 TETIK_PUSH_CA = ""                       # kök CA dosyası (ör. AmazonRootCA1.pem)
 TETIK_PUSH_SERTIFIKA = ""                # cihaz sertifikası (cert.pem)
 TETIK_PUSH_ANAHTAR = ""                  # cihaz özel anahtarı (private.pem.key)
-TETIK_KONTROL_MS = 20000                 # tetikleyici yoklama aralığı (20 sn). 600 cihazda
-                                         # 2.592.000/20 × 600 ≈ 77,8 M istek/ay → MQTT push
-                                         # açıksa bu yoklama yapılmaz (push emniyet ağı).
+TETIK_KONTROL_MS = 20000                 # TARAYICI modunda uzun yoklama (`/degisiklik`) sırasında
+                                         # `tetikle.json`u çekme aralığı. `DAMGA_KONTROL_MS` ile
+                                         # TAVANLANIR (tarayici.py: min(TETIK_KONTROL_MS, DAMGA_KONTROL_MS)),
+                                         # yani "anlıklık" en kötü 20 sn'de bir tetik çekimiyle gelir.
+                                         # Qt modunda kullanılmaz (orada QTimer + yerel izleyici var).
+                                         # İndirme KOŞULLU (ETag/Last-Modified → 304): dosya değişmediyse
+                                         # gövde inmez, istek başına maliyet birkaç yüz bayt.
 
 WEB_VERI_MODU = "yerel"                   # "yerel": veri dosyaları yerel sunucudan | "https": DOSYA_ADRESI
 WEB_YENILEME_MS = 60000                   # sayfanın veriyi kontrol etme aralığı (kiosk: saatlik timer)

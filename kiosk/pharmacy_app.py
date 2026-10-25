@@ -284,13 +284,25 @@ class PharmacyApp(QMainWindow):
             except Exception:  # noqa: BLE001
                 log.warning("uzaktan komut denetimi yapılamadı", exc_info=True)
 
+        # 1b) KOMUT ÇAPRAZ KONTROLÜ — tetikleyici kapısının ÖNÜNDE ve ondan BAĞIMSIZ.
+        # `komut.json` panelden bağımsız yüklenebiliyor (`tools/komut_gonder.py` doğrudan S3'e
+        # yazar). `durum.json` komut İŞARETİ taşımıyorsa komut dosyası HİÇ indirilmiyordu →
+        # uzaktan komut sessizce ölüydü. Eski sürüm bu kontrolü `otomatik_acik("qt")` kapısının
+        # ARKASINA koymuştu: `tetik.aktif=false` olan cihazda uzaktan komut tamamen ölüyordu
+        # (i5 bulgusu). Komut ayrı bir özellik; kendi tur sayacıyla çalışır.
+        # MALİYET: 10 turda BİR (`_komut_tur % 10 == 1`) ve KOŞULLU indirme (ETag → 304).
+        self._komut_tur = getattr(self, "_komut_tur", 0) + 1
+        if not isaret and self._komut_tur % 10 == 1:
+            self._komut_capraz_kontrol()
+
         if not tetik_modulu.otomatik_acik("qt"):
             return
 
         # 2) veri damgası
         yeni_damga = durum_modulu.damga(belge)
-        # ÇAPRAZ KONTROL: panel `durum.json`ı yazamazsa cihaz 30 dk eski veride kalırdı.
-        # Her 10 turda bir `lastupdate.json` da okunur (1800 sn'de ~5 saatte 1 ek istek).
+        # ÇAPRAZ KONTROL: panel `durum.json`ı yazamazsa cihaz eski veride kalabilirdi.
+        # Her 10 turda bir `lastupdate.json` da okunur — 10 tur = 120 sn × 10 ≈ 20 dk (push
+        # bağlıyken), 30 sn × 10 ≈ 5 dk (push kopukken); günde ~72 / ~288 ek istek.
         self._durum_tur = getattr(self, "_durum_tur", 0) + 1
         if self._durum_tur % 10 == 1:
             try:
@@ -311,17 +323,8 @@ class PharmacyApp(QMainWindow):
                     log.info("tetikle.json sunucudan yenilendi (durum.json tetiği yok/eskimiş olabilir)")
             except Exception:  # noqa: BLE001
                 pass
-            # ÇAPRAZ KONTROL (komut): `komut.json` panelden BAĞIMSIZ yüklenebiliyor
-            # (`tools/komut_gonder.py` doğrudan S3'e yazar). `durum.json` komut İŞARETİ
-            # taşımıyorsa komut dosyası HİÇ indirilmiyordu → uzaktan komut sessizce ölüydü.
-            # NOT: panel bugün `durum.json`a komut işareti yazmıyor (yalnız zaman/lastupdate/tetik),
-            # bu yüzden bu dal HER çapraz kontrolde çalışır — ama çapraz kontrol 10 turda BİRDİR
-            # (`self._durum_tur % 10 == 1`), yani tur başına değil. İndirme KOŞULLU (ETag → 304)
-            # olduğu için tipik maliyet tur başına ~0, çapraz kontrol başına birkaç yüz bayt.
-            # Ölçülen oran (10 tur): 10 durum.json + 1 tetikle.json + 1 komut.json + 1 lastupdate.json.
-            # Panel işaret yazmaya başlarsa dal kendiliğinden seyrekleşir.
-            if not isaret:
-                self._komut_capraz_kontrol()
+            # (komut çapraz kontrolü buradan ÇIKARILDI: tetikleyici kapısının önünde, bağımsız
+            #  sayaçla çalışıyor — bkz. yukarıdaki "1b" bloğu.)
         onceki = str(getattr(self.data_handler, "lastupdate", "") or "")
         # KALP ATIŞI: her turda INFO. "Neden güncellenmiyor?" sorusunun yanıtı bu satırda:
         # uzak damga ile cihazdaki damga yan yana görünür, MQTT durumu eklenir.
