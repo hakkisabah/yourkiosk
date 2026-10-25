@@ -13,6 +13,7 @@ import OrtaPanel from '@/bilesenler/OrtaPanel.vue'
 import SolPanel from '@/bilesenler/SolPanel.vue'
 import YayinGoruntusu from '@/bilesenler/YayinGoruntusu.vue'
 import { createKiosk } from '@/kiosk'
+import { komutBildiriminiOku as komutBildiriminiSor } from '@/veri/komutBildirim'
 import { Onbellek } from '@/veri/onbellek'
 import { parametreleriOku, VeriKaynagi } from '@/veri/kaynak'
 import { elle, sahneOlcegi, sabit } from '@/stiller/olcu'
@@ -78,11 +79,20 @@ watch(
   (url) => void gorseliHazirla(url),
 )
 
+/** Komut bildirimi: süpervizör uzaktan komut uygularken `/komut-bildirim` ucundan okunur. */
+const komutBildirimi = ref('')
+let komutZamanlayici: number | undefined
+
+async function komutBildiriminiOku(): Promise<void> {
+  komutBildirimi.value = await komutBildiriminiSor()
+}
+
 onMounted(async () => {
   olcekle()
   window.addEventListener('resize', olcekle)
   window.addEventListener('keydown', tusaBasildi)
   logoTespit()
+  komutZamanlayici = window.setInterval(() => void komutBildiriminiOku(), 1000)
   await onbellek.bagla()
   kiosk.baslat()
 })
@@ -91,6 +101,7 @@ onBeforeUnmount(() => {
   kiosk.durdur()
   window.removeEventListener('resize', olcekle)
   window.removeEventListener('keydown', tusaBasildi)
+  if (komutZamanlayici !== undefined) window.clearInterval(komutZamanlayici)
   if (gorselBlob.value) URL.revokeObjectURL(gorselBlob.value)
 })
 
@@ -140,6 +151,9 @@ const animasyonMs = elle('animasyon.sure_ms', 1800) as number
 
       <!-- EKRAN ÜSTÜ TEŞHİS: kiosk modunda konsol görünmez → `d` tuşu ile aç/kapa -->
       <pre v-if="taniAcik" class="tani-kart">{{ taniSatirlari.join('\n') }}</pre>
+
+      <!-- UZAKTAN KOMUT BİLDİRİMİ: "yeniden başlatılıyor…" (Qt: komut_kaplama) -->
+      <div v-if="komutBildirimi" class="komut-bildirim">{{ komutBildirimi }}</div>
 
       <!-- KAYAN YAZI KUŞAĞI: yalnızca yayın görünümünde, görselin ÜSTÜNDE -->
       <Kusak

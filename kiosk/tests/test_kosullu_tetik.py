@@ -223,7 +223,12 @@ def test_durum_json_bozuksa_dogrulayici_hatirlanmaz(sunucu, monkeypatch) -> None
 
 
 def test_cok_derin_json_yoklama_turunu_dusurmez(sunucu, monkeypatch) -> None:
-    """RecursionError yakalanmalı (i5 bulgusu): 64 KB içinde derin iç içe gövde ayrıştırmayı patlatır."""
+    """RecursionError yakalanmalı (i5 bulgusu): 64 KB içinde derin iç içe gövde ayrıştırmayı patlatır.
+
+    GÜÇLENDİRİLDİ (i5 notu: "test iddia ettiği korumayı tam kanıtlamıyor"): yalnız `None`
+    dönmesi yetmez — (1) bunun bizim kapımızdan (VeriHatasi) geçtiğini, (2) bellek kopyasının
+    ZEHİRLENMEDİĞİNİ (sonraki geçerli belgenin normal okunduğunu) da doğrular.
+    """
     from core import durum
 
     monkeypatch.setattr(durum, "_son_belge", None)
@@ -232,6 +237,18 @@ def test_cok_derin_json_yoklama_turunu_dusurmez(sunucu, monkeypatch) -> None:
     sunucu.icerik = derin
     assert durum.getir() is None  # istisna sızdırmamalı
     assert not uzak._ETAG, "çözülemeyen gövde için doğrulayıcı saklanmamalı"
+    assert durum._son_belge is None
+
+    # Kapının kendisi kanıtı: aynı gövde json_yukle'de VeriHatasi üretir (RecursionError sızmaz).
+    from security.veri_dogrulama import VeriHatasi, json_yukle
+
+    with pytest.raises(VeriHatasi):
+        json_yukle(derin, en_buyuk_derinlik=durum.EN_BUYUK_DERINLIK, en_buyuk_dugum=durum.EN_BUYUK_DUGUM)
+
+    # CİHAZ TOPARLANIR: sonraki geçerli belge normal okunur (derin gövde durumu kilitlemez).
+    sunucu.icerik = b'{"lastupdate": "2026-10-25T10:00:00Z"}'
+    belge = durum.getir()
+    assert belge is not None and belge["lastupdate"] == "2026-10-25T10:00:00Z"
 
 
 def test_yerel_dosya_silinince_govde_yeniden_iner(sunucu, tmp_path, monkeypatch) -> None:
