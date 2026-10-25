@@ -8,13 +8,13 @@ yapıldığında cihazın bir saate kadar beklemesi istenmez.
     {"zaman": "2026-10-17T09:12:00", "ilceId": "30607352906750376", "bolgeId": "", "aciklama": ""}
 
 Cihaz bu dosyayı (ve `lastupdate.json` damgasını) kısa aralıklarla — `DAMGA_KONTROL_MS`,
-varsayılan 20 sn — **yalnızca üst veri** olarak okur (büyük veri dosyasına dokunmaz) ve
-kendisini ilgilendiren tetikleyiciyi görürse **hemen** yenilenir:
+**push bağlı 120 sn / kopuk 30 sn** — **yalnızca üst veri** olarak okur (büyük veri dosyasına
+dokunmaz) ve kendisini ilgilendiren tetikleyiciyi görürse **hemen** yenilenir:
 
   · `ilceId` boş/"*"      → TÜM cihazlar,
   · `ilceId` kendi ilçesi → bu cihaz,
   · `bolgeId` kendi bölgesi → bu cihaz,
-  · başka ilçe/bölge      → hemen yenilenmez (20 sn'lik yoklama + saatlik kontrol yeter).
+  · başka ilçe/bölge      → hemen yenilenmez (30 sn'lik yoklama + saatlik kontrol yeter).
 
 Tarayıcı (Chromium kiosk) modunda buna ek olarak yerel sunucudaki `/degisiklik` ucu ile
 **uzun yoklama** yapılır: dosya değiştiği AN bildirilir (tipik <1 sn).

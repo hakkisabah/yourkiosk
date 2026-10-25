@@ -3,9 +3,10 @@
 Cihazın bulunduğu yere gitmeden **yeniden başlatma** ve **ekran tazeleme** yapabilmek için
 sunucudan (S3) gelen, **imzalı** ve **beyaz listeli** bir komut düzeneği vardır.
 
-Komut, panelin yazdığı `komut.json` dosyasıyla taşınır; cihaz bu dosyayı `DAMGA_KONTROL_MS`
-(varsayılan **20 sn**) içinde alır. Nöbet tetikleyicisi (`tetikle.json`) ile **aynı** taşıma yolu
-kullanılır — tek fark, komutun çalıştırılmadan önce imza denetiminden geçmesidir.
+Komut, panelin yazdığı `komut.json` dosyasıyla taşınır; cihaz komut işaretini `durum.json`dan
+`DAMGA_KONTROL_MS` (**push bağlı 120 sn / kopuk 30 sn**) içinde görür, işaret yoksa
+`komut.json`u 10 turda bir çapraz kontrolde indirir. Nöbet tetikleyicisi (`tetikle.json`) ile
+**aynı** taşıma yolu kullanılır — tek fark, komutun çalıştırılmadan önce imza denetiminden geçmesidir.
 
 ---
 
@@ -76,7 +77,7 @@ Panelin S3 tarayıcısını kullanacaksanız içeriği **`komut.json`** anahtar�
 
 ### Cihaz tarafında ne olur?
 
-1. Cihaz (20 sn içinde) `komut.json`u indirir → `kiosk/komut.json`.
+1. Cihaz (en geç `DAMGA_KONTROL_MS` içinde, push yoksa 30 sn) `komut.json`u indirir → `kiosk/komut.json`.
 2. `core/komut.py` sırayla denetler: **beyaz liste** → **imza** → **hedef cihaz** → **tek seferlik**.
 3. Geçerse komut çalıştırılır ve `komut-durum.json`'a işlenir.
 4. Her adım `kiosk.log`'a yazılır (`UZAKTAN KOMUT: ...`).

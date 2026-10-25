@@ -35,7 +35,7 @@ PANEL (yönetici)                     S3 / cihaz dosyaları                CİHA
 | Yol | Gecikme | Nerede |
 |---|---|---|
 | **Uzun yoklama** `/degisiklik` (yalnız tarayıcı modunda, yerel sunucu) | tipik **< 1 sn** | Sunucu, `lastupdate.json`/`tetikle.json` üst verisi değişene kadar isteği açık tutar |
-| **Hızlı yoklama** `DAMGA_KONTROL_MS` (varsayılan **20 sn**) | ≤ 20 sn | Hem Qt hem tarayıcı modu: yalnız KÜÇÜK dosyalar okunur |
+| **Hızlı yoklama** `DAMGA_KONTROL_MS` (**push bağlı 120 sn / kopuk 30 sn**) | tipik **≤ 30 sn**, push bağlıysa ≤ 120 sn | Qt modu: `durum.json` tek istekte damga + tetikleyici + komut işareti; MQTT bağlıyken anlıklık push'tan gelir, yoklama emniyet ağıdır |
 | Saatlik tam kontrol `REFRESH_INTERVAL_MS` | ≤ 1 saat | Emniyet ağı (her iki mod) |
 
 Yoklama **yalnızca üst veri** okur: `lastupdate.json` (~40 bayt) ve `tetikle.json`. Büyük
@@ -46,7 +46,7 @@ Kapsam kuralı (`core/tetik.py` ↔ tarayıcıdaki `tetikUygulanmali`, aynı kur
 1. `ilceId` boş/`*` → uygulanır,
 2. `ilceId` == cihazın ilçesi → uygulanır,
 3. `bolgeId` == cihazın bölgesi → uygulanır,
-4. aksi hâlde **hemen uygulanmaz** (20 sn'lik yoklama + saatlik kontrol yine çalışır),
+4. aksi hâlde **hemen uygulanmaz** (30 sn'lik yoklama + saatlik kontrol yine çalışır),
 5. `zaman` ≤ son uygulanan → uygulanmaz (tekrar engeli).
 
 ## 3. Ekranda nasıl görünür?
@@ -75,11 +75,12 @@ python3 tools/nobet_tetikle.py --sil                      # tetikleyiciyi kaldı
 ## 5. Uçtan uca doğrulama (önerilen sıra)
 
 1. **Qt modunda:** uygulamayı çalıştır, `tools/nobet_tetikle.py` ile tetikleyici yaz →
-   `kiosk.log`'da `tetikleyici uygulanıyor … → hemen yenileniyor` satırı en çok 20 sn içinde görünür.
+   `kiosk.log`'da `tetikleyici uygulanıyor … → hemen yenileniyor` satırı en çok `DAMGA_KONTROL_MS`
+   (push yoksa 30 sn) içinde görünür.
 2. **Tarayıcı modunda:** `python3 tools/tarayici_kiosk.py` ile aç; terminalde (veya ekranda `d`
    tuşuyla) `anlık bildirim: … → yenileniyor` satırı **1 saniye** içinde görünür.
 3. **Kapsam denemesi:** başka bir ilçenin `ilceId`'siyle tetikleyici yaz → cihaz hemen
-   yenilenmemeli (günlükte tetikleyici satırı görünmez), 20 sn'lik yoklama da damga
+   yenilenmemeli (günlükte tetikleyici satırı görünmez), 30 sn'lik yoklama da damga
    değişmediği için veri çekmemeli.
 4. **Panel:** *Bildir* sonrası S3'te `tetikle.json` nesnesi görünür (Durum ekranı / `aws s3 ls`).
 
@@ -119,7 +120,7 @@ python3 tools/nobet_tetikle.py --sil                      # tetikleyiciyi kaldı
    `ayarlar.json`, `kapsam-ayarlari.json`, `sablon.json`, `lastSystemData.json`, `match.json`,
    `lastupdate.json`. (Önceden yalnız "Nöbet ve Yayınlar" ekranındaki elle "Bildir" düğmesi yazıyordu.)
 2. **Cihaz:** `tetik.aktif = true` **ve** cihazın modu `tetik.modlar` içindeyse hemen yenilenir —
-   Qt `DAMGA_KONTROL_MS` (≈20 sn) içinde, tarayıcı `/degisiklik` uzun yoklamasıyla tipik **<1 sn**.
+   Qt `DAMGA_KONTROL_MS` (push yoksa 30 sn) içinde, tarayıcı `/degisiklik` uzun yoklamasıyla tipik **<1 sn**.
 3. **Kapalı / mod listede değil:** anında yenileme yok; cihaz normal aralıkta güncellenir
    (Qt `data_timer`, tarayıcı `web_yenileme_ms`). `/degisiklik` nabız gibi döner (sıcak döngü yok).
 4. **Uzaktan komutlar** (`komut.json`) bu ayardan **bağımsızdır** (ayrı beyaz liste + HMAC).

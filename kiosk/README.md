@@ -309,9 +309,11 @@ Veri saatte bir kontrol edilir; bir nöbet değişikliğinde cihazın beklemesin
 * **Panel → `tetikle.json`**: yönetici kaydı düzenleyip *Kaydet*'ten sonra *Cihazlara hemen
   bildir* düğmesine basar. Dosya kapsam taşır (`ilceId` boş/`*` = tüm cihazlar, dolu = o ilçe).
 * **Cihaz**: yalnızca KÜÇÜK dosyaları (`lastupdate.json`, `tetikle.json`) kısa aralıklarla okur.
-  Tarayıcı modunda yerel sunucudaki `/degisiklik` ucu ile **uzun yoklama** yapılır (tipik <1 sn),
-  Qt modunda `DAMGA_KONTROL_MS` (varsayılan 20 sn) yoklaması devrededir. Büyük veri dosyası
-  damga değişmedikçe indirilmez.
+  Tarayıcı modunda yerel sunucudaki `/degisiklik` ucu ile **uzun yoklama** yapılır (tipik <1 sn).
+  Qt modunda damga yoklaması `DAMGA_KONTROL_MS` ile çalışır: **MQTT push bağlıysa 120 sn, kopukken
+  30 sn** (`DAMGA_KONTROL_MS_PUSH` / `DAMGA_KONTROL_MS_PUSH_YOK`), ayrıca yerel dosya izleyici
+  `TETIK_IZLEME_MS` (2 sn) ve 10 turda bir `tetikle.json`/`komut.json` çapraz kontrolü devrededir.
+  Büyük veri dosyası damga değişmedikçe indirilmez.
 * Kural tek yerde: `core/tetik.py` (Qt uygulaması, web sunucusu ve komut satırı aracı aynı kuralı
   kullanır). Aynı tetikleyici iki kez uygulanmaz; başka ilçenin tetikleyicisi bu cihazı etkilemez.
 * Cihazda elle denemek için: `python3 tools/nobet_tetikle.py --ilce <ilceId>`.

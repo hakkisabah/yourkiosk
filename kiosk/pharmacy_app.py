@@ -213,7 +213,8 @@ class PharmacyApp(QMainWindow):
     def tetik_kontrol(self):
         """NÖBET DEĞİŞİKLİĞİNİ BEKLEMEDEN yansıt (panel tetikleyicisi ya da damga değişikliği).
 
-        Saatlik `data_timer`'a EK olarak `DAMGA_KONTROL_MS` (varsayılan 20 sn) ile çalışır ve
+        Saatlik `data_timer`'a EK olarak `DAMGA_KONTROL_MS` (push BAĞLI 120 sn / KOPUK 30 sn) ile
+        çalışır ve
         yalnızca KÜÇÜK dosyaları okur (`lastupdate.json`, `tetikle.json`, `komut.json`); büyük veri
         dosyası damga değişmedikçe indirilmez:
           · `lastupdate` damgası değiştiyse → veri yenilenir,
