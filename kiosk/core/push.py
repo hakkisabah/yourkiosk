@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -75,6 +77,19 @@ def cihaz_kimligi() -> str:
         return str(veri_kaynagi.client_id() or "").strip()
     except Exception:  # noqa: BLE001 - kimlik okunamazsa "bilinmeyen" ile devam
         return ""
+
+
+def istemci_kimligi(cihaz: str | None = None) -> str:
+    """MQTT clientId — cihaz kimliği + rastgele son ek.
+
+    NEDEN: eski kimlik `yourkiosk-<int(time.time()) % 100000>` idi; 600 cihazın toplu
+    kurulumunda aynı saniyede açılan iki cihaz AYNI clientId'yi alıyor, broker eski oturumu
+    atınca biri diğerinin aboneliğini düşürüyordu (i5 bulgusu). MQTT 3.1.1 clientId sınırı
+    23 karakterdir → kısa tutulur (`yk-` + 12 + `-` + 6 = 22).
+    """
+    ham = str(cihaz or cihaz_kimligi() or "bilinmeyen")
+    temiz = re.sub(r"[^A-Za-z0-9_-]", "-", ham).strip("-")[:12] or "bilinmeyen"
+    return f"yk-{temiz}-{uuid.uuid4().hex[:6]}"
 
 
 def durum_konusu(cihaz: str | None = None) -> str:
@@ -148,7 +163,7 @@ def _dongu(durdur: threading.Event) -> None:
 
     adres, port = broker(), int(getattr(config, "TETIK_PUSH_PORT", 8883))
     # paho-mqtt 2.x CallbackAPIVersion'ı ZORUNLU tutar; 1.x'te yoktur → ikisini de destekle
-    istemci_id = f"yourkiosk-{int(time.time()) % 100000}"
+    istemci_id = istemci_kimligi()
     if hasattr(mqtt, "CallbackAPIVersion"):
         istemci = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=istemci_id)
     else:  # pragma: no cover - eski paho

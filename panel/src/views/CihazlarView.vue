@@ -8,8 +8,22 @@ import { kopya } from '@/domain/kopya'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { DOSYALAR } from '@/aws/config'
-import { durumEtiketi, izlemeBaslat, izlemeOzeti, type CihazDurumu, type IzlemeOturumu } from '@/domain/cihazIzleme'
-import { mqttYapilandirildi } from '@/domain/push'
+import {
+  durumEtiketi,
+  izlemeBaslat,
+  izlemeOzeti,
+  type BaglantiDurumu,
+  type CihazDurumu,
+  type IzlemeOturumu,
+} from '@/domain/cihazIzleme'
+import {
+  izlemeAdresi,
+  izlemeKonusu,
+  kimligiOku,
+  kimligiSil,
+  kimligiYaz,
+  VARSAYILAN_IZLEME_KULLANICI,
+} from '@/domain/izlemeKimligi'
 import { gunEtiketi, tarihMetni, tumKayitlar } from '@/domain/veri'
 import { useDosyalar } from '@/stores/dosyalar'
 
@@ -18,33 +32,95 @@ const taslak = ref<Record<string, unknown>>(kopya(dosyalar.match.veri ?? {}))
 const taslakMakine = ref<string>(dosyalar.clientId)
 const mesaj = ref('')
 
-/** CİHAZ İZLEME (MQTT kalp atışı): çevrimiçi/çevrimdışı. Yapılandırma yoksa kapalıdır. */
+/**
+ * CİHAZ İZLEME (MQTT kalp atışı) — çevrimiçi/çevrimdışı.
+ *
+ * Kimlik ÇALIŞMA ANINDA istenir (pakete gömülmez): panel paketi CloudFront'tan kimlik
+ * doğrulamasız indirilebildiği için `VITE_MQTT_PAROLA` derlemeye yazılırsa sır sızar (i5 bulgusu).
+ * Parola yalnız sessionStorage'da tutulur; sekme kapanınca silinir.
+ */
 const durumlar = ref<Map<string, CihazDurumu>>(new Map())
-const izlemeDurumu = ref<'kapali' | 'baglaniyor' | 'acik' | 'hata'>('kapali')
+const izlemeDurumu = ref<'kapali' | 'kimlik-gerekli' | 'baglaniyor' | 'acik' | 'koptu' | 'hata'>('kapali')
 const izlemeHatasi = ref('')
 const simdi = ref(new Date())
+const kimlikDialog = ref(false)
+const kimlikKullanici = ref(VARSAYILAN_IZLEME_KULLANICI)
+const kimlikParola = ref('')
 let oturum: IzlemeOturumu | null = null
 let saatZamanlayici: number | undefined
 
-onMounted(async () => {
-  saatZamanlayici = window.setInterval(() => (simdi.value = new Date()), 30_000)
-  if (!mqttYapilandirildi()) {
-    izlemeDurumu.value = 'kapali'
-    return
+const izlemeUrl = izlemeAdresi(import.meta.env as unknown as Record<string, string | undefined>)
+const bagliMi = computed(() => izlemeDurumu.value === 'acik')
+
+function durumEsle(durum: BaglantiDurumu, ayrinti?: string): void {
+  if (durum === 'bagli') izlemeDurumu.value = 'acik'
+  else if (durum === 'baglaniyor') izlemeDurumu.value = 'baglaniyor'
+  else if (durum === 'koptu') izlemeDurumu.value = 'koptu'
+  else {
+    izlemeDurumu.value = 'hata'
+    izlemeHatasi.value = ayrinti ?? 'bilinmeyen MQTT hatası'
   }
+}
+
+async function izlemeyiBagla(kullanici: string, parola: string): Promise<void> {
+  oturum?.durdur()
+  oturum = null
+  durumlar.value = new Map()
+  izlemeHatasi.value = ''
   izlemeDurumu.value = 'baglaniyor'
   try {
-    oturum = await izlemeBaslat((durum) => {
-      const yeni = new Map(durumlar.value)
-      yeni.set(durum.cihazId, durum)
-      durumlar.value = yeni
-      izlemeDurumu.value = 'acik'
-    })
-    izlemeDurumu.value = oturum ? 'acik' : 'kapali'
+    const konu = izlemeKonusu(import.meta.env as unknown as Record<string, string | undefined>)
+    oturum = await izlemeBaslat(
+      (durum) => {
+        const yeni = new Map(durumlar.value)
+        yeni.set(durum.cihazId, durum)
+        durumlar.value = yeni
+      },
+      { url: izlemeUrl, konu, kullanici, parola },
+      { durum: durumEsle },
+    )
+    if (!oturum) izlemeDurumu.value = 'kapali'
   } catch (hata) {
     izlemeDurumu.value = 'hata'
     izlemeHatasi.value = (hata as Error).message
   }
+}
+
+function kimlikSor(): void {
+  kimlikKullanici.value = kimligiOku()?.kullanici ?? VARSAYILAN_IZLEME_KULLANICI
+  kimlikParola.value = ''
+  kimlikDialog.value = true
+}
+
+function kimlikKaydet(): void {
+  const kullanici = kimlikKullanici.value.trim()
+  if (!kullanici || !kimlikParola.value) return
+  kimligiYaz({ kullanici, parola: kimlikParola.value })
+  kimlikDialog.value = false
+  void izlemeyiBagla(kullanici, kimlikParola.value)
+  kimlikParola.value = ''
+}
+
+function izlemeyiKes(): void {
+  oturum?.durdur()
+  oturum = null
+  kimligiSil()
+  durumlar.value = new Map()
+  izlemeDurumu.value = izlemeUrl ? 'kimlik-gerekli' : 'kapali'
+}
+
+onMounted(async () => {
+  saatZamanlayici = window.setInterval(() => (simdi.value = new Date()), 30_000)
+  if (!izlemeUrl) {
+    izlemeDurumu.value = 'kapali'
+    return
+  }
+  const kimlik = kimligiOku()
+  if (!kimlik) {
+    izlemeDurumu.value = 'kimlik-gerekli'
+    return
+  }
+  await izlemeyiBagla(kimlik.kullanici, kimlik.parola)
 })
 
 onBeforeUnmount(() => {
@@ -172,9 +248,21 @@ async function kaydet(): Promise<void> {
       Çevrimiçi izleme <strong>kapalı</strong> — panelde <code>VITE_MQTT_URL</code> tanımlı değil.
       Cihazlar çalışmaya devam eder (yoklama emniyet ağı); durum sütunu "bilinmiyor" görünür.
     </v-alert>
-    <v-alert v-else-if="izlemeDurumu === 'hata'" type="warning" variant="tonal" density="compact" class="mb-4">
-      MQTT izleme başlatılamadı: {{ izlemeHatasi }} — cihazlar etkilenmez.
+    <v-alert v-else-if="izlemeDurumu === 'kimlik-gerekli'" type="info" variant="tonal" density="compact" class="mb-4">
+      Çevrimiçi izleme için broker <strong>okuma</strong> kimliği gerekli (kullanıcı
+      <code>panel-izleme</code>). Parola pakete gömülmez; yalnız bu sekmede tutulur.
+      <v-btn size="small" variant="tonal" class="ml-3" prepend-icon="mdi-lan-connect" @click="kimlikSor">
+        İzlemeyi bağla
+      </v-btn>
     </v-alert>
+    <v-alert v-else-if="izlemeDurumu === 'hata' || izlemeDurumu === 'koptu'" type="warning" variant="tonal" density="compact" class="mb-4">
+      MQTT izleme {{ izlemeDurumu === 'koptu' ? 'bağlantısı koptu' : 'başlatılamadı' }}:
+      {{ izlemeHatasi }} — cihazlar etkilenmez.
+      <v-btn size="small" variant="text" class="ml-3" @click="kimlikSor">Yeniden bağlan</v-btn>
+    </v-alert>
+    <div v-else-if="izlemeDurumu === 'baglaniyor'" class="text-caption text-medium-emphasis mb-4">
+      MQTT izlemesi bağlanıyor…
+    </div>
 
     <v-row>
       <v-col cols="12" lg="8">
@@ -182,15 +270,18 @@ async function kaydet(): Promise<void> {
           <v-card-title class="text-subtitle-1 d-flex align-center">
             <span>Cihaz eşlemesi ({{ cihazlar.length }} bölge kaydı)</span>
             <v-spacer />
-            <v-chip v-if="izlemeDurumu === 'acik'" size="small" variant="tonal" color="success" class="mr-2">
+            <v-chip v-if="bagliMi" size="small" variant="tonal" color="success" class="mr-2">
               çevrimiçi {{ cevrimiciOzeti.cevrimici }}
             </v-chip>
-            <v-chip v-if="izlemeDurumu === 'acik'" size="small" variant="tonal" color="error" class="mr-2">
+            <v-chip v-if="bagliMi" size="small" variant="tonal" color="error" class="mr-2">
               çevrimdışı {{ cevrimiciOzeti.cevrimdisi }}
             </v-chip>
-            <v-chip v-if="izlemeDurumu === 'acik' && cevrimiciOzeti.bilinmiyor" size="small" variant="tonal">
+            <v-chip v-if="bagliMi && cevrimiciOzeti.bilinmiyor" size="small" variant="tonal">
               bilinmiyor {{ cevrimiciOzeti.bilinmiyor }}
             </v-chip>
+            <v-btn v-if="bagliMi" size="small" variant="text" class="ml-2" @click="izlemeyiKes">
+              İzlemeyi kes
+            </v-btn>
           </v-card-title>
           <v-card-text>
             <v-table density="compact">
@@ -291,5 +382,33 @@ async function kaydet(): Promise<void> {
         </v-card>
       </v-col>
     </v-row>
+
+    <v-dialog v-model="kimlikDialog" max-width="460">
+      <v-card>
+        <v-card-title class="text-subtitle-1">Çevrimiçi izleme kimliği</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-3">
+            Broker'da <strong>yalnız <code>durum/+</code> okuma</strong> yetkisi olan kullanıcı. Parola
+            derleme paketine gömülmez, yalnız bu sekmede (sessionStorage) tutulur.
+          </p>
+          <v-text-field v-model="kimlikKullanici" label="Kullanıcı" density="compact" autocomplete="username" />
+          <v-text-field
+            v-model="kimlikParola"
+            label="Parola"
+            type="password"
+            density="compact"
+            autocomplete="current-password"
+            @keyup.enter="kimlikKaydet"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="kimlikDialog = false">Vazgeç</v-btn>
+          <v-btn color="primary" :disabled="!kimlikKullanici.trim() || !kimlikParola" @click="kimlikKaydet">
+            Bağlan
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
