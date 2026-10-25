@@ -231,3 +231,23 @@ panel/
   imza anahtarı bir tarayıcı istemcisine konulamaz (pakete sızardı). Komutlar yönetici aracıyla ya da
   sunucu tarafıyla (Lambda ortam değişkeni `KOMUT_ANAHTARI`) gönderilir; ayrıntı:
   `kiosk/KOMUTLAR.md`. `komut.json` / `tetikle.json` S3 ön ekinde olağan nesnelerdir.
+## 6) İki adımlı doğrulama (TOTP) — HAZIR, VARSAYILAN KAPALI
+
+Panel tek yönetici hesabıyla çalışıyor ve o hesap tüm yayın verisini değiştirebiliyor. TOTP
+(RFC 6238) altyapısı **hazır** ama **kapalı**: sistem tam çalışır hâle gelince tek satırla açılır.
+
+```bash
+# .env.local (derleme zamanı — CloudFront'a giden pakete sadece BAYRAK girer, TOHUM girmez)
+VITE_MFA_AKTIF=1
+```
+
+- Kod: `src/domain/mfa.ts` (tohum üretimi, base32, TOTP, sabit zamanlı karşılaştırma, ±1 pencere
+  saat kayması toleransı, `fail-closed` doğrulama). Testler RFC 6238 Ek B vektörleriyle:
+  `npx vitest run src/domain/mfa.test.ts` (21 test).
+- Tohum **asla** depoya/`.env`e yazılmaz: kurulum sırasında üretilir, Authenticator uygulamasına
+  `otpauth://` adresiyle okutulur ve yalnız `sessionStorage`'da tutulur (izleme kimliğiyle aynı
+  kural — panel paketi CloudFront'tan kimlik doğrulamasız indirilebiliyor).
+- Bayrak kapalıyken `mfaAktifMi()` her durumda `false` döner; açık/kapalı kararı tek yerdedir.
+- **Açmadan önce** yapılacaklar: (1) `GirisView` akışına kod adımını bağla, (2) kurtarma kodlarını
+  belirle, (3) yönetici hesabında MFA'yı Cognito tarafında da zorunlu kıl (istemci kontrolü tek
+  başına yeterli değildir).
