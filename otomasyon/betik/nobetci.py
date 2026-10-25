@@ -8,7 +8,9 @@ büyür ve PR'lar en kötü 30 dakika bekler. Nöbetçi tek bir uzun ömürlü s
     yanıt gövdesi indirilmez ve 304'ler oran sınırına sayılmaz (GitHub belgelenmiş davranışı),
   * **yapılacak iş listesi** çıkarır (rol başına: i5 → incelenecek PR'lar, i3 → karar/merge),
   * liste boşsa **hiç oturum açmaz** (0 token),
-  * liste doluysa **tek** `hermes chat -q` oturumu açar ve o turda listedeki TÜM PR'ları işler,
+  * liste doluysa **tek** `hermes chat -q` oturumu açar; o oturum listeden `OTURUM_BASI_PR` kadar
+    PR alır (i5: 1, i3: 3) ve kalanlar bir sonraki tura kalır (zaman aşımını önler),
+  * liste **en eski PR önce** sıralanır; bu yüzden yeni bir PR eskiyi asla aç bırakmaz,
   * iş bitince uyur; yeni commit/PR geldiğinde en geç `--aralik` saniye içinde yeniden uyanır.
 
 Böylece: boşta 0 oturum, olay başına ~1 oturum, gecikme saniyeler (cron: dakikalar).
@@ -28,6 +30,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -86,6 +89,15 @@ def butce_hesapla(zaman_asimi: int) -> dict[str, int]:
         "tur_basi_sn": butce // tur,
         "yeterli": tur >= OTURUM_TUR_TAVANI,
     }
+
+
+# AÇLIK EŞİĞİ: GitHub `pulls` listesi EN YENİ PR'ı önce döndürür. Sıralama düzeltilmeden önce
+# kuyruk şu şekilde kilitleniyordu (25 Ekim, gerçek vaka): #83 (10:08) ve #84 (10:45) açıldı,
+# araya #86 girdi; `limit` ilk N PR'ı aldığı ve oturum başına 1 PR işlendiği için sıra hep #86'ya
+# gitti → #83/#84 on saat boyunca `guvenlik/inceleme` durumu OLMADAN bekledi. Çözüm: iş listesi
+# PR numarasına/yeniliğe göre değil **yaşa göre (en eski önce)** sıralanır. Bu eşik yalnız
+# günlüğe `AÇLIK:` satırı yazmak için (görünürlük); sıralamayı yapan şey sıralamanın kendisi.
+ACLIK_ESIGI_DK = 120
 
 
 def simdi() -> str:
@@ -203,16 +215,35 @@ def beklemeli_mi(denemeler: dict, pr: int, sha: str, an: float) -> tuple[bool, i
     return False, 0
 
 
+def yas_dk(iso: str | None, an: float | None = None) -> int:
+    """ISO-8601 zaman damgası → kaç dakika önce (okunamazsa 0)."""
+    if not iso:
+        return 0
+    try:
+        t = datetime.fromisoformat(str(iso).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0
+    return max(0, int(((an if an is not None else time.time()) - t) / 60))
+
+
 def isler(gh: Github, rol: str, limit: int) -> list[dict]:
-    """Rol için yapılacak işler. i5: incelenecek PR'lar · i3: karar/merge edilecek PR'lar."""
-    kod, govde = gh.al(f"/repos/{gh.depo}/pulls?state=open&per_page={max(limit, 1)}")
+    """Rol için yapılacak işler — **EN ESKİ PR ÖNCE**.
+
+    Sıralama kritik: GitHub listeyi yeniden-eskiye döndürür. Önceden listeden ilk `limit` PR
+    alınıp sonra tek PR işlendiği için, araya giren her yeni PR kuyruğun başına geçiyor ve eski
+    PR'lar hiç incelenmiyordu (25 Ekim: #83/#84 → 10 saat `guvenlik/inceleme` olmadan bekledi).
+    Bu yüzden: tüm açık PR'lar çekilir (tek istek, `per_page=100`), yaşa göre sıralanır,
+    ancak ondan sonra `limit` uygulanır.
+    """
+    kod, govde = gh.al(f"/repos/{gh.depo}/pulls?state=open&per_page=100&sort=created&direction=asc")
     if kod == 304 and govde is None:
         return []
     if not isinstance(govde, list):
         return []
 
+    an = time.time()
     cikti: list[dict] = []
-    for pr in govde[:limit]:
+    for pr in govde:
         if pr.get("draft"):
             continue
         no = pr["number"]
@@ -222,16 +253,24 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
         inceleme = durumlar.get(ZORUNLU[0])
         karar = durumlar.get(ZORUNLU[1])
 
+        kayit = {"pr": no, "sha": sha, "baslik": pr["title"], "etiketler": sorted(etiketler),
+                 "inceleme": inceleme, "karar": karar,
+                 "yas_dk": yas_dk(pr.get("created_at"), an),
+                 # güncellenme yaşı: PR'a yeni commit geldiyse inceleme de yenilenmeli
+                 "guncelleme_dk": yas_dk(pr.get("updated_at"), an)}
+
         if rol == "i5":
             # incelenmemiş (ya da sorun bulunup etiketlenmiş) PR'lar
             if inceleme != "success" or SORUN_ETIKETI in etiketler:
-                cikti.append({"pr": no, "sha": sha, "baslik": pr["title"], "etiketler": sorted(etiketler),
-                              "inceleme": inceleme, "karar": karar})
+                cikti.append(kayit)
         else:  # i3 — yalnız i5 onay verdikten sonra çalışır
             if inceleme == "success" and (karar != "success" or ONAY_ETIKETI not in etiketler):
-                cikti.append({"pr": no, "sha": sha, "baslik": pr["title"], "etiketler": sorted(etiketler),
-                              "inceleme": inceleme, "karar": karar})
-    return cikti
+                cikti.append(kayit)
+
+    # yaş büyük = daha eski → başa. Eşitlikte PR numarası küçük olan (daha eski) önce.
+    cikti.sort(key=lambda i: (-i["yas_dk"], i["pr"]))
+    return cikti[:limit]
+
 
 
 def gorev_metni(rol: str, depo: Path, is_listesi: list[dict]) -> str:
@@ -250,8 +289,11 @@ def gorev_metni(rol: str, depo: Path, is_listesi: list[dict]) -> str:
             not_.append(f"inceleme={is_['inceleme']}")
         if is_.get("karar"):
             not_.append(f"karar={is_['karar']}")
+        if is_.get("yas_dk"):
+            not_.append(f"{is_['yas_dk'] // 60} saattir açık")
         ek = f" ({', '.join(not_)})" if not_ else ""
         satirlar.append(f"- PR #{is_['pr']} · head {is_['sha'][:12]} · {is_['baslik']}{ek}")
+    satirlar += ["", "SIRA: liste en eski PR önce sıralıdır; bu sırayı DEĞİŞTİRME."]
     if rol == "i3":
         satirlar += ["", "i5 onayı olan ve birleştirilebilir PR'ları `--birlestir --cift-onay` ile BİRLEŞTİR.",
                      "Bir PR birleşince diğerleri 'behind' kalabilir; o PR'a 'dal güncellenmeli' yorumu bırak."]
@@ -296,6 +338,13 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
         return 0
 
     hepsi = isler(gh, rol, limit)
+    if hepsi:
+        en_eski = hepsi[0]
+        if en_eski["yas_dk"] >= ACLIK_ESIGI_DK:
+            gunluk(gunluk_yolu, f"AÇLIK: PR #{en_eski['pr']} {en_eski['yas_dk']} dk "
+                                f"({en_eski['yas_dk'] / 60:.1f} saat) açık ve hâlâ sırada — "
+                                f"kuyruk {len(hepsi)} PR, oturum başına "
+                                f"{max(1, OTURUM_BASI_PR.get(rol, 1))} PR işleniyor")
     is_listesi: list[dict] = []
     atlanan: list[tuple[dict, int]] = []
     for is_ in hepsi:
@@ -357,14 +406,16 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
 
     gh.kaydet({"rol": rol, "is": len(is_listesi), "son_karar": "calisti" if not kuru else "kuru",
                "cikis": kod, "prlar": [i["pr"] for i in is_listesi],
+               "en_eski_dk": is_listesi[0].get("yas_dk") if is_listesi else 0,
                "bugun_oturum": int(gh.gunluk.get(bugun, 0))})
     if kod != 0 and cikti:
         gunluk(gunluk_yolu, "çıktı (son 600 karakter): " + cikti[-600:].replace("\n", " ⏎ "))
     return kod
 
 
-def kendini_denetle(rol: str) -> int:
-    """KONTROL NOKTALARI — 'neden hâlâ oturum açılıyor?' sorusunu tek komutta yanıtlar.
+def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 8) -> int:
+    """KONTROL NOKTALARI — 'neden hâlâ oturum açılıyor / neden PR bekliyor?' sorusunu tek
+    komutta yanıtlar.
 
     Hiçbir şeyi değiştirmez; her madde ✓/✗ yazar ve ✗ varsa çıkış kodu 1 olur.
     """
@@ -435,6 +486,58 @@ def kendini_denetle(rol: str) -> int:
         pass
     satir(0 <= adet <= 24, "bugünkü oturum ≤ 24", f"{adet}" if adet >= 0 else "okunamadı")
 
+    # 6) KUYRUK TIKANIKLIĞI: en eski iş ne kadar bekledi? (25 Ekim: #83/#84 → 10 saat görünmez)
+    if token_yolu.exists():
+        try:
+            gh = Github(token_yolu.read_text(encoding="utf-8").strip(),
+                        os.environ.get("GITHUB_DEPO", "hakkisabah/yourkiosk"), dosya, None)
+            hepsi = isler(gh, rol, limit)
+            if hepsi:
+                yas = int(hepsi[0].get("yas_dk", 0))
+                satir(yas < ACLIK_ESIGI_DK, "en eski iş < 120 dk",
+                      f"#{hepsi[0]['pr']} {yas} dk ({len(hepsi)} PR sırada)"
+                      + ("" if yas < ACLIK_ESIGI_DK else " → AÇLIK"))
+            else:
+                satir(True, "en eski iş < 120 dk", "iş yok")
+        except (OSError, ValueError) as hata:
+            print(f"⚠ en eski iş < 120 dk      okunamadı ({type(hata).__name__}: {hata})")
+    else:
+        satir(False, "token dosyası", f"yok: {token_yolu}")
+
+    # 7-8) GÜNLÜKTEN: son 24 saatte zaman aşımı ve karar kapısı reddi (sessiz kalmış hatalar)
+    sinir = time.time() - 86400
+    zaman_asimi = kapi_red = 0
+    gunluk_dosya = DURUM_KLASORU / f"nobetci-{rol}.log"
+    if gunluk_dosya.is_file():
+        for satirl in gunluk_dosya.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = re.match(r"\[(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)\]", satirl)
+            if not m:
+                continue
+            try:
+                an = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+            except ValueError:
+                continue
+            if an < sinir:
+                continue
+            if "çıkış 124" in satirl or "zaman aşımı" in satirl:
+                zaman_asimi += 1
+
+    # karar kapısı: yaz.py reddettiği/atladığı her kararı kapi-red.log'a yazar
+    kapi_dosya = DURUM_KLASORU / "kapi-red.log"
+    if kapi_dosya.is_file():
+        for satirl in kapi_dosya.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                kayit = json.loads(satirl)
+                an = datetime.strptime(str(kayit.get("zaman")), "%Y-%m-%dT%H:%M:%SZ").replace(
+                    tzinfo=timezone.utc).timestamp()
+            except (ValueError, TypeError):
+                continue
+            if an >= sinir:
+                kapi_red += 1
+
+    satir(zaman_asimi == 0, "son 24s zaman aşımı yok", f"{zaman_asimi} olay")
+    satir(kapi_red < 3, "karar kapısı reddi < 3", f"{kapi_red} olay → {kapi_dosya}")
+
     print(f"\n{'✓ tüm kontrol noktaları temiz' if sorun == 0 else f'✗ {sorun} kontrol noktası sorunlu'}")
     return 0 if sorun == 0 else 1
 
@@ -458,8 +561,8 @@ def main() -> int:
     ayar.add_argument("--log", type=Path, default=None)
 
     secim = ayar.parse_args()
-    if secim.kendini_denetle:  # kilit/token gerekmez, hiçbir şeyi değiştirmez
-        return kendini_denetle(secim.rol)
+    if secim.kendini_denetle:  # kilit gerekmez, hiçbir şeyi değiştirmez
+        return kendini_denetle(secim.rol, secim.token, secim.limit)
     durum_yolu = DURUM_KLASORU / f"nobetci-{secim.rol}.json"
     gunluk_yolu = secim.log or (DURUM_KLASORU / f"nobetci-{secim.rol}.log")
 
@@ -469,11 +572,11 @@ def main() -> int:
             return 1
         veri = json.loads(durum_yolu.read_text(encoding="utf-8"))
         print(f"nöbetçi durumu · {secim.rol} · {durum_yolu}")
-        for anahtar, deger in veri.items():
-            if anahtar == "etag":
+        for alan, deger in veri.items():
+            if alan == "etag":
                 print(f"  etag önbelleği : {len(deger)} adres")
             else:
-                print(f"  {anahtar:15s}: {deger}")
+                print(f"  {alan:15s}: {deger}")
         return 0
 
     if secim.tani:
@@ -493,7 +596,8 @@ def main() -> int:
             bekle, kalan = beklemeli_mi(gh.denemeler, is_["pr"], is_["sha"], an)
             durum = f"BEKLEMEDE ({kalan}s)" if bekle else "SIRADA"
             kayit = gh.denemeler.get(anahtar(is_["pr"], is_["sha"]), {})
-            print(f"    #{is_['pr']:<3} {is_['sha'][:12]} · {durum} · deneme={kayit.get('sayi', 0)}")
+            print(f"    #{is_['pr']:<3} {is_['sha'][:12]} · {is_['yas_dk']:>4} dk açık · {durum}"
+                  f" · deneme={kayit.get('sayi', 0)}")
         return 0
 
     if not secim.token.exists():
