@@ -310,6 +310,23 @@ body {
   cursor: auto;
 }
 
+/* ---------------------------------------------------------------- komut bildirimi */
+/* Uzaktan komut uygulanırken (ör. "Ekran yenileniyor…") tam ekran hafif karartma + yazı.
+   Metin SUNUCUDAN gelir (`core/bildirim.py`, sabit) — istemcide üretilmez. */
+.komut-bildirim {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 38px;
+  font-weight: bold;
+  text-align: center;
+}
+
 /* ---------------------------------------------------------------- hata kartı */
 .hata-kart {
   position: absolute;

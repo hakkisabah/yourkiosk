@@ -236,8 +236,14 @@ def uygula(
     *,
     kuru: bool | None = None,
     calistir=subprocess.run,
+    bildirim_geri_cagri=None,
 ) -> Sonuc:
-    """Doğrulanmış komutu çalıştırır. `kuru=True` ya da ayar açıkken yalnız günlüklenir."""
+    """Doğrulanmış komutu çalıştırır. `kuru=True` ya da ayar açıkken yalnız günlüklenir.
+
+    `bildirim_geri_cagri`: komut ÇALIŞMADAN ÖNCE çağrılır (`komut` metni ile). Qt burada
+    "yeniden başlatılıyor" kaplamasını gösterip `processEvents()` çağırır; aksi hâlde
+    `subprocess` ana iş parçacığını bloke ettiği için yazı hiç boyanmaz.
+    """
     komut = str(belge.get("komut", "")).strip().lower()
     kimlik = str(belge.get("id", "")).strip()
     kuru = bool(getattr(config, "KOMUT_KURU_CALISTIRMA", False)) if kuru is None else kuru
@@ -253,6 +259,7 @@ def uygula(
         # argv yok → yalnız "ekrani-yenile": uygulama kendisi tazeler
         sonuc.uygulama_ici = True
         log.info("komut: %s → uygulama içi tazeleme istendi (%s)", komut, kimlik)
+        _bildir(komut, bildirim_geri_cagri)
         durum_yaz(sonuc)
         return sonuc
 
@@ -263,6 +270,8 @@ def uygula(
 
     zaman_asimi = int(getattr(config, "KOMUT_ZAMAN_ASIMI_S", 60) or 60)
     log.warning("komut ÇALIŞTIRILIYOR: %s → %s (%s)", komut, " ".join(sonuc.argv), kimlik)
+    # EKRANDA KISA BİLGİ (kullanıcı isteği): komut çalışırken ekran kararıyor gibi görünmesin.
+    _bildir(komut, bildirim_geri_cagri)
     try:
         tamam = calistir(sonuc.argv, capture_output=True, text=True, timeout=zaman_asimi, check=False)
         sonuc.cikis_kodu = int(getattr(tamam, "returncode", 0) or 0)
@@ -271,9 +280,43 @@ def uygula(
     except Exception as hata:  # noqa: BLE001 - komut hatası uygulamayı düşürmemeli
         sonuc.hata = f"{type(hata).__name__}: {hata}"
         log.error("komut çalıştırılamadı: %s → %s", komut, sonuc.hata)
+
+    # Bildirim SÜRELİDİR (auto-expire). BAŞARILI komutta burada temizlenmez: tarayıcı modunda
+    # arayüz `/komut-bildirim` ucunu 1 sn'de bir sorar, `systemctl reboot/restart` ise ~10-50 ms'de
+    # döner — anında temizlik yazının hiç görünmemesine yol açıyordu (i5 bulgusu). Metin en çok
+    # `bildirim.VARSAYILAN_SURE_S` (8 sn) görünür; süreç ölürse kayıt zaten bellekle birlikte gider.
+    # Komut BAŞARISIZ olduysa yanıltıcı olmasın diye hemen kaldırılır (ekranda "yeniden başlatılıyor"
+    # yazıp hiçbir şeyin olmaması daha kötüdür).
+    if sonuc.hata or sonuc.cikis_kodu != 0:
+        _bildir_temizle()
     durum_yaz(sonuc)
     log.info("komut sonucu: %s", sonuc.ozet())
     return sonuc
+
+
+def _bildir(komut: str, geri_cagri=None, sure_s: float | None = None) -> None:
+    """Ekran bildirimini başlatır (hata gösterimi ASLA engellemez)."""
+    try:
+        from core import bildirim as bildirim_modulu
+
+        bildirim_modulu.goster(komut, sure_s)
+    except Exception:  # noqa: BLE001 - bildirim uygulamayı düşürmemeli
+        log.debug("komut bildirimi gösterilemedi", exc_info=True)
+    if geri_cagri is None:
+        return
+    try:
+        geri_cagri(komut)
+    except Exception:  # noqa: BLE001
+        log.debug("komut bildirimi geri çağrısı başarısız", exc_info=True)
+
+
+def _bildir_temizle() -> None:
+    try:
+        from core import bildirim as bildirim_modulu
+
+        bildirim_modulu.temizle()
+    except Exception:  # noqa: BLE001
+        log.debug("komut bildirimi temizlenemedi", exc_info=True)
 
 
 def kontrol(
@@ -281,6 +324,7 @@ def kontrol(
     cihaz_id: str = "",
     kuru: bool | None = None,
     calistir=subprocess.run,
+    bildirim_geri_cagri=None,
 ) -> tuple[Karar, Sonuc | None]:
     """Tam akış: oku → doğrula → uygula. Uygulanacak komut yoksa `(Karar, None)`.
 
@@ -296,7 +340,7 @@ def kontrol(
         if str(belge.get("id", "")) != str(durum.get("son_id", "")):
             log.warning("komut REDDEDİLDİ (%s): %s", belge.get("komut"), karar.sebep)
         return karar, None
-    return karar, uygula(belge, kuru=kuru, calistir=calistir)
+    return karar, uygula(belge, kuru=kuru, calistir=calistir, bildirim_geri_cagri=bildirim_geri_cagri)
 
 
 def sonuc_metni(sonuc: Sonuc) -> str:

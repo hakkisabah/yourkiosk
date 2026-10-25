@@ -679,3 +679,67 @@ def test_degisiklik_bekle_https_modunda_tetikleyiciyi_kendi_ceker(monkeypatch) -
     assert veri["degisti"] is True
     assert cagri["sayi"] >= 1
     assert gecen < 3  # 20 sn'lik arka plan turu beklenmedi
+
+
+# ------------------------------------------------------------------ /komut-bildirim ucu
+def test_komut_bildirim_ucu_bos_doner(sunucu: int) -> None:
+    """/komut-bildirim: bildirim yokken 200 + {"aktif": false} (arayüz 1 sn'de bir sorar)."""
+    import json
+
+    from core import bildirim
+
+    bildirim.sifirla()
+    kod, govde, basliklar = _indir(sunucu, "/komut-bildirim")
+    belge = json.loads(govde.decode("utf-8"))
+    assert kod == 200
+    assert belge["aktif"] is False
+    assert "no-store" in basliklar.get("Cache-Control", "")
+
+
+def test_komut_bildirim_ucu_aktif_bildirimi_doner(sunucu: int) -> None:
+    """Komut çalışırken uç, beyaz listeden gelen SABİT metni döner (istemciden metin alınmaz)."""
+    import json
+
+    from core import bildirim
+
+    bildirim.sifirla()
+    bildirim.goster("yeniden-baslat")
+    try:
+        kod, govde, _ = _indir(sunucu, "/komut-bildirim")
+        belge = json.loads(govde.decode("utf-8"))
+        assert kod == 200
+        assert belge["aktif"] is True
+        assert belge["metin"] == "Cihaz yeniden başlatılıyor…"
+        assert belge["komut"] == "yeniden-baslat"
+    finally:
+        bildirim.sifirla()
+
+
+def test_komut_bildirim_ucu_suresi_dolunca_bos_doner(sunucu: int) -> None:
+    """Bildirim sürelidir: süre dolunca uç yeniden {"aktif": false} döner (ekranda asılı kalmaz)."""
+    import json
+    import time as _zaman
+
+    from core import bildirim
+
+    bildirim.sifirla()
+    bildirim.goster("ekrani-yenile", sure_s=0.05)
+    _zaman.sleep(0.1)
+    kod, govde, _ = _indir(sunucu, "/komut-bildirim")
+    assert kod == 200
+    assert json.loads(govde.decode("utf-8"))["aktif"] is False
+
+
+def test_komut_bildirim_ucu_sunucu_hatasinda_500_vermez(sunucu: int, monkeypatch) -> None:
+    """`core.bildirim` patlasa bile uç 200 + aktif:false döner (arayüz döngüsü kırılmamalı)."""
+    import json
+
+    from core import bildirim
+
+    def patlat(**_kw):
+        raise RuntimeError("beklenmeyen")
+
+    monkeypatch.setattr(bildirim, "aktif", patlat)
+    kod, govde, _ = _indir(sunucu, "/komut-bildirim")
+    assert kod == 200
+    assert json.loads(govde.decode("utf-8"))["aktif"] is False

@@ -22,10 +22,16 @@ import json
 import logging
 
 from core import uzak, zaman
+from security.veri_dogrulama import VeriHatasi, json_yukle
 
 log = logging.getLogger("kiosk.durum")
 
 AD = "durum.json"
+
+#: `durum.json` küçük bir özettir; sınırlar sabittir (yayın belgesi değil, cihaz özeti).
+EN_BUYUK_BELGE_BAYT = 64 * 1024
+EN_BUYUK_DERINLIK = 16
+EN_BUYUK_DUGUM = 2_000
 
 #: Son BAŞARILI belge (304'te gövde inmez → bellek kopyası kullanılır). 404'te temizlenir.
 _son_belge: dict | None = None
@@ -51,10 +57,17 @@ def getir() -> dict | None:
         uzak.dogrulayici_unut(AD)
         return None
     try:
-        belge = json.loads(govde)
-    except (ValueError, RecursionError):
+        belge = json_yukle(
+            govde,
+            etiket=AD,
+            en_buyuk_bayt=EN_BUYUK_BELGE_BAYT,
+            en_buyuk_derinlik=EN_BUYUK_DERINLIK,
+            en_buyuk_dugum=EN_BUYUK_DUGUM,
+        )
+    except (VeriHatasi, RecursionError):
         # RecursionError: 64 KB sınırı içinde DERİN iç içe gövde ayrıştırmayı patlatır; yakalanmazsa
-        # istisna yoklama turunu düşürür (i5 bulgusu).
+        # istisna yoklama turunu düşürür (i5 bulgusu). `json_yukle` bunu artık VeriHatasi'ya çevirir;
+        # yine de savunmalı olarak burada da yakalanır.
         log.warning("durum.json bozuk/çok derin JSON — yok sayıldı")
         _son_belge = None
         return None
