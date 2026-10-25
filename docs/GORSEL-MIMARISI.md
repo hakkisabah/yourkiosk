@@ -143,6 +143,26 @@ Kurallar:
 - Üst sınır: 8 MB giriş, 1920 px çıkış (kiosk `MAX_GORSEL_BAYT`/`MAX_GORSEL_PIKSEL` ile uyumlu).
 - Yükleme sırasında **cihaz ölçeğinde** boyut uyarısı göster: "2,4 MB → 211 KB (%91 küçüldü)".
 
+### 5.1) BUGÜN ÇALIŞAN YOL: panelden görsel adresini değiştirme
+
+Dosya **yükleme** yok (5. bölümdeki öneri), ama **adres düzenleme** var ve WebP geçişi bununla
+yapılır. Adımlar (menüdeki adlar görünür; `VeriView` yalnız dosya adıdır):
+
+1. Panelde soldan **Nöbet ve Yayınlar** → üstteki **Yayınlar (N gün)** sekmesi.
+2. Değiştirmek istediğiniz satırda **Görsel** düğmesi → *Yayın görseli* penceresi.
+3. Adresi yazın (yalnız `https` + `.png/.jpg/.jpeg/.webp`; panel aynı listeyi doğrular).
+4. **Uygula** (yalnız taslağa yazar) → sayfadaki **Kaydet** (yayına alır) → **Bildir** (cihazları
+   hemen tetikler; MQTT yoksa cihaz en geç 30–120 sn içinde damgadan alır).
+5. Cihazda doğrulayın: yeni adres önbellekte olmadığı için ilk turda iner.
+
+Kurallar:
+- **Aynı dosya adını (hash) yeniden kullanmayın.** Cihaz görseli `yayin-gorselleri/<hash>.webp`
+  yolundaki önbellekten gösterir; içerik değişip ad aynı kalırsa eski görsel görünmeye devam eder.
+  Yeni sürüm → yeni hash → yeni ad.
+- Eski `contentURL`/`url` alias'ları yazarken **temizlenir** (cihaz `contentUrl ?? contentURL ?? url`
+  sırasıyla okur; iki alan çelişmesin).
+- Panelin doğruladığı biçim, cihazın `core/guvenlik.py` kabul listesiyle aynıdır (png/jpeg/webp).
+
 ---
 
 ## 6) Maliyet: gerçek tablo (dürüst düzeltme)

@@ -125,3 +125,44 @@ export function kapsamiYaz(kayit: YayinDto, kapsam: YayinKapsamiDto): YayinDto {
   }
   return kopya
 }
+
+// ---------------------------------------------------------------- yayın görseli (contentUrl)
+/**
+ * KIOSK'UN KABUL ETTİĞİ GÖRSEL UZANTILARI.
+ *
+ * Cihaz görseli diske indirirken uzantıya bakıyor (`core/guvenlik.py`): png/jpeg/webp kabul,
+ * diğerleri reddedilir. Panelde serbest metin bırakılırsa kullanıcı `.gif`/`.svg` yazıp
+ * "kaydettim ama görsel çıkmıyor" durumuna düşüyordu — bu yüzden aynı liste panelde de var.
+ */
+const GORSEL_UZANTI = /\.(png|jpe?g|webp)(?:[?#].*)?$/i
+/** Görsel adresi üst sınırı (kiosk tarafındaki ağ sınırlarıyla uyumlu, bol pay bırakır). */
+export const GORSEL_URL_AZAMI = 512
+
+/** Görsel adresini doğrular. Boş liste = geçerli. */
+export function gorselUrlHatalari(url: string): string[] {
+  const metin = String(url ?? '').trim()
+  if (!metin) return ['Görsel adresi: boş olamaz']
+  if (metin.length > GORSEL_URL_AZAMI) {
+    return [`Görsel adresi: çok uzun (${metin.length} > ${GORSEL_URL_AZAMI})`]
+  }
+  // Yalnız https: kiosk indirmeleri https ile yapılır; javascript:/data:/file: sessizce ölür.
+  if (!HTTPS.test(metin)) return [`Görsel adresi: https ile başlamalı (${metin})`]
+  if (!GORSEL_UZANTI.test(metin)) {
+    return [`Görsel adresi: .png, .jpg, .jpeg ya da .webp ile bitmeli (${metin})`]
+  }
+  return []
+}
+
+/**
+ * Görsel adresini kayda yazar ve eski ALIAS'ları (contentURL/url) temizler.
+ *
+ * NEDEN TEMİZLEME: cihaz `contentUrl ?? contentURL ?? url` sırasıyla okur. Alias silinmezse
+ * eski adres veride kalır ve iki alan çeliştiğinde hangisinin kazandığı anlaşılmaz.
+ */
+export function gorselUrlYaz(kayit: YayinDto, url: string): YayinDto {
+  const kopya: YayinDto = { ...kayit }
+  kopya.contentUrl = String(url ?? '').trim()
+  delete kopya.contentURL
+  delete kopya.url
+  return kopya
+}
