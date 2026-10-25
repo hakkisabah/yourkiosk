@@ -462,7 +462,7 @@ def test_degisiklik_ucu_degisiklik_yoksa_nabiz_doner(sunucu: int, monkeypatch) -
 
 
 def test_degisiklik_ucu_lastupdate_degisince_aninda_doner(sunucu: int, monkeypatch) -> None:
-    """NÖBET DEĞİŞİKLİĞİ: `lastupdate.json` yazıldığı AN uzun yoklama döner (20 sn beklenmez)."""
+    """NÖBET DEĞİŞİKLİĞİ: `lastupdate.json` yazıldığı AN uzun yoklama döner (120 sn beklenmez)."""
     import json
 
     monkeypatch.setattr(config, "TETIK_DOSYASI", "tetikle-test-yok.json")
@@ -653,7 +653,7 @@ def test_degisiklik_bekle_izinli_degilse_hemen_doner(monkeypatch) -> None:
 
 
 def test_degisiklik_bekle_https_modunda_tetikleyiciyi_kendi_ceker(monkeypatch) -> None:
-    """https modunda veri uzakta: uzun yoklama sırasında tetikleyici indirilmeli (yoksa 20 sn bekler)."""
+    """https modunda veri uzakta: uzun yoklama sırasında tetikleyici indirilmeli (yoksa 120 sn bekler)."""
     import time as _zaman
 
     from core import tetik as tetik_modulu

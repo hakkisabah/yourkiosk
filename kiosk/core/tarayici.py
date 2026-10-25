@@ -452,7 +452,7 @@ def degisiklik_bekle(imza: str, sure_s: float, izinli: bool = True, uzak_kaynak:
         return {"degisti": True, "imza": ilk, "tetik": tetik_oku(), "damga": lastupdate_damgasi()}
     bitis = time.monotonic() + max(0.0, sure_s)
     # https modunda veri UZAKTA: yerel `tetikle.json` ancak indirilince imza değişir. Uzun yoklama
-    # sırasında tetikleyiciyi KENDİMİZ çekiyoruz; aksi hâlde yenileme arka plan turunu (20 sn)
+    # sırasında tetikleyiciyi KENDİMİZ çekiyoruz; aksi hâlde yenileme arka plan turunu (120 sn)
     # bekliyordu — "anlık" beklentisini karşılamıyordu.
     # ÜST SINIR: `ayarlar.json` içinde `tetik.kontrol_ms` 300000 (5 dk) yazılı olabiliyor.
     # Uzun yoklamada tetikleyici çekimi bu değere uyarsa "anlık" beklentisi 5 dakikaya düşer.
@@ -659,7 +659,7 @@ class _IstekIsleyici(http.server.BaseHTTPRequestHandler):
 
         Uzun yoklama (long poll): imza değişmediyse istek `sure` saniye (en çok
         `DEGISIKLIK_BEKLEME_S`) açık kalır, değiştiği an yanıt döner. Arayüz böylece
-        20 sn'lik yoklamayı beklemeden (tipik olarak <1 sn) nöbet değişikliğini gösterir.
+        120 sn'lik yoklamayı beklemeden (tipik olarak <1 sn) nöbet değişikliğini gösterir.
         Yalnızca 127.0.0.1'e açıktır ve yalnızca imza/tetikleyici bilgisi döner.
         """
         from urllib.parse import parse_qs
@@ -988,7 +988,7 @@ def baslat(
 
     izleyici = threading.Thread(
         target=_uzak_kontrol_dongusu,
-        args=(durdur, surec_kutusu, str(client_id), float(getattr(config, "DAMGA_KONTROL_MS", 20000)) / 1000.0),
+        args=(durdur, surec_kutusu, str(client_id), float(getattr(config, "DAMGA_KONTROL_MS", 120_000)) / 1000.0),
         name="uzak-kontrol",
         daemon=True,
     )

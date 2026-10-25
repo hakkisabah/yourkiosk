@@ -3,10 +3,17 @@
 Cihazın bulunduğu yere gitmeden **yeniden başlatma** ve **ekran tazeleme** yapabilmek için
 sunucudan (S3) gelen, **imzalı** ve **beyaz listeli** bir komut düzeneği vardır.
 
-Komut, panelin yazdığı `komut.json` dosyasıyla taşınır; cihaz komut işaretini `durum.json`dan
-`DAMGA_KONTROL_MS` (**push bağlı 120 sn / kopuk 30 sn**) içinde görür, işaret yoksa
-`komut.json`u 10 turda bir çapraz kontrolde indirir. Nöbet tetikleyicisi (`tetikle.json`) ile
-**aynı** taşıma yolu kullanılır — tek fark, komutun çalıştırılmadan önce imza denetiminden geçmesidir.
+Komut, panelin yazdığı `komut.json` dosyasıyla taşınır. Panel bugün `durum.json` içine **komut
+işareti yazmıyor**; bu yüzden cihaz komut dosyasını **her 10 yoklama turunda bir** yapılan çapraz
+kontrolde indirir. Gerçek üst sınır bu yüzden:
+
+* push **bağlı**: 10 × 120 sn = **en çok 20 dakika**
+* push **kopuk**: 10 × 30 sn = **en çok 5 dakika**
+
+(İndirme koşulludur — ETag/Last-Modified ile 304 dönerse gövde inmez, maliyet ~0'dır.)
+Nöbet tetikleyicisi (`tetikle.json`) ile **aynı** taşıma yolu kullanılır — tek fark, komutun
+çalıştırılmadan önce imza denetiminden geçmesidir. Panel `durum.json`a komut işareti yazmaya
+başlarsa gecikme `DAMGA_KONTROL_MS`'e (120/30 sn) iner.
 
 ---
 
@@ -77,7 +84,7 @@ Panelin S3 tarayıcısını kullanacaksanız içeriği **`komut.json`** anahtar�
 
 ### Cihaz tarafında ne olur?
 
-1. Cihaz (en geç `DAMGA_KONTROL_MS` içinde, push yoksa 30 sn) `komut.json`u indirir → `kiosk/komut.json`.
+1. Cihaz (en geç **20 dakika** — push kopuksa 5 dakika; 10 yoklama turunda bir çapraz kontrol) `komut.json`u indirir → `kiosk/komut.json`.
 2. `core/komut.py` sırayla denetler: **beyaz liste** → **imza** → **hedef cihaz** → **tek seferlik**.
 3. Geçerse komut çalıştırılır ve `komut-durum.json`'a işlenir.
 4. Her adım `kiosk.log`'a yazılır (`UZAKTAN KOMUT: ...`).

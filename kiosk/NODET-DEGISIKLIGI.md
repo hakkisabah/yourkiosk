@@ -46,7 +46,7 @@ Kapsam kuralı (`core/tetik.py` ↔ tarayıcıdaki `tetikUygulanmali`, aynı kur
 1. `ilceId` boş/`*` → uygulanır,
 2. `ilceId` == cihazın ilçesi → uygulanır,
 3. `bolgeId` == cihazın bölgesi → uygulanır,
-4. aksi hâlde **hemen uygulanmaz** (30 sn'lik yoklama + saatlik kontrol yine çalışır),
+4. aksi hâlde **hemen uygulanmaz** (yoklama push bağlı 120 sn / kopuk 30 sn + saatlik kontrol yine çalışır),
 5. `zaman` ≤ son uygulanan → uygulanmaz (tekrar engeli).
 
 ## 3. Ekranda nasıl görünür?
@@ -80,7 +80,7 @@ python3 tools/nobet_tetikle.py --sil                      # tetikleyiciyi kaldı
 2. **Tarayıcı modunda:** `python3 tools/tarayici_kiosk.py` ile aç; terminalde (veya ekranda `d`
    tuşuyla) `anlık bildirim: … → yenileniyor` satırı **1 saniye** içinde görünür.
 3. **Kapsam denemesi:** başka bir ilçenin `ilceId`'siyle tetikleyici yaz → cihaz hemen
-   yenilenmemeli (günlükte tetikleyici satırı görünmez), 30 sn'lik yoklama da damga
+   yenilenmemeli (günlükte tetikleyici satırı görünmez), yoklama (push bağlı 120 sn / kopuk 30 sn) da damga
    değişmediği için veri çekmemeli.
 4. **Panel:** *Bildir* sonrası S3'te `tetikle.json` nesnesi görünür (Durum ekranı / `aws s3 ls`).
 
@@ -88,7 +88,7 @@ python3 tools/nobet_tetikle.py --sil                      # tetikleyiciyi kaldı
 
 | Anahtar | Varsayılan | Açıklama |
 |---|---|---|
-| `degisiklik_kontrol_ms` | `20000` | Damga + tetikleyici yoklama aralığı (5 sn – 1 saat) |
+| `degisiklik_kontrol_ms` | `120000` (push kopukken `30000`) | Damga + tetikleyici yoklama aralığı (5 sn – 1 saat); bağlantı durumuna göre seçilir |
 | `degisiklik_bekleme_s` | `30` | Uzun yoklamada tek isteğin en fazla açık kalma süresi |
 | `tetik_dosyasi` | `tetikle.json` | Tetikleyici dosyasının adı |
 

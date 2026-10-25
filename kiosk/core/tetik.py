@@ -14,7 +14,7 @@ dokunmaz) ve kendisini ilgilendiren tetikleyiciyi görürse **hemen** yenilenir:
   · `ilceId` boş/"*"      → TÜM cihazlar,
   · `ilceId` kendi ilçesi → bu cihaz,
   · `bolgeId` kendi bölgesi → bu cihaz,
-  · başka ilçe/bölge      → hemen yenilenmez (30 sn'lik yoklama + saatlik kontrol yeter).
+  · başka ilçe/bölge      → hemen yenilenmez (yoklama push bağlı 120 sn / kopuk 30 sn, saatlik kontrol yeter).
 
 Tarayıcı (Chromium kiosk) modunda buna ek olarak yerel sunucudaki `/degisiklik` ucu ile
 **uzun yoklama** yapılır: dosya değiştiği AN bildirilir (tipik <1 sn).

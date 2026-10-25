@@ -323,8 +323,10 @@ Ayrıntılı akış, ayarlar ve uçtan uca doğrulama adımları: **[NODET-DEGIS
 ## 1.9 Uzaktan komut: yeniden başlat / uygulamayı yeniden başlat / ekranı yenile
 
 Cihazın bulunduğu yere gitmeden **imzalı** bir komut gönderilebilir. Taşıma yolu §1.8'deki
-tetikleyiciyle **aynıdır** (`komut.json`, 20 sn içinde alınır); fark, komutun çalıştırılmadan önce
-imza + beyaz liste denetiminden geçmesidir.
+tetikleyiciyle **aynıdır** (`komut.json`); fark, komutun çalıştırılmadan önce imza + beyaz liste
+denetiminden geçmesidir. Panel `durum.json`a komut işareti yazmadığı için cihaz komut dosyasını
+**10 yoklama turunda bir** çapraz kontrolde indirir: en çok **20 dakika** (push bağlı, 120 sn tur)
+ya da **5 dakika** (push kopuk, 30 sn tur).
 
 | Komut | İşlem (varsayılan) |
 |---|---|

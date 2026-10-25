@@ -169,8 +169,9 @@ TETIK_PUSH_PAROLA = ""
 TETIK_PUSH_CA = ""                       # kök CA dosyası (ör. AmazonRootCA1.pem)
 TETIK_PUSH_SERTIFIKA = ""                # cihaz sertifikası (cert.pem)
 TETIK_PUSH_ANAHTAR = ""                  # cihaz özel anahtarı (private.pem.key)
-TETIK_KONTROL_MS = 20000                 # yoklama emniyet ağı (ms). 600 cihazda her 3 sn ≈ 518 M istek/ay
-                                         # → MQTT push (aşağıdaki grup) açıksa yoklama yapılmaz.        # oto tetiklemenin geçerli olduğu çalışma modları
+TETIK_KONTROL_MS = 20000                 # tetikleyici yoklama aralığı (20 sn). 600 cihazda
+                                         # 2.592.000/20 × 600 ≈ 77,8 M istek/ay → MQTT push
+                                         # açıksa bu yoklama yapılmaz (push emniyet ağı).
 
 WEB_VERI_MODU = "yerel"                   # "yerel": veri dosyaları yerel sunucudan | "https": DOSYA_ADRESI
 WEB_YENILEME_MS = 60000                   # sayfanın veriyi kontrol etme aralığı (kiosk: saatlik timer)

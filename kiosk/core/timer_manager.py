@@ -33,7 +33,7 @@ class TimerManager:
         # NÖBET DEĞİŞİKLİĞİ: damga + tetikleyici hızlı denetimi (yalnız küçük dosyalar).
         # Saatlik kontrolü beklemeden değişikliği yansıtır (`DAMGA_KONTROL_MS`: push BAĞLI 120 sn,
         # KOPUK 30 sn — `DAMGA_KONTROL_MS_PUSH` / `DAMGA_KONTROL_MS_PUSH_YOK`; aralığı
-        # `pharmacy_app._damga_araligi` bağlantı durumuna göre seçer).
+        # `pharmacy_app.yoklama_araligi` bağlantı durumuna göre seçer, `yoklama_ayarla` uygular).
         self.tetik_timer.start(getattr(config, "DAMGA_KONTROL_MS", 1800 * 1000))
         # ANLIK yol: yerel dosya izleyici (maliyetsiz). Push ölü olsa bile yoklama çalışır.
         self.tetik_izleyici.start(getattr(config, "TETIK_IZLEME_MS", 2000))
