@@ -10,6 +10,7 @@ import { computed, ref, watch } from 'vue'
 
 import { DOSYALAR } from '@/aws/config'
 import AyarFormu from '@/components/AyarFormu.vue'
+import { tamBelge } from '@/domain/ayarBelgesi'
 import { gruplar, tanim } from '@/domain/sema'
 import { useDosyalar, type AyarBelgesi } from '@/stores/dosyalar'
 
@@ -58,7 +59,9 @@ function guncelle(tam: string, deger: unknown): void {
 }
 
 async function kaydet(): Promise<void> {
-  await dosyalar.kaydet('ayarlar', DOSYALAR.ayarlar, taslak.value)
+  // TAM BELGE: bu ekran yalnız iki grubu düzenlese de dosya bütün olarak yazılır
+  // (aksi hâlde diğer gruplar S3'ten SİLİNİRDİ — sparse yazımın gizli tehlikesi).
+  await dosyalar.kaydet('ayarlar', DOSYALAR.ayarlar, tamBelge(taslak.value))
 }
 
 function buyukVeriIcinAyarla(): void {

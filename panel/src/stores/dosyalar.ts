@@ -49,6 +49,8 @@ interface Durum {
   makine: DosyaDurumu<Record<string, unknown>>
   /** `durum.json` — panel YAZAR (cihaz tek istekte okur); panelde gösterilmez. */
   durum: DosyaDurumu<Record<string, unknown>>
+  /** `komut.json` — yönetici aracının yazdığı son uzaktan komut (panel yalnız GÖSTERİR). */
+  komut: DosyaDurumu<Record<string, unknown>>
   mesgul: boolean
   sonUyari: string | null
   sonBasari: string | null
@@ -66,6 +68,7 @@ export const useDosyalar = defineStore('dosyalar', {
     lastupdate: bos<Record<string, unknown>>(),
     makine: bos<Record<string, unknown>>(),
     durum: bos<Record<string, unknown>>(),
+    komut: bos<Record<string, unknown>>(),
     mesgul: false,
     sonUyari: null,
     sonBasari: null,
