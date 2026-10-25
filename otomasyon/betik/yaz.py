@@ -32,11 +32,13 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 TABAN = "https://api.github.com"
 BASLIKLAR = {"Accept": "application/vnd.github+json", "User-Agent": "yourkiosk-otomasyon"}
+#: Karar kapısı reddi/atlaması buraya JSON satırları olarak yazılır (nobetci denetler).
+KAPI_LOG = Path.home() / ".local" / "state" / "yourkiosk-otomasyon" / "kapi-red.log"
 
 #: makine → (commit durumu adı, onay etiketi, sorun etiketi)
 MAKINE_AYARI = {
@@ -265,6 +267,26 @@ def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay
     return False, f"birleştirme başarısız (HTTP {kod}): {mesaj}"
 
 
+def _kapi_red_yaz(karar: dict, makine: str, hatalar: list[str], atlandi: bool) -> None:
+    """Kapı reddi/atlaması kalıcı iz bıraksın.
+
+    `nobetci.py --kendini-denetle` bu dosyayı sayar: ajan karar yazamıyorsa (ya da kapıyı
+    sürekli atlıyorsa) sessiz kalmaz, kontrol noktası ✗ verir.
+    """
+    kayit = {
+        "zaman": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "olay": "ATLANDI" if atlandi else "KARAR KAPISI",
+        "makine": makine, "pr": karar.get("pr"), "karar": karar.get("karar"),
+        "hatalar": hatalar[:6],
+    }
+    try:
+        KAPI_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with KAPI_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(kayit, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="i5/i3 kararını GitHub'a yaz")
     ap.add_argument("karar", nargs="?", default="", help="karar.json yolu")
@@ -277,6 +299,10 @@ def main() -> int:
         "--cift-onay", action="store_true",
         help="birleştirme için 'guvenlik/inceleme' VE 'guvenlik/karar' success olmalı (D modu)",
     )
+    ap.add_argument("--kanit-yok", action="store_true",
+                    help="karar kapısında dosya:satır kanıtını ağdan denetleme (yalnız çevrimdışı acil durum)")
+    ap.add_argument("--kapi-atla", action="store_true",
+                    help="karar kapısı hatalarına RAĞMEN yayınla (gerekçe kapi-red.log'a yazılır)")
     ap.add_argument(
         "--birlestir", action="store_true",
         help="karar 'onay' ise PR'ı otomatik birleştir (koruma: etiketler/çakışma/kontrol durumu)",
@@ -295,6 +321,7 @@ def main() -> int:
             "makine": "i5", "sha": sha, "pr": None, "karar": "onay", "onem": "dusuk",
             "ozet": "Şablon: buraya 1-3 cümlelik değerlendirme yazın.",
             "bulgular": [{"dosya": "yol/dosya.py", "satir": 0, "onem": "dusuk", "aciklama": "örnek bulgu"}],
+            "denetlenen": [],
             "not": "Şablon: geliştiriciye iletilecek not (yoksa boş bırakın).",
             "zaman": datetime.now().isoformat(timespec="seconds"),
         }
@@ -302,6 +329,8 @@ def main() -> int:
         hedef.write_text(json.dumps(ornek, ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"örnek karar dosyası yazıldı: {hedef}  (sha: {(sha or 'BULUNAMADI')[:12]})")
         print("düzenleyip: python3 otomasyon/betik/yaz.py " + str(hedef) + " --kuru")
+        print("NOT: şablon karar kapısından GEÇMEZ — `denetlenen` 12 alanı doldur, "
+              "`bulgular` gerçek dosya:satır içersin.")
         return 0
 
     if not a.karar:
@@ -326,6 +355,28 @@ def main() -> int:
 
     makine = str(karar.get("makine", "i5")).lower()
     baglam, onay_etiketi, sorun_etiketi = MAKINE_AYARI.get(makine, MAKINE_AYARI["i5"])
+
+    # ---- KARAR KAPISI (fail-closed) -------------------------------------------------------
+    # Şema + kapsam (12 alan) + tutarlılık + dosya:satır kanıtı. Geçmezse GitHub'a HİÇBİR şey
+    # yazılmaz: kararsızlık sessizce "onay"a dönüşmesin (25 Ekim kararı).
+    import karar_dogrula  # aynı dizinde
+    kapi = karar_dogrula.dogrula_karar(karar, makine, token=token_oku(a.token_dosya),
+                                       depo=a.depo_adresi, kanit=not a.kanit_yok)
+    for uyari in kapi.uyarilar:
+        print(f"[kapı] ⚠ {uyari}")
+    if not kapi.gecti:
+        for hata in kapi.hatalar:
+            print(f"[kapı] ✗ {hata}")
+        if a.kapi_atla:
+            print("[yaz] KARAR KAPISI: ATLANDI (--kapi-atla) → yayınlanıyor; sebep günlüğe yazıldı")
+            _kapi_red_yaz(karar, makine, kapi.hatalar, atlandi=True)
+        else:
+            _kapi_red_yaz(karar, makine, kapi.hatalar, atlandi=False)
+            print("[yaz] KARAR KAPISI: reddedildi → GitHub'a hiçbir şey yazılmadı.\n"
+                  "      Düzelt: karar JSON'unu kanıtlı hâle getir (denetlenen 12 alan, dosya:satır, "
+                  "kararsızlıkta 'sorun'), sonra tekrar çalıştır.", file=sys.stderr)
+            return 5
+
     durum, aciklama = durum_metni(karar)
     govde = yorum_govdesi(karar, durum)
 
