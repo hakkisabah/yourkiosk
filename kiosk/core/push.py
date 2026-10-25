@@ -62,6 +62,43 @@ def durum() -> dict:
     return anlik
 
 
+#: Kalp atışı aralığı (sn) — panel 600 cihazın çevrimiçi/çevrimdışı durumunu bundan okur.
+#: 5 dk × 600 cihaz = ayda ~5,2 M küçük mesaj (MQTT'de önemsiz; yoklama maliyeti doğrusal büyür).
+KALP_ATISI_S = 300
+
+
+def cihaz_kimligi() -> str:
+    """Bu cihazın kimliği (clientID) — kalp atışı konusunda kullanılır."""
+    from core import veri_kaynagi
+
+    try:
+        return str(veri_kaynagi.client_id() or "").strip()
+    except Exception:  # noqa: BLE001 - kimlik okunamazsa "bilinmeyen" ile devam
+        return ""
+
+
+def durum_konusu(cihaz: str | None = None) -> str:
+    """Cihaz durum konusu: `<taban>/durum/<cihazId>` (`yourkiosk/yayin` → `yourkiosk/durum/<id>`).
+
+    `+` ve `#` MQTT joker karakterleridir; kimlikte bulunurlarsa konu bozulur → temizlenir.
+    """
+    taban = konu().rsplit("/", 1)[0] if "/" in konu() else konu()
+    kimlik = str(cihaz or cihaz_kimligi() or "bilinmeyen")
+    kimlik = kimlik.replace("/", "-").replace("+", "-").replace("#", "-").strip() or "bilinmeyen"
+    return f"{taban}/durum/{kimlik}"
+
+
+def kalp_atisi_belgesi(cevrimici: bool = True, simdi: datetime | None = None) -> dict:
+    """Kalp atışı gövdesi (retained): panel `cevrimici` + `zaman` alanlarını okur."""
+    an = simdi or datetime.now(timezone.utc)
+    return {
+        "cevrimici": bool(cevrimici),
+        "zaman": an.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "mod": "tarayici" if str(getattr(config, "CALISTIRMA_MODU", "")).lower().startswith("tar") else "qt",
+        "surum": str(getattr(config, "SURUM", "") or ""),
+    }
+
+
 def _tetik_yaz(kaynak: str = "mqtt") -> Path:
     """Yerel `tetikle.json`'u yazar → mevcut imza mekanizması arayüzü yeniler."""
     from core import tetik as tetik_modulu
@@ -139,7 +176,17 @@ def _dongu(durdur: threading.Event) -> None:
         _durum["denendi"] = True
         if rc == 0:
             istemci.subscribe(konu(), qos=1)
-            log.info("MQTT bağlandı (%s:%s) · konu=%s", adres, port, konu())
+            # ÇEVRİMİÇİ BİLDİRİMİ (retained): panel 600 cihazın durumunu buradan görür.
+            try:
+                istemci.publish(
+                    durum_konusu(),
+                    json.dumps(kalp_atisi_belgesi(True), ensure_ascii=False),
+                    qos=1,
+                    retain=True,
+                )
+            except Exception:  # noqa: BLE001 - kalp atışı push'u engellememeli
+                log.debug("kalp atışı yayınlanamadı", exc_info=True)
+            log.info("MQTT bağlandı (%s:%s) · konu=%s · durum=%s", adres, port, konu(), durum_konusu())
         else:
             log.warning("MQTT bağlanamadı (rc=%s)", rc)
 
@@ -160,6 +207,18 @@ def _dongu(durdur: threading.Event) -> None:
         istemci.reconnect_delay_set(min_delay=2, max_delay=60)
     except Exception:  # noqa: BLE001
         pass
+    # SON İRADE (LWT): bağlantı koparsa broker cihazın durumunu "çevrimdışı" olarak yayınlar.
+    # `will_set` BAĞLANMADAN ÖNCE kurulmalıdır.
+    try:
+        istemci.will_set(
+            durum_konusu(),
+            json.dumps(kalp_atisi_belgesi(False), ensure_ascii=False),
+            qos=1,
+            retain=True,
+        )
+    except Exception:  # noqa: BLE001
+        log.debug("LWT kurulamadı", exc_info=True)
+    son_kalp = 0.0
     while not durdur.is_set():
         try:
             istemci.connect(adres, port, keepalive=60)
@@ -167,6 +226,18 @@ def _dongu(durdur: threading.Event) -> None:
             while not durdur.is_set():
                 if not istemci.is_connected():
                     _durum["bagli"] = False
+                # KALP ATIŞI: bağlıyken her KALP_ATISI_S saniyede bir retained durum mesajı.
+                elif time.monotonic() - son_kalp >= KALP_ATISI_S:
+                    son_kalp = time.monotonic()
+                    try:
+                        istemci.publish(
+                            durum_konusu(),
+                            json.dumps(kalp_atisi_belgesi(True), ensure_ascii=False),
+                            qos=1,
+                            retain=True,
+                        )
+                    except Exception:  # noqa: BLE001
+                        log.debug("kalp atışı yayınlanamadı", exc_info=True)
                 time.sleep(1.0)
         except Exception as hata:  # noqa: BLE001 - ağ hatasında yeniden dene
             _durum.update(bagli=False, denendi=True, hata=str(hata)[:200])
