@@ -173,6 +173,11 @@ def kosullu_indir_ve_yaz(ad: str, yol: Path, *, taban: str | None = None) -> boo
     - içerik farklı → yazılır; **yazma başarısızsa doğrulayıcı SAKLANMAZ** → sonraki turda gövde
       yeniden iner (yanlış 304 yüzünden dosyanın sonsuza dek eski kalması engellenir).
     """
+    # DOĞRULAYICI YALNIZ YEREL KOPYA VARKEN GÖNDERİLİR (i3 bulgusu): yerel dosya silinmişse
+    # `If-None-Match` göndermek 304 getirir ve dosya BİR DAHA HİÇ inmez — düzeltilen "sessizce
+    # ölü" sınıfının başka bir kapısı. Dosya yoksa doğrulayıcı unutulur, istek koşulsuz gider.
+    if not yol.is_file():
+        dogrulayici_unut(ad, taban=taban)
     govde, _degismedi, dogrulayici = kosullu_getir(ad, taban=taban)
     if govde is None:
         return False
@@ -190,6 +195,34 @@ def kosullu_indir_ve_yaz(ad: str, yol: Path, *, taban: str | None = None) -> boo
     return True
 
 
+def atomik_yaz(yol: Path, govde: bytes) -> bool:
+    """İçeriği ATOMİK yazar (mkstemp + O_EXCL + os.replace).
+
+    GÜVENLİK: sabit `.tmp` adı KULLANILMAZ. Uygulama dizinine yazabilen daha az yetkili bir yerel
+    kullanıcı sabit ada sembolik bağ kurup içeriği başka yere yönlendirebiliyordu (i5/i3 bulgusu,
+    aynı sınıf kusur `tetik.yaz` ve `push._tetik_yaz` içinde de vardı).
+    `os.replace` hedefte sembolik bağ olsa bile BAĞI değiştirir, hedefini izlemez.
+    """
+    gecici = ""
+    try:
+        tanitici, gecici = tempfile.mkstemp(prefix=f".{yol.name}.", suffix=".tmp", dir=str(yol.parent))
+        with os.fdopen(tanitici, "wb") as dosya:
+            dosya.write(govde)
+            dosya.flush()
+            os.fsync(dosya.fileno())
+        os.chmod(gecici, 0o644)  # diğer süreçler okuyabilsin (içerik zaten herkese açık)
+        os.replace(gecici, yol)
+        return True
+    except OSError:
+        log.warning("yerel dosya yazılamadı: %s", yol, exc_info=True)
+        if gecici:
+            try:
+                os.unlink(gecici)
+            except OSError:
+                pass
+        return False
+
+
 def yerel_guncelle(yol: Path, govde: bytes) -> bool:
     """İçerik FARKLIYSA yerel dosyayı atomik yazar; değiştiyse True.
 
@@ -205,24 +238,7 @@ def yerel_guncelle(yol: Path, govde: bytes) -> bool:
             return False
     except OSError:
         pass
-    gecici = ""
-    try:
-        tanitici, gecici = tempfile.mkstemp(prefix=f".{yol.name}.", suffix=".tmp", dir=str(yol.parent))
-        with os.fdopen(tanitici, "wb") as dosya:
-            dosya.write(govde)
-            dosya.flush()
-            os.fsync(dosya.fileno())
-        os.chmod(gecici, 0o644)  # eski davranış: diğer süreçler okuyabilsin (içerik zaten herkese açık)
-        os.replace(gecici, yol)
-        return True
-    except OSError:
-        log.warning("yerel dosya yazılamadı: %s", yol, exc_info=True)
-        if gecici:
-            try:
-                os.unlink(gecici)
-            except OSError:
-                pass
-        return False
+    return atomik_yaz(yol, govde)
 
 
 def senkron(hedefler: dict[str, Path]) -> list[str]:

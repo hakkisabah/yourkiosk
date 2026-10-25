@@ -36,8 +36,12 @@ describe('durumBelgesi', () => {
     })
   })
 
-  it('damga bilinmiyorsa boş dize yazar (cihaz damga karşılaştırmasını atlar, tetiği uygular)', () => {
+  it('damga bilinmiyorsa alan HİÇ yazılmaz (boş damga cihazı yanıltıyordu — i5 bulgusu)', () => {
     const belge = durumBelgesi({ zaman: 'Z' }, undefined as unknown as string)
-    expect(belge.lastupdate).toBe('')
+    expect('lastupdate' in belge).toBe(false)
+    // Boşluktan ibaret damga da yazılmamalı
+    expect('lastupdate' in durumBelgesi({ zaman: 'Z' }, '   ')).toBe(false)
+    // Alan yoksa cihaz eski üç dosyalı yola düşer; tetik yine taşınır
+    expect(belge.tetik).toEqual({ zaman: 'Z' })
   })
 })

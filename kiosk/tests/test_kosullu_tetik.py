@@ -97,6 +97,15 @@ def sunucu(monkeypatch):
     uzak._ETAG.clear()
 
 
+@pytest.fixture()
+def tetik_dosyasi(tmp_path, monkeypatch):
+    """`tetik.yaz`/`push._tetik_yaz` için geçici tetik dosyası (gerçek dosyaya dokunmadan)."""
+    hedef = tmp_path / "tetikle.json"
+    monkeypatch.setattr(config, "TETIK_DOSYASI", hedef.name, raising=False)
+    monkeypatch.setattr(tetik, "PROJE_KOK", tmp_path)
+    return hedef
+
+
 def test_ikinci_tur_304_alir_govde_inmez(sunucu, tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(tetik, "PROJE_KOK", tmp_path)
 
@@ -223,6 +232,47 @@ def test_cok_derin_json_yoklama_turunu_dusurmez(sunucu, monkeypatch) -> None:
     sunucu.icerik = derin
     assert durum.getir() is None  # istisna sızdırmamalı
     assert not uzak._ETAG, "çözülemeyen gövde için doğrulayıcı saklanmamalı"
+
+
+def test_yerel_dosya_silinince_govde_yeniden_iner(sunucu, tmp_path, monkeypatch) -> None:
+    """Yerel kopya YOKKEN doğrulayıcı gönderilmemeli (i3 bulgusu, orta).
+
+    GERÇEK BULGU: `kosullu_indir_ve_yaz` yerel dosya silinmiş olsa da `If-None-Match` gönderiyordu;
+    sunucu 304 dönünce dosya BİR DAHA HİÇ inmiyordu — düzeltilen "sessizce ölü" sınıfının başka
+    kapısı (disk temizliği, elle silme, yedekten dönüş).
+    """
+    monkeypatch.setattr(tetik, "PROJE_KOK", tmp_path)
+    assert tetik.getir() is True
+    dosya = tetik.dosya_yolu()
+    assert sunucu.govde_bayt == len(GOVDE)
+
+    dosya.unlink()  # yerel kopya kayboldu
+    assert tetik.getir() is True, "yerel dosya yoksa içerik yeniden inmeli"
+    okunan = tetik.oku()
+    assert dosya.is_file() and okunan is not None and okunan["zaman"] == "2026-10-24T07:10:00Z"
+    assert sunucu.istekler[-1]["if-none-match"] == "", "yerel kopya yokken doğrulayıcı gönderilmemeli"
+    assert sunucu.govde_bayt == 2 * len(GOVDE), "gövde yeniden inmeli"
+
+
+def test_tetik_yaz_ve_push_sabit_tmp_adina_yazmaz(tetik_dosyasi) -> None:
+    """`tetik.yaz`/`push._tetik_yaz` sabit `.tmp` adı kullanmamalı (i5/i3 bulgusu).
+
+    Sabit ada sembolik bağ kuran yerel kullanıcı, içeriği başka dosyaya yönlendirebiliyordu.
+    """
+    from core import push
+
+    kurban = tetik_dosyasi.parent / "kurban.txt"
+    kurban.write_text("DOKUNULMAMALI", encoding="utf-8")
+    # Eski kodun kullandığı iki sabit ad: tetik.yaz → `tetikle.json.tmp`, push → `tetikle.tmp`
+    (tetik_dosyasi.parent / "tetikle.json.tmp").symlink_to(kurban)
+    (tetik_dosyasi.parent / "tetikle.tmp").symlink_to(kurban)
+
+    tetik.yaz("I1", "B1", "test")
+    assert kurban.read_text(encoding="utf-8") == "DOKUNULMAMALI", "tetik.yaz sembolik bağı izlememeli"
+
+    push._tetik_yaz("test")
+    assert kurban.read_text(encoding="utf-8") == "DOKUNULMAMALI", "push sembolik bağı izlememeli"
+    assert tetik.oku() is not None
 
 
 def test_404_sonrasi_dogrulayici_unutulur(sunucu, monkeypatch) -> None:

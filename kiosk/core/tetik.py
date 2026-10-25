@@ -88,9 +88,11 @@ def yaz(ilce_id: str = "", bolge_id: str = "", aciklama: str = "", zaman: str | 
         "aciklama": str(aciklama or "").strip(),
     }
     yol = dosya_yolu()
-    gecici = yol.with_suffix(".json.tmp")
-    gecici.write_text(json.dumps(belge, ensure_ascii=False, indent=1), encoding="utf-8")
-    gecici.replace(yol)
+    # GÜVENLİK: sabit `<ad>.json.tmp` adı yerine mkstemp (sembolik bağ saldırısı — i5/i3 bulgusu).
+    from core import uzak
+
+    if not uzak.atomik_yaz(yol, json.dumps(belge, ensure_ascii=False, indent=1).encode("utf-8")):
+        log.warning("tetikleyici yazılamadı: %s", yol)
     log.info("tetikleyici yazıldı: %s (kapsam=%s)", yol, belge["ilceId"] or "tüm cihazlar")
     return belge
 

@@ -35,5 +35,13 @@ export function durumBelgesi(
   lastupdate: string,
   zaman: string = new Date().toISOString(),
 ): Record<string, unknown> {
-  return { zaman, lastupdate: String(lastupdate ?? ''), tetik }
+  const belge: Record<string, unknown> = { zaman }
+  // BOŞ DAMGA YAZILMAZ (i5 bulgusu): iki damga kaynağı da geçersizse (panel belleği boş + canlı
+  // `lastupdate.json` okuması başarısız) `lastupdate: ""` yazılıyordu. Cihaz boş damgayı "değişti"
+  // sanıp gereksiz yenileniyor, karşılaştırma tabanı da kayboluyordu. Alan yoksa cihaz eski
+  // üç dosyalı yola düşer — bu, boş damgadan güvenli.
+  const damga = String(lastupdate ?? '').trim()
+  if (damga) belge.lastupdate = damga
+  belge.tetik = tetik
+  return belge
 }

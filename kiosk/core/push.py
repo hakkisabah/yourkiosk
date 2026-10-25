@@ -69,9 +69,11 @@ def _tetik_yaz(kaynak: str = "mqtt") -> Path:
     zaman = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     belge = {"zaman": zaman, "ilceId": "", "bolgeId": "", "aciklama": f"push:{kaynak}"[:120]}
     yol = tetik_modulu.dosya_yolu()
-    gecici = yol.with_suffix(".tmp")
-    gecici.write_text(json.dumps(belge, ensure_ascii=False), encoding="utf-8")
-    gecici.replace(yol)
+    # GÜVENLİK: sabit `.tmp` adı yerine mkstemp (sembolik bağ saldırısı — i5/i3 bulgusu).
+    from core import uzak
+
+    if not uzak.atomik_yaz(yol, json.dumps(belge, ensure_ascii=False).encode("utf-8")):
+        log.warning("MQTT tetikleyicisi yazılamadı: %s", yol)
     log.info("MQTT tetikleyicisi yazıldı (%s)", kaynak)
     return yol
 
