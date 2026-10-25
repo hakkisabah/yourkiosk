@@ -677,6 +677,23 @@ class _IstekIsleyici(http.server.BaseHTTPRequestHandler):
         govde = json.dumps(veri, ensure_ascii=False).encode("utf-8")
         self._govde_gonder(govde, "application/json; charset=utf-8", "no-store")
 
+    def _komut_bildirim(self) -> None:
+        """`/komut-bildirim` — uzaktan komut uygulanırken gösterilecek kısa bilgi.
+
+        Arayüz 1 sn'de bir sorar; bildirim yoksa `{"aktif": false}` döner (hafif, no-store).
+        Metin sunucuda sabittir (`core/bildirim.py`), istemciden metin alınmaz.
+        """
+        try:
+            from core import bildirim as bildirim_modulu
+
+            durum = bildirim_modulu.aktif()
+        except Exception:  # noqa: BLE001 - uç asla 500 vermemeli
+            durum = None
+        govde = json.dumps(
+            {"aktif": bool(durum), **(durum or {})}, ensure_ascii=False
+        ).encode("utf-8")
+        self._govde_gonder(govde, "application/json; charset=utf-8", "no-store")
+
     def _onbellek_bakimi(self, govde: bytes) -> None:
         """Yayın verisi sunulurken önbellek bakımı (Qt `_onbellek_bakimi` karşılığı)."""
         try:
@@ -745,6 +762,10 @@ class _IstekIsleyici(http.server.BaseHTTPRequestHandler):
         # 0) görsel köprüsü: /gorsel?u=<url> (CORS engeli olmadan, cihaz önbelleğiyle)
         if self.path.startswith("/gorsel"):
             self._gorsel()
+            return
+        # 0.05) komut bildirimi: /komut-bildirim (uzaktan komut uygulanırken kısa bilgi)
+        if self.path.startswith("/komut-bildirim"):
+            self._komut_bildirim()
             return
         # 0.1) değişiklik bildirimi: /degisiklik?imza=... (uzun yoklama; nöbet değişikliği anında)
         if self.path.startswith("/degisiklik"):
@@ -1040,6 +1061,9 @@ def uzak_kontrol_bir_tur(cihaz_id: str, surec_kutusu: dict | None = None) -> str
         surec = surec_kutusu.get("surec")
         if surec is not None and surec.poll() is None:
             log.info("ekrani-yenile: tarayıcı yeniden başlatılıyor (sayfa tazelenecek)")
+            # EKRANDA KISA BİLGİ: sayfa yenilenmeden önce `/komut-bildirim`i okuyup yazıyı
+            # gösterebilsin diye ~1,2 sn beklenir (bildirim süresi 4 sn; arayüz 1 sn'de bir sorar).
+            time.sleep(1.2)
             surec.terminate()
     return satir
 

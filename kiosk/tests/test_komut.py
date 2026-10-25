@@ -158,6 +158,61 @@ def test_ekrani_yenile_uygulama_ici_isleme(ortam) -> None:
     assert "uygulama içi" in sonuc.ozet()
 
 
+# ------------------------------------------------------------------ ekran bildirimi
+def test_bildirim_komuttan_once_gosterilir_ve_sonra_kalkar(ortam) -> None:
+    """Kullanıcı isteği: komut uygulanırken ekranda kısa "yeniden başlatılıyor" bilgisi.
+
+    SIRA ÖNEMLİ: bildirim `subprocess` çağrısından ÖNCE kurulmalı (Qt ancak o an boyayabilir).
+    """
+    from core import bildirim
+
+    bildirim.sifirla()
+    gorulen: dict = {}
+
+    def geri_cagri(komut_adi: str) -> None:
+        aktif = bildirim.aktif()
+        gorulen["komut"] = komut_adi
+        gorulen["bildirim_var"] = aktif is not None
+        gorulen["metin"] = (aktif or {}).get("metin", "")
+
+    def sahte_calistir(argv, **_kw):
+        gorulen["calisti"] = True
+        gorulen["bildirim_calisme_aninda"] = bildirim.aktif() is not None
+        return SahteCalistirici()(argv)
+
+    sonuc = komut.uygula(_belge(), calistir=sahte_calistir, bildirim_geri_cagri=geri_cagri)
+
+    assert sonuc is not None and sonuc.cikis_kodu == 0
+    assert gorulen["komut"] == "uygulamayi-yeniden-baslat"
+    assert gorulen["bildirim_var"] is True
+    assert "yeniden başlatılıyor" in gorulen["metin"]
+    assert gorulen["calisti"] is True
+    assert gorulen["bildirim_calisme_aninda"] is True, "bildirim çalıştırmadan önce kurulmalı"
+    assert bildirim.aktif() is None, "komut bitince bildirim kalkmalı"
+
+
+def test_kuru_calistirmada_bildirim_gosterilmez(ortam) -> None:
+    from core import bildirim
+
+    bildirim.sifirla()
+    cagrildi: list[str] = []
+    komut.uygula(_belge(), kuru=True, calistir=SahteCalistirici(), bildirim_geri_cagri=cagrildi.append)
+    assert cagrildi == []
+    assert bildirim.aktif() is None
+
+
+def test_ekrani_yenile_bildirimi_kisa_sureli(ortam) -> None:
+    """`uygulama içi` komut (ekranı yenile) 4 sn'lik bildirim bırakır: tarayıcı sayfası bunu
+    okuyup yazıyı gösterebilsin diye `temizle()` çağrılmaz, süre dolunca kendiliğinden kalkar."""
+    from core import bildirim
+
+    bildirim.sifirla()
+    komut.uygula(_belge("ekrani-yenile"), calistir=SahteCalistirici())
+    aktif = bildirim.aktif()
+    assert aktif is not None and aktif["komut"] == "ekrani-yenile"
+    assert 0 < (aktif["bitis"] - aktif["baslangic"]) <= bildirim.VARSAYILAN_SURE_S
+
+
 # ------------------------------------------------------------------ uçtan uca kontrol
 def test_kontrol_komut_yoksa_bos_doner(ortam) -> None:
     karar, sonuc = komut.kontrol(cihaz_id="BENIM")
@@ -266,6 +321,25 @@ def test_uzaktan_komut_tetik_kontrol_ile_uygulanir(pencere, monkeypatch, tmp_pat
     # ikinci tur: aynı komut tekrar uygulanmaz (tek seferlik)
     app.tetik_kontrol()
     assert len([k for k in komut.durum_oku()["gecmis"] if k["id"] == "cmd-app-1"]) == 1
+
+
+def test_qt_komut_kaplamasi_kisa_bilgi_gosterir(pencere) -> None:
+    """Qt: komut uygulanmadan önce kaplama görünür, metni sabittir, 8 sn sonra kalkar."""
+    from core import bildirim
+
+    bildirim.sifirla()
+    app = pencere()
+    assert app.komut_kaplama.isHidden()
+
+    app._komut_bildirimi("yeniden-baslat")
+
+    assert not app.komut_kaplama.isHidden()
+    assert "yeniden başlatılıyor" in app.komut_kaplama.text()
+    # kaplama sahnenin tamamını kaplar (küçük bir köşe yazısı değil)
+    assert app.komut_kaplama.geometry().width() == app.stack.rect().width()
+
+    app.komut_kaplama.hide()
+    assert app.komut_kaplama.isHidden()
 
 
 def test_uzaktan_imzasiz_komut_uygulanmaz(pencere, monkeypatch, tmp_path) -> None:

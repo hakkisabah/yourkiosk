@@ -14,6 +14,8 @@ import { createApp } from 'vue'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { cssDegiskenleriniUygula } from '@/stiller/olcu'
+import { cihazKonumunuBul } from '@/veri/ekran'
+import { gosterilecekKayitlar } from '@/veri/nobet'
 import { bulunanDosyalar, cihazDosyasi, cihazVerisiVar } from './yardimci/cihaz-verisi'
 
 /* Veri: `kiosk/` klasöründeki GERÇEK dosyalar — ÇALIŞMA ANINDA okunur (import.meta.glob).
@@ -24,6 +26,28 @@ const match = (await cihazDosyasi<Record<string, unknown>>('match.json')) ?? {}
 const lastupdate = (await cihazDosyasi<Record<string, unknown>>('lastupdate.json')) ?? { lastupdate: '' }
 const makine = await cihazDosyasi<{ clientID?: string }>('makinebilgileri.json')
 const KIMLIK = String(makine?.clientID ?? '')
+
+/**
+ * SAAT VERİYE BAĞLI DONDURULUR (eski hata: 2026-10-17 sabitti, cihaz verisi 21–28 Ekim'e kayınca
+ * test "2 satır bekliyordum 5 geldi" diye düştü — kod regresyonu değil, beklenti kayması).
+ *
+ * Kural: verideki İLK nöbet gününün 10:00'ı (yerel saat). Böylece (1) gün bloğu kesin seçilir,
+ * (2) beklenen satır sayısı sabit yazılmaz — uygulamanın kullandığı AYNI fonksiyonla
+ * (`gosterilecekKayitlar`) hesaplanır. Bu testin işi "beyaz ekran yok + veri DOM'a geldi";
+ * pencere/kapsam kuralları kendi birim testlerinde.
+ */
+const GUN_ANAHTARI = Object.keys((sistem.Nobetler ?? {}) as Record<string, unknown>).sort()[0] ?? ''
+const GUN_TARIHI = /^T\d{8}$/.test(GUN_ANAHTARI)
+  ? `${GUN_ANAHTARI.slice(1, 5)}-${GUN_ANAHTARI.slice(5, 7)}-${GUN_ANAHTARI.slice(7, 9)}`
+  : '2026-10-17'
+const DONDURULMUS_AN = new Date(`${GUN_TARIHI}T10:00:00+03:00`)
+
+const BEKLENEN = (() => {
+  if (!GUN_ANAHTARI || !KIMLIK) return [] as string[]
+  const konum = cihazKonumunuBul(match as Record<string, unknown>, KIMLIK)
+  const secim = gosterilecekKayitlar(sistem as never, konum, DONDURULMUS_AN, 'ilce')
+  return secim.kayitlar.map((k) => String(k.eczane ?? ''))
+})()
 
 if (!cihazVerisiVar) {
   // Görünür bilgi: test çıktısında neden atlandığı anlaşılsın
@@ -58,7 +82,7 @@ beforeAll(() => {
   // seçimi zamana bağlıdır; gerçek saatle koşarsa test gün içinde 1↔2 satır arasında oynar
   // (veri seti 14–29 Ekim 2026). Yalnızca `Date` taklit edilir; zamanlayıcılar gerçek kalır.
   vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(new Date('2026-10-17T10:00:00+03:00'))
+  vi.setSystemTime(DONDURULMUS_AN)
   // CSS değişkenleri GERÇEK `<html>`e de uygulanır (uygulama `main.ts`te böyle yapar):
   // bu, "birimsiz ölçü → height:auto → siyah ekran" hatasının bu testte de görünmesini sağlar.
   const degiskenler = cssDegiskenleriniUygula(document.documentElement)
@@ -125,8 +149,14 @@ describe.skipIf(!cihazVerisiVar)('arayüz gerçek veriyle açılıyor (beyaz ekr
     expect(metin).toContain('TARİHLER ARASI NÖBETÇİ!')
     // hata kartı GÖSTERİLMEMELİ (veri gerçekten yüklendi)
     expect(document.querySelector('.hata-kart')).toBeNull()
-    // sol panel satırları: cihazın bölgesindeki kayıt sayısı (Çayırova 2.Bölge → 2)
-    expect(document.querySelectorAll('.satir').length).toBe(2)
+    // sol panel satırları: cihazın bölgesindeki, penceresi SÜREN kayıtlar — sayı SABİT yazılmaz,
+    // uygulamanın kullandığı `gosterilecekKayitlar` ile aynı veriden hesaplanır (veri kayması
+    // testi düşürmesin; kural hataları kendi birim testlerinde yakalanır).
+    expect(BEKLENEN.length).toBeGreaterThan(0)
+    expect(document.querySelectorAll('.satir').length).toBe(Math.min(BEKLENEN.length, 60))
+    // ve gerçekten o kayıtların adları DOM'da (veri yüklendi, iskelet değil)
+    const ilkEczane = BEKLENEN[0].split(' ')[0].toUpperCase()
+    expect(metin.toUpperCase()).toContain(ilkEczane)
     // saat/tarih
     const saat = document.querySelector('.saat-kutu .saat')?.textContent ?? ''
     expect(saat).toMatch(/^\d{2}:\d{2}$/)

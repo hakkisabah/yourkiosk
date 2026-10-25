@@ -78,11 +78,27 @@ watch(
   (url) => void gorseliHazirla(url),
 )
 
+/** Komut bildirimi: süpervizör uzaktan komut uygularken `/komut-bildirim` ucundan okunur. */
+const komutBildirimi = ref('')
+let komutZamanlayici: number | undefined
+
+async function komutBildiriminiOku(): Promise<void> {
+  try {
+    const yanit = await fetch('/komut-bildirim', { cache: 'no-store' })
+    if (!yanit.ok) return
+    const veri = (await yanit.json()) as { aktif?: boolean; metin?: string }
+    komutBildirimi.value = veri.aktif ? String(veri.metin ?? 'Komut uygulanıyor…') : ''
+  } catch {
+    /* yerel uç yok (ör. https veri modu): sessizce yok say */
+  }
+}
+
 onMounted(async () => {
   olcekle()
   window.addEventListener('resize', olcekle)
   window.addEventListener('keydown', tusaBasildi)
   logoTespit()
+  komutZamanlayici = window.setInterval(() => void komutBildiriminiOku(), 1000)
   await onbellek.bagla()
   kiosk.baslat()
 })
@@ -91,6 +107,7 @@ onBeforeUnmount(() => {
   kiosk.durdur()
   window.removeEventListener('resize', olcekle)
   window.removeEventListener('keydown', tusaBasildi)
+  if (komutZamanlayici !== undefined) window.clearInterval(komutZamanlayici)
   if (gorselBlob.value) URL.revokeObjectURL(gorselBlob.value)
 })
 
@@ -140,6 +157,9 @@ const animasyonMs = elle('animasyon.sure_ms', 1800) as number
 
       <!-- EKRAN ÜSTÜ TEŞHİS: kiosk modunda konsol görünmez → `d` tuşu ile aç/kapa -->
       <pre v-if="taniAcik" class="tani-kart">{{ taniSatirlari.join('\n') }}</pre>
+
+      <!-- UZAKTAN KOMUT BİLDİRİMİ: "yeniden başlatılıyor…" (Qt: komut_kaplama) -->
+      <div v-if="komutBildirimi" class="komut-bildirim">{{ komutBildirimi }}</div>
 
       <!-- KAYAN YAZI KUŞAĞI: yalnızca yayın görünümünde, görselin ÜSTÜNDE -->
       <Kusak

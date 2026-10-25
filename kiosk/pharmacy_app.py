@@ -97,6 +97,34 @@ class PharmacyApp(QMainWindow):
         self.stack.addWidget(self.nobet_widget)
         self.stack.addWidget(self.yayin_widget)
 
+        # KOMUT KAPLAMASI (kullanıcı isteği): uzaktan yeniden başlatma sırasında ekran birkaç
+        # saniye boşalıyor/kapanıyor; "bozuldu" sanılmasın diye kısa bir bilgi yazısı gösterilir.
+        # Süreli: komut bittiğinde (ya da süreç öldüğünde) kalıcı yazı kalmaz.
+        self.komut_kaplama = QLabel(self.stack)
+        self.komut_kaplama.setObjectName("komut-bildirim")
+        self.komut_kaplama.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.komut_kaplama.setStyleSheet(
+            "background: rgba(0, 0, 0, 180); color: #ffffff;"
+            "font-size: 38px; font-weight: bold;"
+        )
+        self.komut_kaplama.hide()
+
+    def _komut_bildirimi(self, komut: str) -> None:
+        """Komut uygulanmadan ÖNCE kısa bilgiyi gösterir (subprocess öncesi boyanması için
+        `processEvents` şart — aksi hâlde ana iş parçacığı bloke olurken yazı hiç görünmez)."""
+        try:
+            from core import bildirim as bildirim_modulu
+
+            self.komut_kaplama.setText(bildirim_modulu.metin_uret(komut))
+            self.komut_kaplama.setGeometry(self.stack.rect())
+            self.komut_kaplama.show()
+            self.komut_kaplama.raise_()
+            QApplication.processEvents()
+        except Exception:  # noqa: BLE001 - bildirim gösterimi komutu engellememeli
+            pass
+        # Emniyet: komut çağrısı geri dönmese bile kaplama en geç 8 sn sonra kalkar.
+        QTimer.singleShot(8000, self.komut_kaplama.hide)
+
     def load_data(self, zorla: bool = False):
         """Veriyi yükler. `zorla=True` → damga değişmemiş olsa da yenilenir (tetikleyici yolu)."""
         if self.data_handler.load_data(zorla=zorla):
@@ -238,7 +266,10 @@ class PharmacyApp(QMainWindow):
             self._son_komut_isareti = isaret
             try:
                 komut_modulu.getir()
-                _karar, sonuc = komut_modulu.kontrol(cihaz_id=self.cihaz_kimligi())
+                _karar, sonuc = komut_modulu.kontrol(
+                    cihaz_id=self.cihaz_kimligi(),
+                    bildirim_geri_cagri=getattr(self, "_komut_bildirimi", None),
+                )
                 if sonuc is not None:
                     log.warning("UZAKTAN KOMUT: %s", komut_modulu.sonuc_metni(sonuc))
                     if sonuc.uygulama_ici:
@@ -322,7 +353,10 @@ class PharmacyApp(QMainWindow):
         """
         try:
             komut_modulu.getir()
-            _karar, sonuc = komut_modulu.kontrol(cihaz_id=self.cihaz_kimligi())
+            _karar, sonuc = komut_modulu.kontrol(
+                cihaz_id=self.cihaz_kimligi(),
+                bildirim_geri_cagri=getattr(self, "_komut_bildirimi", None),
+            )
         except Exception:  # noqa: BLE001 - komut denetimi gösterimi durdurmamalı
             log.warning("komut çapraz kontrolü yapılamadı", exc_info=True)
             return
@@ -346,7 +380,10 @@ class PharmacyApp(QMainWindow):
             log.warning("uzak kontrol dosyaları alınamadı", exc_info=True)
 
         try:
-            _karar, sonuc = komut_modulu.kontrol(cihaz_id=self.cihaz_kimligi())
+            _karar, sonuc = komut_modulu.kontrol(
+                cihaz_id=self.cihaz_kimligi(),
+                bildirim_geri_cagri=getattr(self, "_komut_bildirimi", None),
+            )
         except Exception:  # noqa: BLE001
             log.warning("uzaktan komut denetimi yapılamadı", exc_info=True)
             return

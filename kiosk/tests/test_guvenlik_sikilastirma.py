@@ -159,6 +159,16 @@ def test_json_derinlik_siniri() -> None:
         json_yukle(derin, en_buyuk_derinlik=8)
 
 
+def test_json_ayristirici_tasmasi_veri_hatasina_cevrilir() -> None:
+    """DERİN GÖVDE (i5 bulgusu): sınır denetimi ayrıştırmadan SONRA çalışır; 20.000 kat iç içe
+    liste `json.loads` içinde RecursionError atar. Kapı bunu VeriHatasi'ya çevirmezse çağıranın
+    yoklama turu düşer — test bu dönüşümü doğrudan kanıtlar (64 KB sınırının ALTINDA)."""
+    derin = ("[" * 20_000 + "]" * 20_000).encode()
+    assert len(derin) < 64 * 1024, "senaryo belge boyutu sınırının altında kalmalı"
+    with pytest.raises(VeriHatasi, match="derinli|ayrıştırıcı"):
+        json_yukle(derin, en_buyuk_derinlik=16, en_buyuk_dugum=2_000)
+
+
 def test_json_dugum_siniri() -> None:
     buyuk = json.dumps({f"k{i}": list(range(50)) for i in range(200)})
     with pytest.raises(VeriHatasi, match="düğüm"):

@@ -68,6 +68,13 @@ def json_yukle(
         veri = json.loads(ham.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError) as hata:
         raise VeriHatasi(f"{etiket}: JSON çözülemedi ({type(hata).__name__})") from hata
+    except RecursionError as hata:
+        # DERİNLİK DENETİMİ ÇOK GEÇ KALIR: `json.loads` iç içe listeleri özyinelemeli ayrıştırır ve
+        # sınırlarımız (derinlik/düğüm) ancak AYRIŞTIRMADAN SONRA uygulanır. 20.000 kat iç içe bir
+        # gövde (64 KB sınırının altında!) burada RecursionError atar; yakalanmazsa çağıranın yoklama
+        # turu düşer. Bu yüzden kapı, ayrıştırıcının kendi taşma hatasını da VeriHatasi'ya çevirir
+        # (i5 bulgusu: "derin-JSON testi iddia ettiği korumayı tam kanıtlamıyor").
+        raise VeriHatasi(f"{etiket}: JSON derinliği ayrıştırıcı sınırını aştı") from hata
     dugum = _derinlik_ve_dugum_say(veri, en_buyuk_derinlik=en_buyuk_derinlik, en_buyuk_dugum=en_buyuk_dugum)
     log.debug("%s: JSON okundu (%d düğüm)", etiket, dugum)
     return veri
