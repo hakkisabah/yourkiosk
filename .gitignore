@@ -30,6 +30,8 @@ panel/dist/
 panel/.env
 panel/.env.*
 !panel/.env.ornek
+# `npx` depo kökünde düğüm_modules oluşturabiliyor (çalışma ağacı kirlenmesin)
+node_modules/
 panel/coverage/
 
 # --- düzenleyici / işletim sistemi ---

@@ -45,6 +45,13 @@ ONAY_ETIKETI = "guvenlik/onay"
 UNIT_ADI = "yourkiosk-nobetci.service"
 SORUN_ETIKETI = "guvenlik/sorun"
 
+# OTURUM BAŞINA PR (zaman aşımı düzeltmesi): iki büyük PR tek oturuma verildiğinde 1200 sn'lik
+# bütçe yetmiyordu ve oturum `çıkış 124` ile ölüyordu (günlükte 17:35 ve 17:55 turları). Karar
+# yazılmadığı için nöbetçi aynı PR'ları "beklemede" sayıp tekrar deniyordu — sıra ilerlemiyordu.
+# Çözüm: i5 bir oturumda TEK PR inceler (derin inceleme zaten PR başına ~20 dk), i3 kararları
+# hızlı olduğu için birkaç PR'ı birlikte işler. Kalanlar bir sonraki turda (aralık 15 sn) alınır.
+OTURUM_BASI_PR = {"i5": 1, "i3": 3}
+
 
 def simdi() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -264,6 +271,13 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
             gh.kaydet({"rol": rol, "is": 0, "son_karar": "bos"})
         return 0
 
+    cap = max(1, OTURUM_BASI_PR.get(rol, 1))
+    if len(is_listesi) > cap:
+        sirada, kuyruk = is_listesi[:cap], is_listesi[cap:]
+        gunluk(gunluk_yolu, f"{rol}: oturum başına {cap} PR — sıradaki "
+                            + ", ".join(f"#{i['pr']}" for i in sirada)
+                            + "; kuyrukta " + ", ".join(f"#{i['pr']}" for i in kuyruk))
+        is_listesi = sirada
     gunluk(gunluk_yolu, f"{rol}: {len(is_listesi)} iş → oturum açılıyor: "
                         + ", ".join(f"#{i['pr']}" for i in is_listesi))
     kod, cikti = hermes_calistir(depo, gorev_metni(rol, depo, is_listesi), rol, zaman_asimi, kuru)
@@ -381,7 +395,8 @@ def main() -> int:
     ayar.add_argument("--tani", action="store_true", help="iş listesi + bekleyenler + günlük oturum sayısı")
     ayar.add_argument("--kendini-denetle", action="store_true",
                       help="kontrol noktaları: kalan cron / servis / linger / oturum sayısı (değiştirmez)")
-    ayar.add_argument("--zaman-asimi", type=int, default=1200, help="oturum zaman aşımı sn")
+    ayar.add_argument("--zaman-asimi", type=int, default=1800,
+                      help="oturum zaman aşımı sn (tek PR incelemesi ~15 dk sürüyor)")
     ayar.add_argument("--depo", type=Path, default=DEPO_VARSAYILAN)
     ayar.add_argument("--token", type=Path, default=TOKEN_VARSAYILAN)
     ayar.add_argument("--log", type=Path, default=None)
