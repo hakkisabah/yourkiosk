@@ -253,8 +253,10 @@ async function kaydet(sessiz = false): Promise<boolean> {
 /**
  * `tetikle.json` (kapsam: cihazın ilçesi/bölgesi) yazılır.
  *
- * Cihaz bu dosyayı görünce kendi yoklama turunda (MQTT yoksa 30 sn, bağlıysa 120 sn emniyet ağı;
- * uzun yoklama ile tarayıcıda daha erken) verisini yeniler; `ilceId` boş bırakılırsa TÜM cihazlar yenilenir.
+ * Cihaz bu dosyayı görünce kendi turunda yeniler: Qt'de `DAMGA_KONTROL_MS_PUSH_YOK` (30 sn) ya da
+ * MQTT bağlıyken `DAMGA_KONTROL_MS_PUSH` (120 sn emniyet ağı); tarayıcıda `/degisiklik` uzun yoklaması
+ * tetikleyiciyi `TETIK_KONTROL_MS` (20 sn) ile çeker, sayfa veriyi doğrudan kaynaktan tazeler.
+ * `ilceId` boş bırakılırsa TÜM cihazlar yenilenir.
  */
 const tetikIlce = ref('')
 const tetikGonderiliyor = ref(false)
@@ -591,10 +593,10 @@ async function tetikBildir(): Promise<void> {
         <div class="text-body-2 text-medium-emphasis mb-3">
           Veri değişikliğini kaydettikten sonra bu bildirimi gönderin: cihazlar
           <code>tetikle.json</code> dosyasını görüp <strong>saatlik kontrolü beklemeden</strong> yenilenir.
-          Süre her iki modda (Qt ve tarayıcı) aynı: <strong>tipik olarak 30 saniye içinde</strong>
+          Ölçülen süre iki modda da <strong>tipik olarak 30 saniye</strong>
           (MQTT push bağlıysa saniyeler içinde; bağlantı sorunluysa en kötü 120 saniye).
-          Yalnızca seçtiğiniz ilçenin cihazları bu bildirimle yenilenir; diğerleri normal saatlik
-          kontrolde alır.
+          Bildirim seçtiğiniz ilçenin cihazlarını hemen yeniletir; diğer ilçelerin cihazları da
+          veri damgası değiştiği için en geç bir sonraki yoklamada (30–120 saniye) güncellenir.
         </div>
         <div class="d-flex align-center flex-wrap ga-3">
           <v-select
