@@ -81,3 +81,40 @@ def test_push_acikken_uzun_yoklama_uzak_yoklama_yapmaz(monkeypatch) -> None:
     monkeypatch.setattr(config, "WEB_VERI_MODU", "yerel", raising=False)
     monkeypatch.setattr(config, "KAYNAK", "dosya", raising=False)
     assert tarayici.uzak_yoklama_gerekli() is False
+
+
+# ---------------------------------------------------------------- cihaz izleme (kalp atışı)
+def test_durum_konusu_yayin_konusundan_turetilir(monkeypatch) -> None:
+    """600 cihazın çevrimiçi durumu: `<taban>/durum/<cihazId>` (panel aynı kuralı kullanır)."""
+    from core import push
+
+    monkeypatch.setattr(config, "TETIK_PUSH_KONU", "yourkiosk/yayin", raising=False)
+    monkeypatch.setattr(config, "TETIK_PUSH_AKTIF", True, raising=False)
+    assert push.durum_konusu("C1") == "yourkiosk/durum/C1"
+    monkeypatch.setattr(config, "TETIK_PUSH_KONU", "kurum/alt/yayin", raising=False)
+    assert push.durum_konusu("C2") == "kurum/alt/durum/C2"
+
+
+def test_durum_konusu_joker_ve_slash_temizler(monkeypatch) -> None:
+    """Kimlikte `+`/`#`/`/` olursa MQTT konusu bozulur → temizlenir (panel eşleşmesi şaşmasın)."""
+    from core import push
+
+    monkeypatch.setattr(config, "TETIK_PUSH_KONU", "yourkiosk/yayin", raising=False)
+    monkeypatch.setattr(config, "TETIK_PUSH_AKTIF", True, raising=False)
+    assert push.durum_konusu("A/B+C#D") == "yourkiosk/durum/A-B-C-D"
+    # cihaz kimliği okunamıyorsa konu yine geçerli kalır (panel bu cihazı "bilinmeyen" görür)
+    monkeypatch.setattr(push, "cihaz_kimligi", lambda: "")
+    assert push.durum_konusu() == "yourkiosk/durum/bilinmeyen"
+
+
+def test_kalp_atisi_belgesi_alanlari(monkeypatch) -> None:
+    from datetime import datetime, timezone
+
+    from core import push
+
+    monkeypatch.setattr(config, "CALISTIRMA_MODU", "tarayici", raising=False)
+    belge = push.kalp_atisi_belgesi(True, datetime(2026, 10, 25, 9, 30, tzinfo=timezone.utc))
+    assert belge["cevrimici"] is True
+    assert belge["zaman"] == "2026-10-25T09:30:00Z"
+    assert belge["mod"] == "tarayici"
+    assert push.kalp_atisi_belgesi(False)["cevrimici"] is False

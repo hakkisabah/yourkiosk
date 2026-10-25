@@ -5,9 +5,11 @@
  * yapılan hâlidir (cihaz bir sonraki veri turunda yeni bölgeyi gösterir).
  */
 import { kopya } from '@/domain/kopya'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { DOSYALAR } from '@/aws/config'
+import { durumEtiketi, izlemeBaslat, izlemeOzeti, type CihazDurumu, type IzlemeOturumu } from '@/domain/cihazIzleme'
+import { mqttYapilandirildi } from '@/domain/push'
 import { gunEtiketi, tarihMetni, tumKayitlar } from '@/domain/veri'
 import { useDosyalar } from '@/stores/dosyalar'
 
@@ -15,6 +17,41 @@ const dosyalar = useDosyalar()
 const taslak = ref<Record<string, unknown>>(kopya(dosyalar.match.veri ?? {}))
 const taslakMakine = ref<string>(dosyalar.clientId)
 const mesaj = ref('')
+
+/** CİHAZ İZLEME (MQTT kalp atışı): çevrimiçi/çevrimdışı. Yapılandırma yoksa kapalıdır. */
+const durumlar = ref<Map<string, CihazDurumu>>(new Map())
+const izlemeDurumu = ref<'kapali' | 'baglaniyor' | 'acik' | 'hata'>('kapali')
+const izlemeHatasi = ref('')
+const simdi = ref(new Date())
+let oturum: IzlemeOturumu | null = null
+let saatZamanlayici: number | undefined
+
+onMounted(async () => {
+  saatZamanlayici = window.setInterval(() => (simdi.value = new Date()), 30_000)
+  if (!mqttYapilandirildi()) {
+    izlemeDurumu.value = 'kapali'
+    return
+  }
+  izlemeDurumu.value = 'baglaniyor'
+  try {
+    oturum = await izlemeBaslat((durum) => {
+      const yeni = new Map(durumlar.value)
+      yeni.set(durum.cihazId, durum)
+      durumlar.value = yeni
+      izlemeDurumu.value = 'acik'
+    })
+    izlemeDurumu.value = oturum ? 'acik' : 'kapali'
+  } catch (hata) {
+    izlemeDurumu.value = 'hata'
+    izlemeHatasi.value = (hata as Error).message
+  }
+})
+
+onBeforeUnmount(() => {
+  oturum?.durdur()
+  oturum = null
+  if (saatZamanlayici !== undefined) window.clearInterval(saatZamanlayici)
+})
 
 watch(
   () => dosyalar.match.veri,
@@ -51,6 +88,11 @@ const bolgeAdlari = computed<Record<string, string>>(() => {
 
 const tumBolgeler = computed(() => cihazlar.value.map((c) => c.bolgeId))
 const kirli = computed(() => JSON.stringify(taslak.value) !== JSON.stringify(dosyalar.match.veri ?? {}))
+
+/** Çevrimiçi özeti (match.json'daki tüm cihazlar üzerinden). */
+const tumCihazIdleri = computed(() => [...new Set(cihazlar.value.flatMap((s) => s.cihazlar))])
+const cevrimiciOzeti = computed(() => izlemeOzeti(durumlar.value, tumCihazIdleri.value, simdi.value))
+const cihazDurumu = (cihaz: string) => durumEtiketi(durumlar.value.get(cihaz), simdi.value)
 
 function tasi(satir: CihazSatiri, cihaz: string, hedefBolge: string): void {
   if (hedefBolge === satir.bolgeId) return
@@ -126,10 +168,30 @@ async function kaydet(): Promise<void> {
 
     <v-alert v-if="mesaj" type="info" variant="tonal" class="mb-4" closable @click:close="mesaj = ''">{{ mesaj }}</v-alert>
 
+    <v-alert v-if="izlemeDurumu === 'kapali'" type="info" variant="tonal" density="compact" class="mb-4">
+      Çevrimiçi izleme <strong>kapalı</strong> — panelde <code>VITE_MQTT_URL</code> tanımlı değil.
+      Cihazlar çalışmaya devam eder (yoklama emniyet ağı); durum sütunu "bilinmiyor" görünür.
+    </v-alert>
+    <v-alert v-else-if="izlemeDurumu === 'hata'" type="warning" variant="tonal" density="compact" class="mb-4">
+      MQTT izleme başlatılamadı: {{ izlemeHatasi }} — cihazlar etkilenmez.
+    </v-alert>
+
     <v-row>
       <v-col cols="12" lg="8">
         <v-card>
-          <v-card-title class="text-subtitle-1">Cihaz eşlemesi ({{ cihazlar.length }} bölge kaydı)</v-card-title>
+          <v-card-title class="text-subtitle-1 d-flex align-center">
+            <span>Cihaz eşlemesi ({{ cihazlar.length }} bölge kaydı)</span>
+            <v-spacer />
+            <v-chip v-if="izlemeDurumu === 'acik'" size="small" variant="tonal" color="success" class="mr-2">
+              çevrimiçi {{ cevrimiciOzeti.cevrimici }}
+            </v-chip>
+            <v-chip v-if="izlemeDurumu === 'acik'" size="small" variant="tonal" color="error" class="mr-2">
+              çevrimdışı {{ cevrimiciOzeti.cevrimdisi }}
+            </v-chip>
+            <v-chip v-if="izlemeDurumu === 'acik' && cevrimiciOzeti.bilinmiyor" size="small" variant="tonal">
+              bilinmiyor {{ cevrimiciOzeti.bilinmiyor }}
+            </v-chip>
+          </v-card-title>
           <v-card-text>
             <v-table density="compact">
               <thead><tr><th>İlçe</th><th>Bölge</th><th>Cihazlar (clientID)</th><th>İşlem</th></tr></thead>
@@ -150,6 +212,13 @@ async function kaydet(): Promise<void> {
                       closable
                       @click:close="cihazSil(s, c)"
                     >
+                      <v-icon
+                        v-if="izlemeDurumu === 'acik'"
+                        :color="cihazDurumu(c).renk"
+                        size="x-small"
+                        class="mr-1"
+                        :icon="cihazDurumu(c).renk === 'success' ? 'mdi-circle' : cihazDurumu(c).renk === 'error' ? 'mdi-circle-off-outline' : 'mdi-help-circle-outline'"
+                      />
                       {{ c }}{{ c === dosyalar.clientId ? ' (bu cihaz)' : '' }}
                     </v-chip>
                     <span v-if="!s.cihazlar.length" class="text-caption text-medium-emphasis">cihaz yok</span>
