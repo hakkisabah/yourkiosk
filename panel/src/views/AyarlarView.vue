@@ -8,6 +8,7 @@ import { computed, ref, watch } from 'vue'
 
 import AyarFormu from '@/components/AyarFormu.vue'
 import { DOSYALAR } from '@/aws/config'
+import { tamBelge } from '@/domain/ayarBelgesi'
 import { gruplar, kapsamGrubuMu } from '@/domain/sema'
 import { useDosyalar, type AyarBelgesi } from '@/stores/dosyalar'
 
@@ -51,7 +52,8 @@ function sifirla(): void {
 }
 
 async function kaydet(): Promise<void> {
-  await dosyalar.kaydet('ayarlar', DOSYALAR.ayarlar, taslak.value)
+  // TAM BELGE (kullanıcı kararı): şemadaki her anahtar yazılır; girilmemiş olanlar varsayılanıyla.
+  await dosyalar.kaydet('ayarlar', DOSYALAR.ayarlar, tamBelge(taslak.value))
 }
 </script>
 
@@ -62,7 +64,8 @@ async function kaydet(): Promise<void> {
         <h2 class="text-h5 mb-1">Genel Ayarlar</h2>
         <div class="text-body-2 text-medium-emphasis">
           <code>ayarlar.json</code> — tüm cihazlar için geçerli varsayılanlar. Kiosk bu dosya yoksa
-          <code>config.py</code> değerlerini kullanır.
+          <code>config.py</code> değerlerini kullanır. <strong>Kaydet, dosyayı tam belge olarak yazar</strong>
+          (şemadaki her anahtar; dokunulmayanlar varsayılanıyla) — böylece dosya tek başına okunabilir.
         </div>
       </div>
       <v-spacer />

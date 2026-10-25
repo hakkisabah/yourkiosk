@@ -32,6 +32,8 @@ export const DOSYALAR = {
   match: 'match.json',
   lastupdate: 'lastupdate.json',
   makine: 'makinebilgileri.json',
+  /** Yönetici aracının yazdığı son uzaktan komut (cihaz imzayı doğrular; panel YALNIZ gösterir). */
+  komut: 'komut.json',
 } as const
 
 export type DosyaAdi = (typeof DOSYALAR)[keyof typeof DOSYALAR]

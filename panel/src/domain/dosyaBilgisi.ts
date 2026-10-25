@@ -7,4 +7,5 @@ export const DOSYA_ACIKLAMALARI: Record<string, string> = {
   'match.json': 'Cihaz → ilçe/bölge eşlemesi',
   'lastupdate.json': 'Veri değişiklik damgası (cihaz saatlik kontrol eder)',
   'makinebilgileri.json': 'Cihaz kimliği (clientID) — her cihazda ayrı',
+  'komut.json': 'Son uzaktan komut (imzalı; cihaz beyaz listeye göre uygular)',
 }

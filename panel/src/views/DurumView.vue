@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 
 import { DOSYALAR } from '@/aws/config'
 import { DOSYA_ACIKLAMALARI } from '@/domain/dosyaBilgisi'
+import { komutOzeti, hedefMetni } from '@/domain/komut'
 import { kapsamCoz, kapsamSatirlari } from '@/domain/kapsam'
 import { gunEtiketi, gosterilecekKayitlar, konumAdlariniBul, ozetle, tarihMetni, type CihazKonumu } from '@/domain/veri'
 import { useBaglanti } from '@/stores/baglanti'
@@ -43,6 +44,9 @@ const konum = computed<CihazKonumu>(() => {
 })
 
 const cihazGosterimi = computed(() => gosterilecekKayitlar(dosyalar.sistemVerisi, konum.value, simdi.value))
+
+/** Son uzaktan komut (`komut.json`) — panel yalnız gösterir, komut GÖNDERMEZ. */
+const komut = computed(() => komutOzeti(dosyalar.komut.veri, dosyalar.clientId, simdi.value))
 
 const kapsamOzeti = computed(() =>
   kapsamSatirlari(dosyalar.kapsamBelgesi, {
@@ -153,6 +157,51 @@ const dosyaSatirlari = computed(() =>
       </v-col>
 
       <v-col cols="12" lg="6">
+        <v-card class="mb-4">
+          <v-card-title class="text-subtitle-1">Son uzaktan komut (komut.json)</v-card-title>
+          <v-card-subtitle>
+            Panel komut <strong>göndermez</strong> (cihazın HMAC anahtarı istemcide tutulmaz). Gönderim
+            <code>kiosk/tools/komut_gonder.py</code> ile yapılır; burada yalnız kovadaki son komut görünür.
+          </v-card-subtitle>
+          <v-card-text>
+            <v-alert v-if="!komut.varMi" type="info" variant="tonal" density="compact" class="mb-2">
+              {{ komut.uyarilar[0] }}
+            </v-alert>
+            <template v-else>
+              <v-table density="compact">
+                <tbody>
+                  <tr><td class="text-caption text-medium-emphasis">Komut</td>
+                    <td><code>{{ komut.komut || '—' }}</code></td></tr>
+                  <tr><td class="text-caption text-medium-emphasis">Kimlik (id)</td>
+                    <td class="text-caption">{{ komut.id || '—' }}</td></tr>
+                  <tr><td class="text-caption text-medium-emphasis">Hedef</td>
+                    <td>{{ hedefMetni(komut.hedef) }}</td></tr>
+                  <tr><td class="text-caption text-medium-emphasis">Gönderim</td>
+                    <td>{{ komut.zaman ? tarihMetni(komut.zaman) : '—' }}</td></tr>
+                  <tr><td class="text-caption text-medium-emphasis">İmza</td>
+                    <td>
+                      <v-chip :color="komut.imzali ? 'success' : 'error'" size="x-small" variant="tonal">
+                        {{ komut.imzali ? 'var (cihaz doğrular)' : 'yok' }}
+                      </v-chip>
+                    </td></tr>
+                </tbody>
+              </v-table>
+              <v-alert
+                v-for="(u, i) in komut.uyarilar"
+                :key="i"
+                type="warning"
+                variant="tonal"
+                density="compact"
+                class="mt-3"
+              >{{ u }}</v-alert>
+              <div class="text-caption text-medium-emphasis mt-2">
+                Cihaz komutu <strong>tek seferlik</strong> uygular (<code>komut-durum.json</code>): aynı
+                kimlik ikinci kez çalışmaz, S3'teki dosya silinmese de.
+              </div>
+            </template>
+          </v-card-text>
+        </v-card>
+
         <v-card class="mb-4">
           <v-card-title class="text-subtitle-1">S3 dosyaları</v-card-title>
           <v-card-text>

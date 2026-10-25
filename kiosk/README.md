@@ -137,6 +137,14 @@ durur; `ayarlar.json` yalnızca değiştirmek istediklerinizi içerir (örnek do
 Kurallar: `nobet_listesi` ve `yayinlar` **ikisi birden kapatılamaz** (ekranda gösterilecek bir şey
 kalmalı); bu durumda nöbet listesi otomatik geri açılır ve günlüğe uyarı yazılır.
 
+**Panel yayınında cihaza özgü anahtarlar yoktur.** Panel `ayarlar.json`u **tam belge** olarak yazar
+(şemadaki her anahtar; girilmemişse varsayılanı), ancak iki grup **hiç yazılmaz**:
+`tetik.push_*` (broker/kullanıcı/parola/CA/sertifika/anahtar yolu) ve `calistirma.komut_*`
+(`systemctl` dizeleri + `komut_imza_zorunlu`). Bunlar cihaz başına değişir; yayına yazılsaydı panel
+varsayılanı cihazın yerel parolasını ezer, `komut_imza_zorunlu: false` ise imza denetimini tüm
+cihazlarda kaldırırdı. İki katman korur: panel yazmaz (`panel/src/domain/ayarBelgesi.ts::CIHAZA_OZGU`),
+cihaz da yayını bu anahtarlarda yok sayar (`ayarlar.py::YEREL_ONCELIKLI`).
+
 Diğer gruplar: `kusak` (kuşak yüksekliği/boşluğu/puntosu/zamanlamaları), `veri` (kaynak: `dosya`
 ya da `https`), `ag` (izinli alan adları, portlar, zaman aşımı) ve **`gelismis`** (veri hacmi
 sınırları: `max_json_bayt`, `max_json_derinlik`, `max_json_dugum`, gösterilecek kayıt/yayın sayısı…).
