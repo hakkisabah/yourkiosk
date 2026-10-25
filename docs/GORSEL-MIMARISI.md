@@ -305,7 +305,7 @@ Görsel egress (içerik adlı + immutable, 304 yok):
 ## 10) HEDEF SEÇİMİ (panel UX) + veri modeli tek kaynağı (24.10.2026)
 
 ### 10.1 Panel arayüzü
-`VeriView → Yayınlar` sekmesinde yayın tablosu:
+`Nöbet ve Yayınlar` (dosya: `VeriView.vue`) ekranındaki **Yayınlar** sekmesinde yayın tablosu:
 
 | Kolon | İçerik |
 |---|---|

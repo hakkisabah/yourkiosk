@@ -103,3 +103,28 @@ def test_komut_gecikmesi_dogru_anlatilir():
     assert "10 tur" in metin or "10 yoklama turunda" in metin
     assert "20 dakika" in metin
     assert "5 dakika" in metin
+
+
+# --- menü adı / dosya adı ayrımı (kullanıcı geri bildirimi) ---------------------
+
+def test_belgelerde_menude_gorunmeyen_dosya_adi_talimat_olarak_kullanilmaz():
+    """Panelde menü adı 'Nöbet ve Yayınlar'; `VeriView` yalnız DOSYA adıdır.
+
+    Kullanıcı geri bildirimi: talimatta "panelde VeriView'de" denince ekranda öyle bir şey
+    bulunamıyor. Belgeler görünen menü adını kullanmalı; dosya adı geçecekse 'dosya:' demeli.
+    """
+    kok = Path(__file__).resolve().parents[2]
+    yasak = ("VeriView →", "VeriView'de", "VeriView ekranında", "AyarlarView'de")
+    kotu = []
+    for md in list((kok / "docs").glob("*.md")) + [kok / "panel" / "README.md"]:
+        if not md.exists():
+            continue
+        metin = md.read_text(encoding="utf-8")
+        for kalip in yasak:
+            if kalip in metin:
+                kotu.append(f"{md.relative_to(kok)}: {kalip}")
+    assert not kotu, f"talimatta menüde görünmeyen dosya adı kullanılmış: {kotu}"
+
+    # panel/README bu kuralı açıkça yazmalı (yeni talimat yazan buraya bakar).
+    pano = (kok / "panel" / "README.md").read_text(encoding="utf-8")
+    assert "Nöbet ve Yayınlar" in pano and "dosya adları menüde görünmez" in pano
