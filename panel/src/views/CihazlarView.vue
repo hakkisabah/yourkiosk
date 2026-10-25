@@ -9,6 +9,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { DOSYALAR } from '@/aws/config'
 import {
+  durumEkle,
   durumEtiketi,
   izlemeBaslat,
   izlemeOzeti,
@@ -72,9 +73,8 @@ async function izlemeyiBagla(kullanici: string, parola: string): Promise<void> {
     const konu = izlemeKonusu(import.meta.env as unknown as Record<string, string | undefined>)
     oturum = await izlemeBaslat(
       (durum) => {
-        const yeni = new Map(durumlar.value)
-        yeni.set(durum.cihazId, durum)
-        durumlar.value = yeni
+        // SINIRLI HARİTA (i5 bulgusu): durumEkle 2000 kayıtta durur, en eskiyi düşürür.
+        durumlar.value = durumEkle(durumlar.value, durum)
       },
       { url: izlemeUrl, konu, kullanici, parola },
       { durum: durumEsle },
