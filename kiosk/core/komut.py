@@ -259,7 +259,7 @@ def uygula(
         # argv yok → yalnız "ekrani-yenile": uygulama kendisi tazeler
         sonuc.uygulama_ici = True
         log.info("komut: %s → uygulama içi tazeleme istendi (%s)", komut, kimlik)
-        _bildir(komut, bildirim_geri_cagri, sure_s=4.0)
+        _bildir(komut, bildirim_geri_cagri)
         durum_yaz(sonuc)
         return sonuc
 

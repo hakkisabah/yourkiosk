@@ -24,8 +24,10 @@ export function bildirimMetni(veri: KomutBildirimYaniti | null | undefined): str
 /**
  * Yerel süpervizörden bildirimi okur.
  *
- * Hata yolları SESSİZDİR (boş dize): https veri modunda yerel uç yoktur, ağ hatası ekranı
- * bozmamalı. `getir` enjekte edilebilir (test).
+ * `/komut-bildirim` ucu `core/tarayici.py`deki YEREL sunucudadır ve HER İKİ veri modunda da
+ * (veri=yerel, veri=https) vardır — sayfa her iki modda da yerel sunucudan gelir. Yine de hata
+ * yolları SESSİZDİR (boş dize): uç yoksa/ağ hatası olursa ekran bozulmamalı.
+ * `getir` enjekte edilebilir (test).
  */
 export async function komutBildiriminiOku(
   getir: typeof fetch = fetch,

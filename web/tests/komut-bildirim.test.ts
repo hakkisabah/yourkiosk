@@ -1,6 +1,13 @@
+// @vitest-environment jsdom
 /**
  * `/komut-bildirim` istemcisi testleri (i5 bulgusu: yoklama istemci tarafı testsizdi).
+ *
+ * XSS testi GERÇEK mekanizmayı kanıtlar: metin `App.vue`da enterpolasyonla (`{{ }}`) basılır,
+ * `v-html` KULLANILMAZ. Önceki test yalnız "dize döndü" diyordu — iddiasını kanıtlamıyordu.
  */
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -35,10 +42,26 @@ describe('bildirimMetni', () => {
     expect(bildirimMetni({ aktif: true, metin: '   ' })).toBe(VARSAYILAN_BILDIRIM)
   })
 
-  it('metni HTML olarak yorumlamaz (düz metin)', () => {
+  it('metni HTML olarak yorumlamaz — şablon enterpolasyon kullanır, `v-html` YOK', () => {
+    // 1) Dize katmanı: gelen metin OLDUĞU GİBİ taşınır (kaçış yapılmaz), çünkü güvenlik
+    //    basıldığı yerde Vue enterpolasyonundadır — burada HTML'e çevrilmez.
     const metin = bildirimMetni({ aktif: true, metin: '<img src=x onerror=alert(1)>' })
-    expect(metin).toContain('<img')
-    expect(typeof metin).toBe('string')
+    expect(metin).toBe('<img src=x onerror=alert(1)>')
+
+    // 2) Gerçek DOM: enterpolasyonla basılan metin ELEMAN ÜRETMEZ (textContent semantiği).
+    const kap = document.createElement('div')
+    kap.textContent = metin
+    document.body.appendChild(kap)
+    expect(kap.querySelector('img')).toBeNull()
+    expect(kap.childElementCount).toBe(0)
+    expect(kap.textContent).toBe('<img src=x onerror=alert(1)>')
+    kap.remove()
+
+    // 3) Şablon kanıtı: App.vue bildirimi çift süslü parantezle basıyor, v-html geçmiyor.
+    // (jsdom ortamında `import.meta.url` file: şemasında değil → cwd'den okunur.)
+    const sablon = readFileSync(resolve(process.cwd(), 'src/App.vue'), 'utf-8')
+    expect(sablon).toContain('{{ komutBildirimi }}')
+    expect(sablon).not.toContain('v-html')
   })
 })
 

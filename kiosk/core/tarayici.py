@@ -1062,8 +1062,11 @@ def uzak_kontrol_bir_tur(cihaz_id: str, surec_kutusu: dict | None = None) -> str
         if surec is not None and surec.poll() is None:
             log.info("ekrani-yenile: tarayıcı yeniden başlatılıyor (sayfa tazelenecek)")
             # EKRANDA KISA BİLGİ: sayfa yenilenmeden önce `/komut-bildirim`i okuyup yazıyı
-            # gösterebilsin diye ~1,2 sn beklenir (bildirim süresi 4 sn; arayüz 1 sn'de bir sorar).
-            time.sleep(1.2)
+            # gösterebilsin diye bir yoklama turu kadar beklenir. Süre `core/bildirim.py`deki
+            # `YENILEME_ONCESI_BEKLEME_S`ten gelir (sabit 1,2 sn kopyalanmaz — i5 bulgusu).
+            from core import bildirim as _bildirim
+
+            time.sleep(_bildirim.YENILEME_ONCESI_BEKLEME_S)
             surec.terminate()
     return satir
 

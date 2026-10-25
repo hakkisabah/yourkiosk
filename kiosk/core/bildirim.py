@@ -34,6 +34,25 @@ METINLER: dict[str, str] = {
 VARSAYILAN_METIN = "Komut uygulanıyor…"
 VARSAYILAN_SURE_S = 8.0
 
+#: `ekrani-yenile` kısa sürer: tarayıcı süreci yeniden başlatılır, sayfa hemen tazelenir.
+EKRANI_YENILE_SURE_S = 4.0
+
+#: Tarayıcı arayüzünün `/komut-bildirim` yoklama aralığı (sn) — `web/src/App.vue` ile AYNI olmalı.
+ARAYUZ_YOKLAMA_S = 1.0
+
+#: Sayfa yenilenmeden ÖNCE beklenecek süre: bir yoklama turu + pay. Arayüz yazıyı bir kez
+#: okusun diye; sabit `1.2` yazmak yerine yoklama aralığından türetilir (i5 bulgusu).
+YENILEME_ONCESI_BEKLEME_S = ARAYUZ_YOKLAMA_S * 1.2
+
+
+def sure_uret(komut: str) -> float:
+    """Komutun bildirim süresi (sn) — TEK KAYNAK.
+
+    Qt kaplaması, tarayıcı beklemesi ve `goster()` aynı değeri kullanır; sabit sayı
+    tekrarlanmadığı için biri değişince diğeri yanlış süre göstermez (i5 bulgusu).
+    """
+    return EKRANI_YENILE_SURE_S if str(komut or "").strip().lower() == "ekrani-yenile" else VARSAYILAN_SURE_S
+
 _kilit = threading.Lock()
 _durum: dict | None = None
 
@@ -46,7 +65,7 @@ def metin_uret(komut: str) -> str:
 def goster(komut: str, sure_s: float | None = None, *, simdi: float | None = None) -> dict:
     """Bildirimi başlatır; görünen durumu döner."""
     global _durum
-    sure = VARSAYILAN_SURE_S if sure_s is None else max(0.0, float(sure_s))
+    sure = sure_uret(komut) if sure_s is None else max(0.0, float(sure_s))
     an = time.monotonic() if simdi is None else float(simdi)
     durum = {
         "komut": str(komut or "").strip().lower(),

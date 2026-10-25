@@ -120,9 +120,15 @@ class PharmacyApp(QMainWindow):
             self.komut_kaplama.show()
             self.komut_kaplama.raise_()
             QApplication.processEvents()
+            # Emniyet: komut çağrısı geri dönmese bile kaplama, bildirimin GERÇEK süresi kadar
+            # sonra kalkar. Süre tek kaynaktan (`bildirim.sure_uret`) gelir → `ekrani-yenile`
+            # tarayıcıda 4 sn, Qt'de de 4 sn görünür (sabit 8000 ms yanlıştı — i5 bulgusu).
+            _sure_ms = int(bildirim_modulu.sure_uret(komut) * 1000) + 500
+            QTimer.singleShot(_sure_ms, self.komut_kaplama.hide)
+            return
         except Exception:  # noqa: BLE001 - bildirim gösterimi komutu engellememeli
             pass
-        # Emniyet: komut çağrısı geri dönmese bile kaplama en geç 8 sn sonra kalkar.
+        # Bildirim modülü çalışmadıysa güvenli varsayılan: kaplama en geç 8 sn sonra kalkar.
         QTimer.singleShot(8000, self.komut_kaplama.hide)
 
     def load_data(self, zorla: bool = False):
