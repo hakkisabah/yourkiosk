@@ -262,6 +262,26 @@ YEREL_ONCELIKLI = frozenset(
         "calistirma.web_klasoru",
         "calistirma.web_sunucu_adresi",
         "calistirma.web_sunucu_portu",
+        # MQTT broker kimliği cihaz başına: yayınlanan boş varsayılan yerel parolayı/sertifikayı
+        # EZMEMELİ (panel "tam belge" yazsa bile). Panel tarafı da aynı anahtarları yayına yazmaz
+        # (`panel/src/domain/ayarBelgesi.ts::CIHAZA_OZGU`).
+        "tetik.push_aktif",
+        "tetik.push_broker",
+        "tetik.push_port",
+        "tetik.push_konu",
+        "tetik.push_kullanici",
+        "tetik.push_parola",
+        "tetik.push_ca",
+        "tetik.push_sertifika",
+        "tetik.push_anahtar",
+        # Uzaktan komut dizeleri + güvenlik anahtarı: `systemctl` birim adları cihaza özgüdür ve
+        # uzaktan `komut_imza_zorunlu=False` yazılabilmesi imza denetimini tüm cihazlarda kaldırırdı.
+        "calistirma.komut_imza_zorunlu",
+        "calistirma.komut_kuru_calistirma",
+        "calistirma.komut_zaman_asimi_s",
+        "calistirma.komut_yeniden_baslat",
+        "calistirma.komut_uygulama_yeniden_baslat",
+        "calistirma.komut_ekrani_yenile",
     }
 )
 

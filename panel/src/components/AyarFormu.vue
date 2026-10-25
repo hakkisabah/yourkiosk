@@ -6,6 +6,7 @@
  */
 import { computed, ref } from 'vue'
 
+import { CIHAZA_OZGU, yayinaGirer } from '@/domain/ayarBelgesi'
 import { dogrula, type AyarGrubu, type AyarTanimi } from '@/domain/sema'
 
 const props = withDefaults(
@@ -26,8 +27,11 @@ const emit = defineEmits<{ guncelle: [tam: string, deger: unknown]; kaldir: [tam
 const hatalar = ref<Record<string, string>>({})
 
 const anahtarlar = computed(() =>
-  props.grup.anahtarlar.filter((a) => props.gelismisGoster || !a.gelismis),
+  props.grup.anahtarlar.filter((a) => yayinaGirer(a.tam) && (props.gelismisGoster || !a.gelismis)),
 )
+
+/** Bu grupta yayına yazılmayan (cihaza özgü) anahtar var mı — kullanıcıya açıklama göstermek için. */
+const gizliVar = computed(() => props.grup.anahtarlar.some((a) => CIHAZA_OZGU.has(a.tam)))
 
 const gecersizKilinmis = (tam: string): boolean => Object.prototype.hasOwnProperty.call(props.degisiklikler, tam)
 const duzenlenebilir = (tam: string): boolean => props.mod === 'duzenle' || gecersizKilinmis(tam)
@@ -69,6 +73,19 @@ const sayiListesiAyikla = (metin: string): number[] =>
 
 <template>
   <div>
+    <v-alert
+      v-if="gizliVar"
+      type="info"
+      variant="tonal"
+      density="compact"
+      class="mb-3"
+      data-test="cihaza-ozgu-not"
+    >
+      MQTT broker kimliği (kullanıcı/parola/sertifika) ve uzaktan komut dizeleri
+      <strong>cihaza özgüdür</strong>: bu ekranda gösterilmez ve yayınlanan
+      <code>ayarlar.json</code> dosyasına yazılmaz. Cihazdaki yerel değer korunur
+      (<code>kiosk/ayarlar.json</code>).
+    </v-alert>
     <template v-for="t in anahtarlar" :key="t.tam">
       <v-row dense class="align-center py-1">
         <v-col cols="12" md="5">

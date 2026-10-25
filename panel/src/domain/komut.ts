@@ -66,8 +66,13 @@ export function komutOzeti(belge: unknown, cihazId = '', simdi: Date = new Date(
   // Cihaz kimliği olmayan komutu reddeder (tekrar engeli kurulamaz).
   if (!id) uyarilar.push('komut kimliği (id) yok — cihaz reddeder (tekrar engeli kurulamaz).')
 
-  // Varsayılan `KOMUT_IMZA_ZORUNLU = True`: imzasız komut cihazda UYGULANMAZ.
-  if (!imzali) uyarilar.push('imza alanı yok — cihazda imza zorunlu olduğu için uygulanmaz.')
+  // Cihaz imza denetimini `calistirma.komut_imza_zorunlu` ayarından okur (varsayılan true;
+  // bu anahtar cihaza özgüdür ve yayınla değiştirilemez). Metin koşullu olmalı: ayar kapatılmış
+  // bir cihazda "uygulanmaz" demek yanlış olurdu.
+  if (!imzali)
+    uyarilar.push(
+      'imza alanı yok — cihazda imza zorunluysa (varsayılan) uygulanmaz; göndermeden önce imzalayın.',
+    )
 
   if (hedef && hedef !== '*' && cihazId && hedef !== cihazId)
     uyarilar.push(`komut başka cihaz için (${hedef}); bu cihaz uygulamaz.`)
