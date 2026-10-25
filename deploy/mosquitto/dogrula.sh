@@ -72,7 +72,28 @@ else
   echo "  ✓ reddedildi"
 fi
 
-echo "=== 6) düz 1883 kapalı olmalı ==="
+echo "=== 7) kalp atışı zinciri (cihaz yazar → panel-izleme okur) ==="
+if [ -n "${MQTT_PAROLA_IZLEME:-}" ]; then
+  timeout 6 mosquitto_sub -h "$HOST" -p 8883 -u panel-izleme -P "$MQTT_PAROLA_IZLEME" \
+    -t "${KONU%%/yayin*}/durum/+" -C 1 >/tmp/izleme-dogrula 2>/dev/null &
+  IZLE=$!
+  sleep 1
+  mosquitto_pub -h "$HOST" -p 8883 -u cihaz -P "$MQTT_PAROLA_CIHAZ" \
+    -t "${KONU%%/yayin*}/durum/dogrulama" -r -m '{"cevrimici":true,"zaman":"2026-01-01T00:00:00Z"}'
+  wait $IZLE 2>/dev/null
+  if grep -q cevrimici /tmp/izleme-dogrula 2>/dev/null; then
+    echo "  ✓ cihaz kalp atışı yazdı, panel-izleme okudu"
+  else
+    echo "  ✗ kalp atışı okunamadı (ACL: cihaz write / panel-izleme read eksik olabilir)"
+  fi
+  rm -f /tmp/izleme-dogrula
+  mosquitto_pub -h "$HOST" -p 8883 -u cihaz -P "$MQTT_PAROLA_CIHAZ" \
+    -t "${KONU%%/yayin*}/durum/dogrulama" -r -n 2>/dev/null || true
+else
+  echo "  - atlandı (MQTT_PAROLA_IZLEME verilmedi)"
+fi
+
+echo "=== 8) düz 1883 kapalı olmalı ==="
 if timeout 4 bash -c "echo >/dev/tcp/$HOST/1883" 2>/dev/null; then
   echo "  ✗ GÜVENLİK: 1883 açık (TLS'siz MQTT)"
 else

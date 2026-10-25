@@ -69,23 +69,35 @@ chmod 755 /etc/letsencrypt/renewal-hooks/deploy/yourkiosk-mosquitto.sh
 echo "=== 5/8 kullanıcılar (parolalar üretiliyor) ==="
 PAROLA_PANEL="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
 PAROLA_CIHAZ="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
+#: Panel İZLEME kullanıcısı: yalnız `durum/+` OKUR. Parolası panel paketine GÖMÜLMEZ
+#: (paket CloudFront'tan kimlik doğrulamasız indirilebiliyor) — yönetici panelde bir kez girer.
+PAROLA_IZLEME="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
 # mosquitto kullanıcısı dizine GİREBİLMELİ (0700 root:root olsaydı pwfile açılamazdı)
 install -m 750 -o mosquitto -g mosquitto -d /etc/mosquitto/auth
 mosquitto_passwd -b -c /etc/mosquitto/auth/passwd panel "$PAROLA_PANEL"
 mosquitto_passwd -b /etc/mosquitto/auth/passwd cihaz "$PAROLA_CIHAZ"
+mosquitto_passwd -b /etc/mosquitto/auth/passwd panel-izleme "$PAROLA_IZLEME"
 # mosquitto 2.x parola dosyasının SAHİBİNİN root olmasını bekler (uyarı → ileride hata)
 chown root:mosquitto /etc/mosquitto/auth/passwd
 chmod 640 /etc/mosquitto/auth/passwd
 
-echo "=== 6/8 ACL (panel yazar, cihaz okur) ==="
+echo "=== 6/8 ACL (panel yazar · cihaz okur + kalp atışı yazar · panel-izleme yalnız okur) ==="
 cat > /etc/mosquitto/auth/acl <<'EOF'
-# Panel yalnızca yayın konusuna YAZABİLİR
+# Panel yalnızca yayın konusuna YAZABİLİR (tetikleyici).
 user panel
 topic write yourkiosk/yayin
 
-# Cihazlar yalnızca yayın konusunu OKUYABİLİR (yayınlayamaz)
+# Cihazlar yayın konusunu OKUR (tetikleyici) ve KENDİ durum konusuna yazar (retained kalp atışı).
+# `+` tek seviye joker: cihaz başka cihazın durum konusuna yazabilir; bu yüzden cihaz parolası
+# sahada paylaşılmaz. Daha sıkı izolasyon için `cihaz-ekle.sh` ile cihaz başına kullanıcı açın.
 user cihaz
 topic read yourkiosk/yayin
+topic write yourkiosk/durum/+
+
+# Panel izleme: SADECE durum konularını OKUR. Yayın yazamaz, ayar göremez.
+# Parolası panel paketine gömülmez (çalışma anında girilir) — sızsa bile yalnız durum okunur.
+user panel-izleme
+topic read yourkiosk/durum/+
 EOF
 chown mosquitto:mosquitto /etc/mosquitto/auth/acl
 chmod 640 /etc/mosquitto/auth/acl
@@ -141,7 +153,9 @@ port      : 8883 (MQTT/TLS) · 8084 (WebSocket/TLS — panel)
 konu      : yourkiosk/yayin
 
 panel (yalnız yazar) : panel / $PAROLA_PANEL
-cihaz (yalnız okur)  : cihaz / $PAROLA_CIHAZ
+cihaz (okur + kalp)  : cihaz / $PAROLA_CIHAZ
+panel-izleme (yalnız durum okur) : panel-izleme / $PAROLA_IZLEME
+  → panel paketine GÖMÜLMEZ; panelde "İzlemeyi bağla" ile bir kez girilir (sessionStorage).
 
 Panel .env.local:
   VITE_MQTT_URL=wss://$HOST:8084/mqtt
@@ -160,10 +174,36 @@ Cihaz ayarları (tetik grubu):
 EOF
 chmod 600 /root/yourkiosk-mqtt-credentials.txt
 
-echo "=== 9/9 bağlantı testi (kendine TLS) ==="
+echo "=== 9/9 bağlantı testleri (kendine TLS) ==="
 mosquitto_pub -h 127.0.0.1 -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
   -u panel -P "$PAROLA_PANEL" -t yourkiosk/yayin -m '{"kaynak":"kurulum-testi"}' \
   && echo "  ✓ panel yayını çalışıyor"
+
+# KALP ATIŞI ZİNCİRİ: cihaz durum konusuna yazabilmeli, panel-izleme okuyabilmeli.
+# (i5 bulgusu: ACL yalnız yayın konusunu tanıyordu → izleme üretimde hiç çalışmıyordu.)
+mosquitto_pub -h 127.0.0.1 -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
+  -u cihaz -P "$PAROLA_CIHAZ" -t yourkiosk/durum/kurulum-testi -r \
+  -m '{"cevrimici":true,"zaman":"2026-01-01T00:00:00Z","mod":"qt"}' \
+  && echo "  ✓ cihaz kalp atışı yazabiliyor"
+
+ALINAN="$(timeout 6 mosquitto_sub -h 127.0.0.1 -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
+  -u panel-izleme -P "$PAROLA_IZLEME" -t 'yourkiosk/durum/+' -C 1 2>/dev/null || true)"
+case "$ALINAN" in
+  *cevrimici*) echo "  ✓ panel-izleme kalp atışını okuyor" ;;
+  *) echo "  ✗ panel-izleme kalp atışını OKUYAMADI (ACL/parola)" ;;
+esac
+# Panel-izleme YAYIN yapamamalı: abone aç, panel-izleme olarak yaz, aboneye ulaşmamalı.
+SIZAN="$( (timeout 4 mosquitto_sub -h 127.0.0.1 -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
+  -u panel-izleme -P "$PAROLA_IZLEME" -t 'yourkiosk/durum/+' -C 1 >/tmp/izleme-sizinti 2>/dev/null &) ; \
+  sleep 1; mosquitto_pub -h 127.0.0.1 -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
+  -u panel-izleme -P "$PAROLA_IZLEME" -t yourkiosk/durum/sizinti -m '{"cevrimici":true}' 2>/dev/null; \
+  sleep 2; grep -c sizinti /tmp/izleme-sizinti 2>/dev/null || true )"
+rm -f /tmp/izleme-sizinti
+if [ "${SIZAN:-0}" = "0" ]; then echo "  ✓ panel-izleme YAYIN yapamıyor (salt-okur)"; else echo "  ✗ panel-izleme yayın yapabildi (ACL fazla geniş)"; fi
+
+# Test için bırakılan retained durum mesajını temizle (panelde sahte cihaz görünmesin).
+mosquitto_pub -h 127.0.0.1 -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
+  -u cihaz -P "$PAROLA_CIHAZ" -t yourkiosk/durum/kurulum-testi -r -n 2>/dev/null || true
 
 cat > /root/yourkiosk-mqtt-credentials.txt <<EOF
 yourkiosk MQTT (güvenli)
@@ -172,7 +212,9 @@ port      : 8883 (MQTT/TLS) · 8084 (WebSocket/TLS — panel)
 konu      : yourkiosk/yayin
 
 panel (yalnız yazar) : panel / $PAROLA_PANEL
-cihaz (yalnız okur)  : cihaz / $PAROLA_CIHAZ
+cihaz (okur + kalp)  : cihaz / $PAROLA_CIHAZ
+panel-izleme (yalnız durum okur) : panel-izleme / $PAROLA_IZLEME
+  → panel paketine GÖMÜLMEZ; panelde "İzlemeyi bağla" ile bir kez girilir (sessionStorage).
 
 Panel .env.local:
   VITE_MQTT_URL=wss://$HOST:8084/mqtt
