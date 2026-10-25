@@ -135,4 +135,76 @@ describe('VeriView: Bildir akışı', () => {
     expect(yazilanlar.some((y) => y.ad === 'tetikle.json')).toBe(true)
     wrapper.unmount()
   })
+
+  /**
+   * REGRESYON: cihaz `durum.json` VARSA `tetikle.json`u indirmez (tek istek maliyet kararı).
+   * Bildir yalnız `tetikle.json` yazdığı için Qt kiosk "Bildir"e hiç tepki vermiyordu.
+   */
+  it('Bildir tetikleyiciyi durum.json içine de yazar (cihaz tek istekle görsün)', async () => {
+    const d = useDosyalar()
+    d.lastupdate.veri = { lastupdate: '2026-10-24 09:00:00' }
+    const wrapper = mount(VeriView, { global: { plugins: [createVuetify()] }, attachTo: document.body })
+    await wrapper.vm.$nextTick()
+    await new Promise((r) => setTimeout(r, 20))
+
+    await dugme(wrapper as never, 'Bildir')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 80))
+
+    const durum = yazilanlar.find((y) => y.ad === 'durum.json')
+    expect(durum, 'durum.json yazılmadı → cihaz tetiği hiç görmez').toBeTruthy()
+    const belge = durum!.veri as { lastupdate: string; tetik: { zaman: string; ilceId: string } }
+    expect(belge.tetik?.zaman, 'durum.json tetik zamanı yok').toBeTruthy()
+    expect(belge.tetik?.ilceId).toBe('')
+    expect(belge.lastupdate, 'mevcut damga korunmalı').toBe('2026-10-24 09:00:00')
+
+    const tetik = yazilanlar.find((y) => y.ad === 'tetikle.json')!.veri as { zaman: string }
+    expect(tetik.zaman).toBe(belge.tetik.zaman)
+    wrapper.unmount()
+  })
+
+  /**
+   * REGRESYON (i5 bulgusu, PR #78): `durum.json`a yazılan `lastupdate` panelin BELLEKTEKİ
+   * değerinden alınıyordu. "Düzenle + Kaydet + Bildir" akışında `kaydet()` sunucuya TAZE damga
+   * yazıyor, ardından Bildir bellekteki ESKİ damgayı `durum.json`a yazıp damgayı GERİ sarıyordu →
+   * cihazlar her turda gereksiz `lastupdate.json` çekiyordu.
+   */
+  it('Bildir durum.json damgasını sunucudaki TAZE değerden alır (damga geri sarılmaz)', async () => {
+    const d = useDosyalar()
+    d.lastupdate.veri = { lastupdate: '2026-10-24 09:00:00' } // bellek: eski
+    DEPO['lastupdate.json'] = { lastupdate: '2026-10-24 10:30:00' } // sunucu: taze
+    const wrapper = mount(VeriView, { global: { plugins: [createVuetify()] }, attachTo: document.body })
+    await wrapper.vm.$nextTick()
+    await new Promise((r) => setTimeout(r, 20))
+
+    await dugme(wrapper as never, 'Bildir')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 80))
+
+    const durum = yazilanlar.find((y) => y.ad === 'durum.json')
+    expect(durum, 'durum.json yazılmadı').toBeTruthy()
+    const belge = durum!.veri as { lastupdate: string }
+    expect(belge.lastupdate, 'bellekteki ESKİ damga yazıldı → damga geri sardı').toBe('2026-10-24 10:30:00')
+    wrapper.unmount()
+  })
+
+  /**
+   * REGRESYON (i5 bulgusu, PR #78): damga karşılaştırması biçim doğrulamıyordu. Sunucudan nesne
+   * gelirse `String()` → `"[object Object]"` ve `"[" > "2"` olduğu için GEÇERLİ damga ezilirdi.
+   */
+  it('sunucudan çöp damga gelirse bellekteki geçerli damga korunur', async () => {
+    const d = useDosyalar()
+    d.lastupdate.veri = { lastupdate: '2026-10-24 09:00:00' }
+    DEPO['lastupdate.json'] = { lastupdate: { beklenmeyen: true } }
+    const wrapper = mount(VeriView, { global: { plugins: [createVuetify()] }, attachTo: document.body })
+    await wrapper.vm.$nextTick()
+    await new Promise((r) => setTimeout(r, 20))
+
+    await dugme(wrapper as never, 'Bildir')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 80))
+
+    const durum = yazilanlar.find((y) => y.ad === 'durum.json')
+    expect(durum, 'durum.json yazılmadı').toBeTruthy()
+    const belge = durum!.veri as { lastupdate: string }
+    expect(belge.lastupdate, 'çöp değer geçerli damgayı ezdi').toBe('2026-10-24 09:00:00')
+    wrapper.unmount()
+  })
 })

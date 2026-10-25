@@ -21,6 +21,8 @@ import {
 } from '@/domain/veri'
 import { useDosyalar } from '@/stores/dosyalar'
 import { mqttBildir } from '@/domain/push'
+import { durumBelgesi } from '@/domain/tetik'
+import { enYeniDamga } from '@/domain/damga'
 import { useBaglanti } from '@/stores/baglanti'
 import { silinecekYayinlar } from '@/domain/temizlik'
 import {
@@ -296,6 +298,28 @@ async function tetikBildir(): Promise<void> {
       aciklama: 'Panelden bildirildi',
     }
     await kaynak.yaz('tetikle.json', belge)
+    // `durum.json`: cihaz bu dosya varsa `tetikle.json`u İNDİRMEZ (tek istek maliyet kararı).
+    // Yalnız tetikle.json yazmak Qt kioskta "Bildir"i görünmez yapıyordu; tetik iki yere de yazılır.
+    // DAMGA: `lastupdate` SUNUCUDAN taze okunur. Panelin bellekteki değeri (`dosyalar.lastupdate.veri`)
+    // az önce `kaydet()`in yazdığı taze damgadan ESKİ olabiliyordu → durum.json damgayı GERİ sarıyor,
+    // cihazlar bir sonraki kayda kadar her turda gereksiz `lastupdate.json` çekiyordu (i5 bulgusu).
+    // Biçim doğrulaması `domain/damga` içinde: geçersiz değer (nesne/boş) karşılaştırmaya girmez.
+    let sunucuDamgasi: unknown = ''
+    try {
+      const canli = await kaynak.oku<{ lastupdate?: unknown }>(DOSYALAR.lastupdate)
+      sunucuDamgasi = (canli?.veri as { lastupdate?: unknown })?.lastupdate
+    } catch {
+      /* canlı damga okunamadı: bellekteki değerle devam (en azından eskisinden kötü olmaz) */
+    }
+    const lastupdate = enYeniDamga(
+      (dosyalar.lastupdate.veri as { lastupdate?: unknown })?.lastupdate,
+      sunucuDamgasi,
+    )
+    try {
+      await kaynak.yaz(DOSYALAR.durum, durumBelgesi(belge, lastupdate, belge.zaman))
+    } catch {
+      /* durum.json yazılamadı: cihaz eski üç dosyalı yola düşer (tetikle.json yazıldı) */
+    }
     void mqttBildir('elle-bildirim', belge.zaman).catch(() => undefined)
     const kapsam = tetikIlce.value || 'tüm cihazlar'
     tetikBilgi.value = `Gönderildi (${kapsam}) · ${belge.zaman}` +

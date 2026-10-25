@@ -134,5 +134,134 @@ class UzakYoklamaTesti(unittest.TestCase):
             self.assertFalse(tarayici.uzak_yoklama_gerekli())
 
 
+class DurumYoluTetikTesti(unittest.TestCase):
+    """`durum.json` YOLU: yalnız `tetikle.json` yazan akışlar (panel "Bildir") cihazda görünmeli.
+
+    GERÇEK HATA (kullanıcı): tarayıcı tarafına geçerken Qt kiosk "Bildir"e tepki vermiyordu.
+    Sebep: `durum.json` varsa `tetikle.json` HİÇ indirilmiyordu; panelin "Bildir" düğmesi ise
+    yalnız `tetikle.json` yazıyor → tetik cihaza hiç ulaşmıyordu.
+    """
+
+    def _nesne(self, tetik: dict | None, *, getir_sonuc: bool = True):
+        import pharmacy_app
+
+        nesne = types.SimpleNamespace()
+        nesne._son_komut_isareti = ""
+        nesne._son_tetik = ""
+        nesne._durum_tur = 0
+        nesne.indirilen = 0
+        nesne.yuklemeler = []
+
+        def cihaz_kimligi():
+            return "98273648723468273"
+
+        def load_data(zorla=False):
+            nesne.yuklemeler.append(bool(zorla))
+
+        nesne.cihaz_kimligi = cihaz_kimligi
+        nesne.load_data = load_data
+        nesne._durum_uygula = types.MethodType(pharmacy_app.PharmacyApp._durum_uygula, nesne)
+        # komut çapraz kontrolü ayrı testte ölçülür; burada yan etkisiz
+        nesne.komut_kontrolleri = 0
+
+        def _komut_capraz_kontrol(self):
+            self.komut_kontrolleri += 1
+
+        nesne._komut_capraz_kontrol = types.MethodType(_komut_capraz_kontrol, nesne)
+
+        def _getir():
+            nesne.indirilen += 1
+            return getir_sonuc
+
+        return nesne, _getir, tetik
+
+    def test_durum_tetigi_bossa_tetikle_json_indirilir_ve_uygulanir(self):
+        belge = {"zaman": "2026-10-24T10:00:00Z", "lastupdate": "2026-10-24 10:00:00", "tetik": {}}
+        tetik = {"zaman": "2026-10-24T10:10:00Z", "ilceId": "", "bolgeId": "", "aciklama": "Panelden bildirildi"}
+        nesne, getir, _ = self._nesne(tetik)
+        konum = types.SimpleNamespace(ilce_id="I1", bolge_id="B1")
+        nesne.data_handler = types.SimpleNamespace(lastupdate="2026-10-24 10:00:00", konum=konum)
+
+        with mock.patch("core.durum.getir", return_value=belge), mock.patch(
+            "core.veri_kaynagi.lastupdate_taze", return_value="2026-10-24 10:00:00"
+        ), mock.patch("core.tetik.getir", side_effect=getir), mock.patch(
+            "core.tetik.oku", return_value=tetik
+        ), mock.patch("core.tetik.otomatik_acik", return_value=True), mock.patch(
+            "core.tetik.uygulanmali", return_value=True
+        ), mock.patch("core.push.durum", return_value={"bagli": False}):
+            nesne._durum_uygula(belge)
+
+        self.assertEqual(nesne.indirilen, 1, "ilk turda tetikle.json sunucudan indirilmeli")
+        self.assertEqual(nesne.yuklemeler, [True], "indirilen tetik uygulanıp ekran ZORLA yenilenmeli")
+
+    def test_durum_tetigi_varsa_da_indirme_hata_verirse_cokmez(self):
+        belge = {"lastupdate": "2026-10-24 10:00:00", "tetik": {"zaman": "2026-10-24T10:09:00Z"}}
+        nesne, _, _ = self._nesne(None, getir_sonuc=False)
+        konum = types.SimpleNamespace(ilce_id="I1", bolge_id="B1")
+        nesne.data_handler = types.SimpleNamespace(lastupdate="2026-10-24 10:00:00", konum=konum)
+
+        with mock.patch("core.durum.getir", return_value=belge), mock.patch(
+            "core.veri_kaynagi.lastupdate_taze", return_value="2026-10-24 10:00:00"
+        ), mock.patch("core.tetik.getir", side_effect=OSError("ağ")), mock.patch(
+            "core.tetik.oku", return_value=None
+        ), mock.patch("core.tetik.otomatik_acik", return_value=True), mock.patch(
+            "core.push.durum", return_value={"bagli": False}
+        ):
+            nesne._durum_uygula(belge)  # istisna SIZMAMALI
+
+        self.assertTrue(nesne.yuklemeler, "durum.json tetiği yine de uygulanmalı")
+
+
+class KomutCaprazKontrolTesti(unittest.TestCase):
+    """`durum.json` komut İŞARETİ taşımıyorsa `komut.json` yine de indirilmeli.
+
+    `tools/komut_gonder.py` komutu doğrudan S3'e yazıyor; `durum.json`a işaret koymuyor.
+    Eski kod işaret yoksa komut dosyasını hiç indirmiyordu → uzaktan komut sessizce ölüydü.
+    """
+
+    def test_isaret_yoksa_komut_indirilir_ve_uygulanir(self):
+        import pharmacy_app
+
+        nesne = types.SimpleNamespace()
+        nesne.indirilen = 0
+        nesne.tazelenen = 0
+
+        def cihaz_kimligi():
+            return "98273648723468273"
+
+        def update_display():
+            nesne.tazelenen += 1
+
+        nesne.cihaz_kimligi = cihaz_kimligi
+        nesne.update_display = update_display
+        nesne._komut_capraz_kontrol = types.MethodType(
+            pharmacy_app.PharmacyApp._komut_capraz_kontrol, nesne
+        )
+
+        sonuc = types.SimpleNamespace(uygulama_ici=True)
+
+        def _getir():
+            nesne.indirilen += 1
+            return True
+
+        with mock.patch("core.komut.getir", side_effect=_getir), mock.patch(
+            "core.komut.kontrol", return_value=(object(), sonuc)
+        ), mock.patch("core.komut.sonuc_metni", return_value="ekrani-yenile → uygulama içi"):
+            nesne._komut_capraz_kontrol()
+
+        self.assertEqual(nesne.indirilen, 1, "komut.json sunucudan indirilmeli")
+        self.assertEqual(nesne.tazelenen, 1, "uygulama içi komut ekranı tazelemeli")
+
+    def test_indirme_hatasi_turu_oldurmez(self):
+        import pharmacy_app
+
+        nesne = types.SimpleNamespace(cihaz_kimligi=lambda: "X")
+        nesne._komut_capraz_kontrol = types.MethodType(
+            pharmacy_app.PharmacyApp._komut_capraz_kontrol, nesne
+        )
+        with mock.patch("core.komut.getir", side_effect=OSError("ağ")):
+            nesne._komut_capraz_kontrol()  # istisna SIZMAMALI
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,8 @@ kiosk/ayarlar.json
 kiosk/kapsam-ayarlari.json
 kiosk/makinebilgileri.json
 kiosk/onbellek/
+# Araçların geçici önbellek klasörleri (canli_akis_test.py, yerel probe'lar)
+kiosk/*-test-onbellek/
 kiosk/lastSystemData.json
 kiosk/lastupdate.json
 kiosk/match.json

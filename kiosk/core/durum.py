@@ -21,25 +21,48 @@ from __future__ import annotations
 import json
 import logging
 
-from core import uzak
+from core import uzak, zaman
 
 log = logging.getLogger("kiosk.durum")
 
 AD = "durum.json"
 
+#: Son BAŞARILI belge (304'te gövde inmez → bellek kopyası kullanılır). 404'te temizlenir.
+_son_belge: dict | None = None
+
 
 def getir() -> dict | None:
-    """`durum.json` içeriği (yoksa/bozuksa None → çağıran eski yola düşer)."""
-    govde = uzak.getir(AD)
+    """`durum.json` içeriği (yoksa/bozuksa None → çağıran eski yola düşer).
+
+    KOŞULLU okuma: sunucu ETag/Last-Modified veriyorsa değişmeyen dosya için 304 alınır ve
+    ~1 tam gövde indirilmez; son başarılı belge bellekten döner (i5 bulgusu — maliyet hedefi).
+    Doğrulayıcı YALNIZ JSON başarıyla ayrıştırıldıktan sonra hatırlanır (bozuk içerik kalıcı
+    304'e dönüşmesin).
+    """
+    global _son_belge
+
+    govde, degismedi, dogrulayici = uzak.kosullu_getir(AD)
+    if degismedi:
+        return _son_belge  # 304: içerik değişmedi, gövde inmedi
     if not govde:
+        _son_belge = None  # 404/boş/hata → eski üç dosyalı yola düşülür
+        # Doğrulayıcıyı da unut: dosya aynı içerikle yeniden yaratılırsa 304 alıp bir daha
+        # inmeme riski kalmasın (i5 bulgusu).
+        uzak.dogrulayici_unut(AD)
         return None
     try:
         belge = json.loads(govde)
-    except ValueError:
-        log.warning("durum.json bozuk JSON — yok sayıldı")
+    except (ValueError, RecursionError):
+        # RecursionError: 64 KB sınırı içinde DERİN iç içe gövde ayrıştırmayı patlatır; yakalanmazsa
+        # istisna yoklama turunu düşürür (i5 bulgusu).
+        log.warning("durum.json bozuk/çok derin JSON — yok sayıldı")
+        _son_belge = None
         return None
     if not isinstance(belge, dict):
+        _son_belge = None
         return None
+    _son_belge = belge
+    uzak.dogrulayici_kaydet(AD, dogrulayici)  # yalnız başarılı ayrıştırmadan sonra
     return belge
 
 
@@ -73,8 +96,11 @@ def secili_tetik(belge: dict | None, yerel_oku) -> dict | None:
         return yerel
     uzak_zaman = str(uzak_tetik.get("zaman", "") or "")
     yerel_zaman = str(yerel.get("zaman", "") or "")
-    # ISO 8601 UTC damgaları sözlüksel karşılaştırılabilir (aynı biçim).
-    return yerel if yerel_zaman > uzak_zaman else uzak_tetik
+    # SAAT DİLİMİ: panel UTC (`...Z`), yerel tetikleyici yerel saat (`...` uzantısız) yazar.
+    # Sözlüksel karşılaştırma UTC+3 cihazda yerel damgayı hep 3 saat ileri gösterip panelin YENİ
+    # tetiğini "eski" sayıyordu (panel "Bildir" sessizce yutuluyordu — i5 bulgusu).
+    # `zaman.yeni_mi` anları karşılaştırır; çözemezse sözlüksel davranışa düşer.
+    return yerel if zaman.yeni_mi(yerel_zaman, uzak_zaman) else uzak_tetik
 
 
 def komut_isareti(belge: dict | None) -> str:

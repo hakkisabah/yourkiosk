@@ -115,18 +115,31 @@ class DurumBelgesiTesti(unittest.TestCase):
         self.assertEqual(durum_modulu.damga(None), "")
 
     def test_bozuk_json_none(self):
-        with unittest.mock.patch.object(durum_modulu.uzak, "getir", return_value=b"{bozuk"):
+        with unittest.mock.patch.object(durum_modulu.uzak, "kosullu_getir", return_value=(b"{bozuk", False, ('"e"', ""))):
             self.assertIsNone(durum_modulu.getir())
 
     def test_yoksa_none(self):
-        with unittest.mock.patch.object(durum_modulu.uzak, "getir", return_value=None):
+        with unittest.mock.patch.object(durum_modulu.uzak, "kosullu_getir", return_value=(None, False, ("", ""))):
             self.assertIsNone(durum_modulu.getir())
 
     def test_gecerli_belge(self):
         govde = json.dumps({"lastupdate": "D1", "tetik": {"zaman": "Z"}, "komut": {}}).encode()
-        with unittest.mock.patch.object(durum_modulu.uzak, "getir", return_value=govde):
+        with unittest.mock.patch.object(durum_modulu.uzak, "kosullu_getir",
+                                        return_value=(govde, False, ('"e"', ""))):
             belge = durum_modulu.getir()
         self.assertEqual(durum_modulu.damga(belge), "D1")
+
+    def test_304_bellek_kopyasini_dondurur(self):
+        """Koşullu okuma: 304'te gövde yok → son başarılı belge döner (maliyet)."""
+        govde = json.dumps({"lastupdate": "D2"}).encode()
+        with unittest.mock.patch.object(durum_modulu.uzak, "kosullu_getir",
+                                        return_value=(govde, False, ('"e"', ""))):
+            ilk = durum_modulu.getir()
+        with unittest.mock.patch.object(durum_modulu.uzak, "kosullu_getir",
+                                        return_value=(None, True, ('"e"', ""))):
+            ikinci = durum_modulu.getir()
+        self.assertEqual(ikinci, ilk)
+        self.assertEqual(durum_modulu.damga(ikinci), "D2")
 
 
 if __name__ == "__main__":

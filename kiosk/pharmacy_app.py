@@ -263,6 +263,27 @@ class PharmacyApp(QMainWindow):
                     yeni_damga = capraz
             except Exception:  # noqa: BLE001
                 pass
+            # ÇAPRAZ KONTROL: `tetikle.json`u YALNIZ yazan akışlar (panel "Bildir", elle yazım)
+            # `durum.json`a dokunmayabilir. Bu yol artık tetikleyiciyi indirmediği için bu akışlar
+            # cihazda SESSİZCE görünmüyordu (Qt kioskta "Bildir" tepkisizdi — yaşandı).
+            # MALİYET: `getir()` KOŞULLU indirir (ETag/Last-Modified → 304) — dosya değişmediyse
+            # gövde inmez. İndirme yerel dosyanın mtime'ını değiştirirse `tetik_izle` turu tetikler.
+            try:
+                if tetik_modulu.getir():
+                    log.info("tetikle.json sunucudan yenilendi (durum.json tetiği yok/eskimiş olabilir)")
+            except Exception:  # noqa: BLE001
+                pass
+            # ÇAPRAZ KONTROL (komut): `komut.json` panelden BAĞIMSIZ yüklenebiliyor
+            # (`tools/komut_gonder.py` doğrudan S3'e yazar). `durum.json` komut İŞARETİ
+            # taşımıyorsa komut dosyası HİÇ indirilmiyordu → uzaktan komut sessizce ölüydü.
+            # NOT: panel bugün `durum.json`a komut işareti yazmıyor (yalnız zaman/lastupdate/tetik),
+            # bu yüzden bu dal HER çapraz kontrolde çalışır — ama çapraz kontrol 10 turda BİRDİR
+            # (`self._durum_tur % 10 == 1`), yani tur başına değil. İndirme KOŞULLU (ETag → 304)
+            # olduğu için tipik maliyet tur başına ~0, çapraz kontrol başına birkaç yüz bayt.
+            # Ölçülen oran (10 tur): 10 durum.json + 1 tetikle.json + 1 komut.json + 1 lastupdate.json.
+            # Panel işaret yazmaya başlarsa dal kendiliğinden seyrekleşir.
+            if not isaret:
+                self._komut_capraz_kontrol()
         onceki = str(getattr(self.data_handler, "lastupdate", "") or "")
         # KALP ATIŞI: her turda INFO. "Neden güncellenmiyor?" sorusunun yanıtı bu satırda:
         # uzak damga ile cihazdaki damga yan yana görünür, MQTT durumu eklenir.
@@ -290,6 +311,26 @@ class PharmacyApp(QMainWindow):
                 tetik.get("zaman"), tetik.get("ilceId") or "tüm cihazlar",
             )
             self.load_data(zorla=True)
+
+    def _komut_capraz_kontrol(self):
+        """`durum.json` komut işareti taşımıyorsa komut dosyasını doğrudan indirir ve uygular.
+
+        NEDEN: `komut.json` panelden bağımsız yüklenebiliyor (`tools/komut_gonder.py` doğrudan
+        S3'e yazar). `durum.json` içinde `komut` işareti yoksa eski kod komut dosyasını HİÇ
+        indirmiyordu → uzaktan komut sessizce ölüydü. 10 turda bir (ucuz) çapraz kontrol yapılır;
+        `komut.kontrol` tek seferliktir, aynı komut iki kez uygulanmaz.
+        """
+        try:
+            komut_modulu.getir()
+            _karar, sonuc = komut_modulu.kontrol(cihaz_id=self.cihaz_kimligi())
+        except Exception:  # noqa: BLE001 - komut denetimi gösterimi durdurmamalı
+            log.warning("komut çapraz kontrolü yapılamadı", exc_info=True)
+            return
+        if sonuc is None:
+            return
+        log.warning("UZAKTAN KOMUT: %s", komut_modulu.sonuc_metni(sonuc))
+        if sonuc.uygulama_ici:
+            self.update_display()
 
     def uzak_kontrol(self):
         """Küçük kontrol dosyalarını sunucudan tazeler ve UZAKTAN KOMUT varsa uygular.

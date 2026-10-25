@@ -12,6 +12,8 @@ sınırı, yönlendirme kapalı. Bu dosyalar **komut değil, veri**dir: içeriğ
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from pathlib import Path
 
 import config
@@ -30,14 +32,11 @@ def taban_adres() -> str:
     return adres.rstrip("/")
 
 
-def getir(ad: str, *, taban: str | None = None, en_buyuk_bayt: int = EN_BUYUK_KUCUK_BAYT) -> bytes | None:
-    """`<taban>/<ad>` içeriğini indirir (politika ihlali/bağlantı hatası → None)."""
-    kok = taban if taban is not None else taban_adres()
-    if not kok:
-        return None
-    from security.network import AgAyarlari, AgHatasi, indir
+def _ayarlar(en_buyuk_bayt: int = EN_BUYUK_KUCUK_BAYT):
+    """Ağ politikası ayarları (indirme ve koşullu indirme AYNI politikayı kullanır)."""
+    from security.network import AgAyarlari
 
-    ayarlar = AgAyarlari(
+    return AgAyarlari(
         zaman_asimi_s=float(getattr(config, "HTTP_TIMEOUT_S", 10.0)),
         en_buyuk_bayt=en_buyuk_bayt,
         izinli_hostlar=tuple(getattr(config, "ALLOWED_HOSTS", ()) or ()),
@@ -46,6 +45,16 @@ def getir(ad: str, *, taban: str | None = None, en_buyuk_bayt: int = EN_BUYUK_KU
         yonlendirme_izinli=bool(getattr(config, "AG_YONLENDIRME_IZINLI", False)),
         en_buyuk_url=int(getattr(config, "MAX_URL_UZUNLUK", 2048)),
     )
+
+
+def getir(ad: str, *, taban: str | None = None, en_buyuk_bayt: int = EN_BUYUK_KUCUK_BAYT) -> bytes | None:
+    """`<taban>/<ad>` içeriğini indirir (politika ihlali/bağlantı hatası → None)."""
+    kok = taban if taban is not None else taban_adres()
+    if not kok:
+        return None
+    from security.network import AgHatasi, indir
+
+    ayarlar = _ayarlar(en_buyuk_bayt)
     # NOT: `indir()` varsayılan olarak GÖRSEL içerik türü beyaz listesini uygular (png/jpeg/webp).
     # tetikle.json / komut.json `application/json` gelir → bu yüzden denetim KAPATILIR; JSON
     # geçerliliği çağıran tarafta (core/tetik.py, core/komut.py) ayrıştırılarak doğrulanır.
@@ -69,21 +78,167 @@ def getir(ad: str, *, taban: str | None = None, en_buyuk_bayt: int = EN_BUYUK_KU
     return govde
 
 
+#: Dosya adı → (ETag, Last-Modified). 304 yanıtı gövde indirmez; hatırlanan değerler gönderilir.
+#: ANAHTAR TAM URL'dir (taban adres + dosya adı): farklı kaynaklardan aynı ad istenirse
+#: doğrulayıcı sızmasın (i5 bulgusu — başka kaynağa `If-None-Match` gönderiliyordu).
+_ETAG: dict[str, tuple[str, str]] = {}
+
+
+def _anahtar(ad: str, taban: str | None = None) -> str:
+    kok = taban if taban is not None else taban_adres()
+    return f"{kok.rstrip('/')}/{ad}"
+
+
+def kosullu_getir(
+    ad: str,
+    *,
+    taban: str | None = None,
+    en_buyuk_bayt: int = EN_BUYUK_KUCUK_BAYT,
+) -> tuple[bytes | None, bool, tuple[str, str]]:
+    """`<taban>/<ad>`u KOŞULLU indirir.
+
+    Dönüş: `(gövde|None, degismedi_mi, (etag, son_degisiklik))`.
+    `degismedi_mi=True` → 304: içerik değişmedi, GÖVDE İNMEDİ (çağıran bellekteki kopyayı kullanır).
+    `gövde is None` + `degismedi_mi=False` → dosya yok (403/404) ya da ağ/politika hatası.
+
+    Doğrulayıcı BURADA hatırlanmaz: çağıran, yerel kopyayı gerçekten güncellediğini doğruladıktan
+    sonra `dogrulayici_kaydet()` çağırır. Aksi hâlde tek seferlik yazma hatası sonraki tüm turları
+    304'e düşürür ve dosya bir daha hiç inmez (i5 bulgusu — "sessizce ölü" hatasının yeni yolu).
+
+    NEDEN: `tetikle.json`/`komut.json`/`durum.json` her yoklama turunda (Qt 20 sn, tarayıcı uzun
+    yoklama ~3 sn) tam gövde olarak indiriliyordu; dosya çoğu turda hiç değişmiyor. ETag ile 304
+    alınınca yanıt gövdesiz (birkaç yüz bayt) olur — 600 cihazda trafik/maliyet düşer.
+
+    Sunucu ETag/Last-Modified vermiyorsa davranış eskisiyle aynıdır (gövde her turda iner).
+    """
+    kok = taban if taban is not None else taban_adres()
+    if not kok:
+        return None, False, ("", "")
+    from security.network import AgHatasi, kosullu_indir
+
+    etag, tarih = _ETAG.get(_anahtar(ad, taban), ("", ""))
+    ayarlar = _ayarlar(en_buyuk_bayt)
+    try:
+        govde, tur, yeni_etag, yeni_tarih = kosullu_indir(
+            f"{kok.rstrip('/')}/{ad}", ayarlar, etag=etag, son_degisiklik=tarih,
+            icerik_turu_denetle=False,
+        )
+    except AgHatasi as hata:
+        metin = str(hata)
+        if "HTTP 403" in metin or "HTTP 404" in metin:
+            log.debug("küçük dosya yok (%s/%s): %s", kok, ad, metin)
+        else:
+            log.warning("küçük dosya alınamadı (%s/%s): %s", kok, ad, hata)
+        return None, False, ("", "")
+    except Exception:  # noqa: BLE001 - ağ hatası gösterimi durdurmamalı
+        log.warning("küçük dosya alınamadı (%s/%s)", kok, ad, exc_info=True)
+        return None, False, ("", "")
+    dogrulayici = (yeni_etag or etag, yeni_tarih or tarih)
+    if govde is None:
+        return None, True, dogrulayici  # 304: içerik değişmedi, gövde inmedi
+    if tur and not (tur.startswith("application/json") or tur.startswith("text/plain")
+                    or tur in ("", "application/octet-stream")):
+        log.warning("küçük dosya beklenmeyen içerik türü (%s/%s): %s", kok, ad, tur)
+        return None, False, ("", "")
+    return govde, False, dogrulayici
+
+
+def dogrulayici_kaydet(ad: str, dogrulayici: tuple[str, str], *, taban: str | None = None) -> None:
+    """ETag/Last-Modified'i ANCAK yerel kopya doğrulandıktan sonra hatırla.
+
+    Kural: doğrulayıcı sunucudan gelen içerikLE yerel kopya EŞLEŞTİĞİNDE (ya da hiç yoksa)
+    saklanmalı; aksi hâlde yazma hatası kalıcı 304'e dönüşür ve dosya bir daha inmez.
+    """
+    etag, tarih = dogrulayici
+    if not (etag or tarih):
+        return
+    _ETAG[_anahtar(ad, taban)] = (etag, tarih)
+
+
+def dogrulayici_unut(ad: str, *, taban: str | None = None) -> None:
+    """Hatırlanan ETag/Last-Modified'i SİL (i5 bulgusu).
+
+    NEDEN: `dogrulayici_kaydet` yalnız yazar, hiç silmezdi. Sunucu 403/404 dönerse çağıran
+    bellekteki belgeyi temizliyordu ama doğrulayıcı kalıyordu → dosya AYNI içerikle yeniden
+    yaratıldığında `If-None-Match` eşleşip 304 alınıyor ve dosya bir daha hiç inmiyordu.
+    """
+    _ETAG.pop(_anahtar(ad, taban), None)
+
+
+def kosullu_indir_ve_yaz(ad: str, yol: Path, *, taban: str | None = None) -> bool:
+    """Koşullu indir + yerel dosyaya atomik yaz (değiştiyse True).
+
+    Doğrulayıcı YALNIZ içerik yerelde doğrulandıktan sonra hatırlanır:
+    - içerik aynı → dosyaya dokunulmaz, doğrulayıcı saklanır (sonraki tur 304 alır),
+    - içerik farklı → yazılır; **yazma başarısızsa doğrulayıcı SAKLANMAZ** → sonraki turda gövde
+      yeniden iner (yanlış 304 yüzünden dosyanın sonsuza dek eski kalması engellenir).
+    """
+    # DOĞRULAYICI YALNIZ YEREL KOPYA VARKEN GÖNDERİLİR (i3 bulgusu): yerel dosya silinmişse
+    # `If-None-Match` göndermek 304 getirir ve dosya BİR DAHA HİÇ inmez — düzeltilen "sessizce
+    # ölü" sınıfının başka bir kapısı. Dosya yoksa doğrulayıcı unutulur, istek koşulsuz gider.
+    if not yol.is_file():
+        dogrulayici_unut(ad, taban=taban)
+    govde, _degismedi, dogrulayici = kosullu_getir(ad, taban=taban)
+    if govde is None:
+        return False
+    try:
+        ayni = yol.is_file() and yol.read_bytes() == govde
+    except OSError:
+        ayni = False
+    if ayni:
+        dogrulayici_kaydet(ad, dogrulayici, taban=taban)
+        return False
+    if not yerel_guncelle(yol, govde):
+        log.warning("yerel kopya yazılamadı, doğrulayıcı hatırlanmadı (sonraki turda yeniden denenecek): %s", yol)
+        return False
+    dogrulayici_kaydet(ad, dogrulayici, taban=taban)
+    return True
+
+
+def atomik_yaz(yol: Path, govde: bytes) -> bool:
+    """İçeriği ATOMİK yazar (mkstemp + O_EXCL + os.replace).
+
+    GÜVENLİK: sabit `.tmp` adı KULLANILMAZ. Uygulama dizinine yazabilen daha az yetkili bir yerel
+    kullanıcı sabit ada sembolik bağ kurup içeriği başka yere yönlendirebiliyordu (i5/i3 bulgusu,
+    aynı sınıf kusur `tetik.yaz` ve `push._tetik_yaz` içinde de vardı).
+    `os.replace` hedefte sembolik bağ olsa bile BAĞI değiştirir, hedefini izlemez.
+    """
+    gecici = ""
+    try:
+        tanitici, gecici = tempfile.mkstemp(prefix=f".{yol.name}.", suffix=".tmp", dir=str(yol.parent))
+        with os.fdopen(tanitici, "wb") as dosya:
+            dosya.write(govde)
+            dosya.flush()
+            os.fsync(dosya.fileno())
+        os.chmod(gecici, 0o644)  # diğer süreçler okuyabilsin (içerik zaten herkese açık)
+        os.replace(gecici, yol)
+        return True
+    except OSError:
+        log.warning("yerel dosya yazılamadı: %s", yol, exc_info=True)
+        if gecici:
+            try:
+                os.unlink(gecici)
+            except OSError:
+                pass
+        return False
+
+
 def yerel_guncelle(yol: Path, govde: bytes) -> bool:
     """İçerik FARKLIYSA yerel dosyayı atomik yazar; değiştiyse True.
 
     İçerik aynıysa dokunulmaz → gereksiz mtime değişimi (ve gereksiz arayüz bildirimi) olmaz.
+
+    GÜVENLİK: geçici dosya `mkstemp` ile TAHMİN EDİLEMEZ adla ve `O_EXCL` olarak açılır. Önceden
+    `<ad>.tmp` sabit adına yazılıyordu; uygulama dizinine yazabilen daha az yetkili bir yerel
+    kullanıcı o ada sembolik bağ kurup içeriği başka yere yönlendirebilirdi (i5 bulgusu).
+    `os.replace` hedefte sembolik bağ olsa bile BAĞI değiştirir, hedefini izlemez.
     """
     try:
         if yol.is_file() and yol.read_bytes() == govde:
             return False
-        gecici = yol.with_suffix(yol.suffix + ".tmp")
-        gecici.write_bytes(govde)
-        gecici.replace(yol)
-        return True
     except OSError:
-        log.warning("yerel dosya yazılamadı: %s", yol, exc_info=True)
-        return False
+        pass
+    return atomik_yaz(yol, govde)
 
 
 def senkron(hedefler: dict[str, Path]) -> list[str]:

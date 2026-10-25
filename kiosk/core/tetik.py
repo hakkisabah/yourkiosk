@@ -31,6 +31,7 @@ from datetime import datetime
 from pathlib import Path
 
 import config
+from core import zaman
 
 log = logging.getLogger("kiosk.tetik")
 
@@ -87,9 +88,11 @@ def yaz(ilce_id: str = "", bolge_id: str = "", aciklama: str = "", zaman: str | 
         "aciklama": str(aciklama or "").strip(),
     }
     yol = dosya_yolu()
-    gecici = yol.with_suffix(".json.tmp")
-    gecici.write_text(json.dumps(belge, ensure_ascii=False, indent=1), encoding="utf-8")
-    gecici.replace(yol)
+    # GÜVENLİK: sabit `<ad>.json.tmp` adı yerine mkstemp (sembolik bağ saldırısı — i5/i3 bulgusu).
+    from core import uzak
+
+    if not uzak.atomik_yaz(yol, json.dumps(belge, ensure_ascii=False, indent=1).encode("utf-8")):
+        log.warning("tetikleyici yazılamadı: %s", yol)
     log.info("tetikleyici yazıldı: %s (kapsam=%s)", yol, belge["ilceId"] or "tüm cihazlar")
     return belge
 
@@ -110,15 +113,16 @@ def sil() -> bool:
 def getir() -> bool:
     """Panelin S3'e yazdığı `tetikle.json`u yerel kopyaya indirir (değiştiyse True).
 
+    KOŞULLU indirme: sunucu ETag/Last-Modified veriyorsa değişmeyen dosya için 304 alınır ve
+    gövde HİÇ inmez. Önceden her yoklama turunda (tarayıcı uzun yoklamasında ~3 sn'de bir) tam
+    gövde indirilip bayt karşılaştırması yapılıyordu — dosya çoğu turda değişmiyordu.
+
     Tarayıcı modunda yerel sunucu imzası bu dosyanın mtime'ına baktığı için, indirme anında
     arayüz de uzun yoklama ile haberdar olur.
     """
     from core import uzak
 
-    govde = uzak.getir(str(getattr(config, "TETIK_DOSYASI", "tetikle.json")))
-    if not govde:
-        return False
-    return uzak.yerel_guncelle(dosya_yolu(), govde)
+    return uzak.kosullu_indir_ve_yaz(str(getattr(config, "TETIK_DOSYASI", "tetikle.json")), dosya_yolu())
 
 
 def imza() -> str:
@@ -147,11 +151,16 @@ def uygulanmali(
     """
     if not isinstance(tetik, dict):
         return False
-    zaman = str(tetik.get("zaman") or "").strip()
-    if not zaman:
+    zaman_metni = str(tetik.get("zaman") or "").strip()
+    if not zaman_metni:
         return False
-    if son_uygulanan and zaman <= str(son_uygulanan):
-        return False  # ISO zaman damgaları sözlüksel karşılaştırılabilir
+    # SAAT DİLİMİ (i5 bulgusu): `_son_tetik` uygulanan tetiğin damgasını taşır ve bu damga iki
+    # biçimde gelebilir — panel/`durum.json` UTC (`...Z`), MQTT/yerel `tetik.yaz` yerel saat
+    # (uzantısız). Sözlüksel karşılaştırma UTC+3 cihazda yerel damgayı 3 saat ileri gösterip
+    # panelin YENİ tetiğini "eski" sayıyordu → "Bildir" sessizce yutuluyordu (farklı kapıdan
+    # aynı belirti). `zaman.yeni_mi` anları karşılaştırır, çözemezse sözlüksel davranışa düşer.
+    if son_uygulanan and not zaman.yeni_mi(zaman_metni, son_uygulanan):
+        return False
     ilce = str(tetik.get("ilceId") or "").strip()
     bolge = str(tetik.get("bolgeId") or "").strip()
     if not ilce or ilce == "*":
