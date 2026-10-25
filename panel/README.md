@@ -11,6 +11,11 @@ Vue 3 + Vuetify 3 + TypeScript; **tüm veri S3'te**, sunucu (Lambda/API) yok.
 
 ## 1) Ekranlar
 
+> **Adlandırma:** soldaki menüde görünen ad **"Ekran"** sütunudur. `VeriView.vue`, `AyarlarView.vue`
+> gibi **dosya adları menüde görünmez** — operatöre/kullanıcıya talimat verirken MENÜ adını
+> kullanın ("Nöbet ve Yayınlar", "Genel Ayarlar"…). Aksi hâlde "panelde VeriView diye bir şey yok"
+> türünden yanlış yönlendirme olur.
+
 | Ekran | Dosya | Ne yapar |
 |---|---|---|
 | **Durum** | (tümü) | Bağlantı/dosya durumu, veri özeti, **cihazın şu an ne gösterdiği** (kiosk ile aynı pencere kuralı), bu cihazın etkin özellikleri ve hangi kapsamdan geldiği |
