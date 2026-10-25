@@ -3,13 +3,18 @@
 #
 #   MQTT_PAROLA_PANEL=… MQTT_PAROLA_CIHAZ=… bash dogrula.sh broker.1.2.3.4.nip.io
 #
+# Kalp atışı zincirini de sınamak için cihaz BAŞINA kimlik verin (kur.sh çıktısı):
+#   MQTT_CIHAZ_KULLANICI=cihaz-C1 MQTT_CIHAZ_PAROLA=… bash dogrula.sh <host>
+#
 # Kontroller:
 #   1) TLS el sıkışması ve sertifika geçerliliği (openssl s_client)
 #   2) panel kullanıcısı YAYIN yapabiliyor mu (beklenen: evet)
 #   3) cihaz kullanıcısı ABONE olup mesajı alıyor mu (beklenen: evet)
 #   4) cihaz kullanıcısı YAYIN yapamıyor mu (beklenen: HAYIR — ACL)
-#   5) anonim bağlantı reddediliyor mu (beklenen: HAYIR)
-#   6) düz 1883 kapalı mı (beklenen: bağlantı yok)
+#   5) cihaz kullanıcısı AYAR konularını okuyamıyor mu (beklenen: HAYIR)
+#   6) anonim bağlantı reddediliyor mu (beklenen: HAYIR)
+#   7) kalp atışı zinciri: cihaz-<id> yazar → panel-izleme okur
+#   8) düz 1883 kapalı mı (beklenen: bağlantı yok)
 set -uo pipefail
 
 HOST="${1:-}"
@@ -65,32 +70,65 @@ else
 fi
 rm -f "$GECICI2"
 
-echo "=== 5) anonim bağlantı reddedilmeli ==="
+echo "=== 5) cihaz kimliği BAŞKA cihazın durum konusuna yazamaz ==="
+# Cihaz başına kullanıcı izolasyonu: ele geçirilmiş bir kiosk başka cihazın çevrimiçi
+# durumunu taklit edememeli. Cihaz kimliği gerektirir (MQTT_CIHAZ_PAROLA).
+if [ -n "${MQTT_CIHAZ_PAROLA:-}" ] && [ -n "${MQTT_PAROLA_IZLEME:-}" ]; then
+  TABAN5="${KONU%%/yayin*}"
+  YABANCI="$TABAN5/durum/yabanci-$$"
+  GECICI5="$(mktemp)"
+  timeout 5 mosquitto_sub -h "$HOST" -p 8883 -u panel-izleme -P "$MQTT_PAROLA_IZLEME" \
+    -t "$YABANCI" -C 1 >"$GECICI5" 2>/dev/null &
+  ABONE5=$!
+  sleep 1
+  mosquitto_pub -h "$HOST" -p 8883 \
+    -u "${MQTT_CIHAZ_KULLANICI:-cihaz}" -P "$MQTT_CIHAZ_PAROLA" \
+    -t "$YABANCI" -m '{"cevrimici":true}' 2>/dev/null || true
+  sleep 2
+  wait $ABONE5 2>/dev/null
+  if [ -s "$GECICI5" ]; then
+    echo "  ✗ GÜVENLİK: cihaz başka cihazın durum konusuna yazabildi (taklit)"
+  else
+    echo "  ✓ reddedildi (her cihaz yalnız kendi konusuna yazar)"
+  fi
+  rm -f "$GECICI5"
+else
+  echo "  - atlandı (MQTT_CIHAZ_PAROLA ve MQTT_PAROLA_IZLEME birlikte verilmedi)"
+fi
+
+echo "=== 6) anonim bağlantı reddedilmeli ==="
 if timeout 5 mosquitto_pub -h "$HOST" -p 8883 -t "$KONU" -m 'x' 2>/dev/null; then
   echo "  ✗ GÜVENLİK: anonim bağlantı kabul edildi"
 else
   echo "  ✓ reddedildi"
 fi
 
-echo "=== 7) kalp atışı zinciri (cihaz yazar → panel-izleme okur) ==="
-if [ -n "${MQTT_PAROLA_IZLEME:-}" ]; then
+echo "=== 7) kalp atışı zinciri (cihaz-<id> yazar → panel-izleme okur) ==="
+# Sabit /tmp yolu YOK (i5 bulgusu: sembolik bağ) — mktemp.
+# Kalp atışı cihaz BAŞINA kimlikle yazılır (paylaşılan `cihaz` hesabı ACL'de yazamaz).
+if [ -n "${MQTT_PAROLA_IZLEME:-}" ] && [ -n "${MQTT_CIHAZ_PAROLA:-}" ]; then
+  TABAN="${KONU%%/yayin*}"
+  TEST_KONU="$TABAN/durum/dogrulama-$$"
+  GECICI3="$(mktemp)"
   timeout 6 mosquitto_sub -h "$HOST" -p 8883 -u panel-izleme -P "$MQTT_PAROLA_IZLEME" \
-    -t "${KONU%%/yayin*}/durum/+" -C 1 >/tmp/izleme-dogrula 2>/dev/null &
+    -t "$TEST_KONU" -C 1 >"$GECICI3" 2>/dev/null &
   IZLE=$!
   sleep 1
-  mosquitto_pub -h "$HOST" -p 8883 -u cihaz -P "$MQTT_PAROLA_CIHAZ" \
-    -t "${KONU%%/yayin*}/durum/dogrulama" -r -m '{"cevrimici":true,"zaman":"2026-01-01T00:00:00Z"}'
+  mosquitto_pub -h "$HOST" -p 8883 \
+    -u "${MQTT_CIHAZ_KULLANICI:-cihaz}" -P "$MQTT_CIHAZ_PAROLA" \
+    -t "$TEST_KONU" -r -m '{"cevrimici":true,"zaman":"2026-01-01T00:00:00Z"}'
   wait $IZLE 2>/dev/null
-  if grep -q cevrimici /tmp/izleme-dogrula 2>/dev/null; then
-    echo "  ✓ cihaz kalp atışı yazdı, panel-izleme okudu"
+  if grep -q cevrimici "$GECICI3" 2>/dev/null; then
+    echo "  ✓ cihaz kimliği kalp atışı yazdı, panel-izleme okudu"
   else
-    echo "  ✗ kalp atışı okunamadı (ACL: cihaz write / panel-izleme read eksik olabilir)"
+    echo "  ✗ kalp atışı okunamadı (ACL: cihaz-<id> write / panel-izleme read eksik olabilir)"
   fi
-  rm -f /tmp/izleme-dogrula
-  mosquitto_pub -h "$HOST" -p 8883 -u cihaz -P "$MQTT_PAROLA_CIHAZ" \
-    -t "${KONU%%/yayin*}/durum/dogrulama" -r -n 2>/dev/null || true
+  mosquitto_pub -h "$HOST" -p 8883 \
+    -u "${MQTT_CIHAZ_KULLANICI:-cihaz}" -P "$MQTT_CIHAZ_PAROLA" \
+    -t "$TEST_KONU" -r -n 2>/dev/null || true
+  rm -f "$GECICI3"
 else
-  echo "  - atlandı (MQTT_PAROLA_IZLEME verilmedi)"
+  echo "  - atlandı (MQTT_PAROLA_IZLEME ve MQTT_CIHAZ_PAROLA birlikte verilmedi)"
 fi
 
 echo "=== 8) düz 1883 kapalı olmalı ==="

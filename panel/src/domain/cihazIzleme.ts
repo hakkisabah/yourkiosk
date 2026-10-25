@@ -14,6 +14,20 @@
  *  Cihaz 5 dakikada bir yayınlar; 15 dk = 3 kaçırılmış atış (ağ dalgalanmasına tolerans). */
 export const VARSAYILAN_ESIK_DK = 15
 
+/**
+ * GİRDİ SINIRLARI (i5 bulgusu) — `durum/+` konusuna yazabilen bir hesap (ya da ele geçirilmiş
+ * bir cihaz) retained gövdeyi sınırsız büyütebilir. Sınırlar JSON.parse'tan ÖNCE uygulanır:
+ * büyük gövde hiç ayrıştırılmaz, kimliği uzun/bozuk mesajlar hiç haritaya girmez, harita
+ * 2000 kayıtta durur (en eski kayıt düşer). Aksi hâlde panel belleği ve arayüzü kilitlenir.
+ */
+export const AZAMI_GOVDE_BAYT = 512
+export const AZAMI_KIMLIK_UZUNLUK = 64
+export const AZAMI_CIHAZ = 2000
+/** İzleme oturumunun ardışık yeniden bağlanma denemesi üst sınırı (sonsuz döngüyü keser). */
+export const AZAMI_YENIDEN_BAGLANMA = 5
+/** Cihaz kimliği deseni: konu güvenliği için harf/rakam/alt çizgi/tire. */
+const KIMLIK_DESENI = /^[A-Za-z0-9_-]+$/
+
 export interface CihazDurumu {
   cihazId: string
   cevrimici: boolean
@@ -31,10 +45,17 @@ export function durumKonusu(yayinKonusu: string): string {
   return `${taban || 'yourkiosk'}/durum/+`
 }
 
-/** Durum konusundan cihaz kimliğini çıkarır (`yourkiosk/durum/C1` → `C1`). */
+/** Durum konusundan cihaz kimliğini çıkarır (`yourkiosk/durum/C1` → `C1`).
+ *
+ * GÜVENLİK: kimlik uzunluk ve karakter denetiminden geçer. Aksi hâlde 5000 karakterlik bir
+ * kimlik haritaya girer ve arayüzü kilitler (i5 bulgusu, ölçüldü: kabul ediliyordu).
+ * Geçersizse boş dize döner → mesaj tümüyle yok sayılır.
+ */
 export function konudanCihaz(konu: string): string {
   const parcalar = String(konu ?? '').split('/').filter(Boolean)
-  return parcalar.length ? parcalar[parcalar.length - 1] : ''
+  const kimlik = parcalar.length ? parcalar[parcalar.length - 1] : ''
+  if (!kimlik || kimlik.length > AZAMI_KIMLIK_UZUNLUK) return ''
+  return KIMLIK_DESENI.test(kimlik) ? kimlik : ''
 }
 
 /** Kalp atışı gövdesini çözer; bozuk/eksik gövdede null.
@@ -50,6 +71,9 @@ export function kalpAtisiCoz(
 ): CihazDurumu | null {
   const cihazId = konudanCihaz(konu)
   if (!cihazId) return null
+  // BOYUT SINIRI (i5 bulgusu): JSON.parse'tan ÖNCE. 1 MB'lık retained gövde ayrıştırılmaz.
+  const bayt = typeof govde === 'string' ? new TextEncoder().encode(govde).length : govde.length
+  if (!Number.isFinite(bayt) || bayt === 0 || bayt > AZAMI_GOVDE_BAYT) return null
   let belge: unknown
   try {
     const metin = typeof govde === 'string' ? govde : new TextDecoder().decode(govde)
@@ -126,6 +150,29 @@ export interface IzlemeOturumu {
   durdur: () => void
 }
 
+/**
+ * Haritaya cihaz durumu ekler — YENİ Map döndürür (Vue tepkiselliği için).
+ *
+ * GÜVENLİK (i5 bulgusu): harita sınırsız büyümemeli. `durum/+` konusuna yazan biri binlerce
+ * farklı kimlik yayınlayıp paneli şişirebilir. `AZAMI_CIHAZ` aşılırsa EN ESKİ kayıt düşer
+ * (yeni kimlik yine girer; böylece aktif cihazlar görünür kalır).
+ */
+export function durumEkle(
+  harita: Map<string, CihazDurumu>,
+  durum: CihazDurumu,
+  azami: number = AZAMI_CIHAZ,
+): Map<string, CihazDurumu> {
+  const yeni = new Map(harita)
+  yeni.delete(durum.cihazId)
+  yeni.set(durum.cihazId, durum)
+  while (yeni.size > Math.max(1, azami)) {
+    const enEski = yeni.keys().next()
+    if (enEski.done) break
+    yeni.delete(enEski.value)
+  }
+  return yeni
+}
+
 export interface IzlemeAyarlari {
   /** Broker adresi (wss://host:8084/mqtt) — SIR DEĞİL, yayınlanabilir. */
   url: string
@@ -182,6 +229,10 @@ export async function izlemeBaslat(
       })
   const konu = durumKonusu(String(ayarlar.konu ?? 'yourkiosk/yayin'))
   olaylar.durum?.('baglaniyor')
+  // SONSUZ YENİDEN BAĞLANMA YOK (i5 bulgusu): parola yanlışsa/ACL reddediyorsa mqtt.js
+  // sonsuza kadar 5 sn'de bir dener — broker'da kimlik doğrulama trafiği, panelde sürekli
+  // durum değişimi. Ardışık N başarısız denemeden sonra oturum kapatılır ve hata bildirilir.
+  let deneme = 0
   const istemci = connect(url, {
     clientId: `panel-izleme-${Math.random().toString(16).slice(2, 10)}`,
     username: ayarlar.kullanici || undefined,
@@ -192,6 +243,7 @@ export async function izlemeBaslat(
   })
 
   istemci.on('connect', () => {
+    deneme = 0
     istemci.subscribe(konu, { qos: 1 }, (hata, granted) => {
       // mqtt.js abonelik reddini (ACL) HATA olarak değil, granted[qos]=128 ile bildirir.
       const red = (granted ?? []).some((g) => (g?.qos ?? 0) >= 128)
@@ -201,6 +253,16 @@ export async function izlemeBaslat(
       }
       olaylar.durum?.('bagli')
     })
+  })
+  istemci.on('reconnect', () => {
+    deneme += 1
+    if (deneme > AZAMI_YENIDEN_BAGLANMA) {
+      olaylar.durum?.(
+        'hata',
+        `broker'a ${AZAMI_YENIDEN_BAGLANMA} kez yeniden bağlanılamadı (kimlik/ACL?) — izleme durduruldu`,
+      )
+      istemci.end(true)
+    }
   })
   istemci.on('message', (gelenKonu: string, govde: Uint8Array) => {
     // GELİŞ ANI damgası: cihaz saati kaymış olsa da çevrimiçilik doğru hesaplanır.
