@@ -280,9 +280,14 @@ def uygula(
     except Exception as hata:  # noqa: BLE001 - komut hatası uygulamayı düşürmemeli
         sonuc.hata = f"{type(hata).__name__}: {hata}"
         log.error("komut çalıştırılamadı: %s → %s", komut, sonuc.hata)
-    finally:
-        # Bildirim SÜRELİDİR (auto-expire) ama komut bittiyse hemen kaldırılır; süreç ölürse
-        # (ör. `systemctl restart`) ekranda kalıcı yazı kalmaz.
+
+    # Bildirim SÜRELİDİR (auto-expire). BAŞARILI komutta burada temizlenmez: tarayıcı modunda
+    # arayüz `/komut-bildirim` ucunu 1 sn'de bir sorar, `systemctl reboot/restart` ise ~10-50 ms'de
+    # döner — anında temizlik yazının hiç görünmemesine yol açıyordu (i5 bulgusu). Metin en çok
+    # `bildirim.VARSAYILAN_SURE_S` (8 sn) görünür; süreç ölürse kayıt zaten bellekle birlikte gider.
+    # Komut BAŞARISIZ olduysa yanıltıcı olmasın diye hemen kaldırılır (ekranda "yeniden başlatılıyor"
+    # yazıp hiçbir şeyin olmaması daha kötüdür).
+    if sonuc.hata or sonuc.cikis_kodu != 0:
         _bildir_temizle()
     durum_yaz(sonuc)
     log.info("komut sonucu: %s", sonuc.ozet())

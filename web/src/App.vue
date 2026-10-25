@@ -13,6 +13,7 @@ import OrtaPanel from '@/bilesenler/OrtaPanel.vue'
 import SolPanel from '@/bilesenler/SolPanel.vue'
 import YayinGoruntusu from '@/bilesenler/YayinGoruntusu.vue'
 import { createKiosk } from '@/kiosk'
+import { komutBildiriminiOku as komutBildiriminiSor } from '@/veri/komutBildirim'
 import { Onbellek } from '@/veri/onbellek'
 import { parametreleriOku, VeriKaynagi } from '@/veri/kaynak'
 import { elle, sahneOlcegi, sabit } from '@/stiller/olcu'
@@ -83,14 +84,7 @@ const komutBildirimi = ref('')
 let komutZamanlayici: number | undefined
 
 async function komutBildiriminiOku(): Promise<void> {
-  try {
-    const yanit = await fetch('/komut-bildirim', { cache: 'no-store' })
-    if (!yanit.ok) return
-    const veri = (await yanit.json()) as { aktif?: boolean; metin?: string }
-    komutBildirimi.value = veri.aktif ? String(veri.metin ?? 'Komut uygulanıyor…') : ''
-  } catch {
-    /* yerel uç yok (ör. https veri modu): sessizce yok say */
-  }
+  komutBildirimi.value = await komutBildiriminiSor()
 }
 
 onMounted(async () => {

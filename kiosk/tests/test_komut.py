@@ -159,10 +159,12 @@ def test_ekrani_yenile_uygulama_ici_isleme(ortam) -> None:
 
 
 # ------------------------------------------------------------------ ekran bildirimi
-def test_bildirim_komuttan_once_gosterilir_ve_sonra_kalkar(ortam) -> None:
+def test_bildirim_komuttan_once_gosterilir_ve_bir_sure_kalir(ortam) -> None:
     """Kullanıcı isteği: komut uygulanırken ekranda kısa "yeniden başlatılıyor" bilgisi.
 
     SIRA ÖNEMLİ: bildirim `subprocess` çağrısından ÖNCE kurulmalı (Qt ancak o an boyayabilir).
+    SÜRE DE ÖNEMLİ: komut bittikten hemen sonra temizlenirse tarayıcı modunda arayüzün 1 sn'lik
+    `/komut-bildirim` yoklaması yazıyı hiç göremez (i5 bulgusu) — bildirim süresiyle (8 sn) kalır.
     """
     from core import bildirim
 
@@ -188,7 +190,19 @@ def test_bildirim_komuttan_once_gosterilir_ve_sonra_kalkar(ortam) -> None:
     assert "yeniden başlatılıyor" in gorulen["metin"]
     assert gorulen["calisti"] is True
     assert gorulen["bildirim_calisme_aninda"] is True, "bildirim çalıştırmadan önce kurulmalı"
-    assert bildirim.aktif() is None, "komut bitince bildirim kalkmalı"
+    kalan = bildirim.aktif()
+    assert kalan is not None, "başarılı komuttan sonra bildirim süresi boyunca görünür kalmalı"
+    assert "yeniden başlatılıyor" in kalan["metin"]
+
+
+def test_basarisiz_komutta_bildirim_hemen_kalkar(ortam) -> None:
+    """Komut başarısızsa "yeniden başlatılıyor" yazısı ekranda asılı kalmamalı (yanıltıcı olur)."""
+    from core import bildirim
+
+    bildirim.sifirla()
+    sonuc = komut.uygula(_belge(), calistir=SahteCalistirici(cikis=1))
+    assert sonuc is not None and sonuc.cikis_kodu == 1
+    assert bildirim.aktif() is None
 
 
 def test_kuru_calistirmada_bildirim_gosterilmez(ortam) -> None:
