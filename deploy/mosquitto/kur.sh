@@ -121,8 +121,11 @@ tls_version tlsv1.2
 allow_anonymous false
 password_file /etc/mosquitto/auth/passwd
 acl_file      /etc/mosquitto/auth/acl
-max_connections -1
-max_queued_messages 5
+# i5 bulgusu: `max_connections -1` + internete açık 8883/8084 → kimlik doğrulaması bağlantı
+# KABULÜNDEN sonra yapıldığı için tek kaynak binlerce TLS el sıkışması açıp broker'ın dosya
+# tanıtıcılarını tüketebilir (filo düşer). 600 cihaz + panel + pay: 1200 bağlantı, 20 sn'de
+# tekrar deneme ile toparlanır. Sınırsız ASLA.
+max_connections 1200
 
 # --- WebSocket over TLS (panel, tarayıcıdan yayın) ---
 listener 8084

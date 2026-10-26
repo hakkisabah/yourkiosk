@@ -108,25 +108,35 @@ echo "=== 7) kalp atışı zinciri (cihaz-<id> yazar → panel-izleme okur) ==="
 # Kalp atışı cihaz BAŞINA kimlikle yazılır (paylaşılan `cihaz` hesabı ACL'de yazamaz).
 if [ -n "${MQTT_PAROLA_IZLEME:-}" ] && [ -n "${MQTT_CIHAZ_PAROLA:-}" ]; then
   TABAN="${KONU%%/yayin*}"
-  TEST_KONU="$TABAN/durum/dogrulama-$$"
-  GECICI3="$(mktemp)"
-  timeout 6 mosquitto_sub -h "$HOST" -p 8883 -u panel-izleme -P "$MQTT_PAROLA_IZLEME" \
-    -t "$TEST_KONU" -C 1 >"$GECICI3" 2>/dev/null &
-  IZLE=$!
-  sleep 1
-  mosquitto_pub -h "$HOST" -p 8883 \
-    -u "${MQTT_CIHAZ_KULLANICI:-cihaz}" -P "$MQTT_CIHAZ_PAROLA" \
-    -t "$TEST_KONU" -r -m '{"cevrimici":true,"zaman":"2026-01-01T00:00:00Z"}'
-  wait $IZLE 2>/dev/null
-  if grep -q cevrimici "$GECICI3" 2>/dev/null; then
-    echo "  ✓ cihaz kimliği kalp atışı yazdı, panel-izleme okudu"
+  # ACL yalnız `cihaz-<id>` hesabına `durum/<id>` yazma izni verir (cihaz-ekle.sh:59). Sabit
+  # `durum/dogrulama-$$` konusuna paylaşılan `cihaz` hesabıyla yazmak HER KOŞUDA ✗ veriyordu
+  # (i5 bulgusu). Doğru yol: gerçek cihaz kimliğiyle (MQTT_CIHAZ_ID) kendi konusuna yazmak.
+  if [ -z "${MQTT_CIHAZ_ID:-}" ]; then
+    echo "  - atlandı: MQTT_CIHAZ_ID verilmedi (ACL, kimliksiz hesaba yazma izni vermez)"
+    echo "    Denemek için: MQTT_CIHAZ_ID=C1 MQTT_CIHAZ_PAROLA=... sudo -E $0"
   else
-    echo "  ✗ kalp atışı okunamadı (ACL: cihaz-<id> write / panel-izleme read eksik olabilir)"
+    TEST_KONU="$TABAN/durum/$MQTT_CIHAZ_ID"
+    KULLANICI="cihaz-$MQTT_CIHAZ_ID"
+    GECICI3="$(mktemp)"
+    timeout 6 mosquitto_sub -h "$HOST" -p 8883 -u panel-izleme -P "$MQTT_PAROLA_IZLEME" \
+      -t "$TEST_KONU" -C 1 >"$GECICI3" 2>/dev/null &
+    IZLE=$!
+    sleep 1
+    if mosquitto_pub -h "$HOST" -p 8883 -u "$KULLANICI" -P "$MQTT_CIHAZ_PAROLA" \
+         -t "$TEST_KONU" -r -m '{"cevrimici":true,"zaman":"2026-01-01T00:00:00Z"}' 2>/dev/null; then
+      wait $IZLE 2>/dev/null
+      if grep -q cevrimici "$GECICI3" 2>/dev/null; then
+        echo "  ✓ $KULLANICI kalp atışı yazdı, panel-izleme okudu"
+      else
+        echo "  ✗ yayın kabul edildi ama panel-izleme OKUMADI (ACL read: $TEST_KONU değil $TABAN/durum/+)"
+      fi
+    else
+      echo "  ✗ $KULLANICI yazamadı (ACL: topic write $TABAN/durum/$MQTT_CIHAZ_ID eksik olabilir)"
+    fi
+    mosquitto_pub -h "$HOST" -p 8883 -u "$KULLANICI" -P "$MQTT_CIHAZ_PAROLA" \
+      -t "$TEST_KONU" -r -n 2>/dev/null || true
+    rm -f "$GECICI3"
   fi
-  mosquitto_pub -h "$HOST" -p 8883 \
-    -u "${MQTT_CIHAZ_KULLANICI:-cihaz}" -P "$MQTT_CIHAZ_PAROLA" \
-    -t "$TEST_KONU" -r -n 2>/dev/null || true
-  rm -f "$GECICI3"
 else
   echo "  - atlandı (MQTT_PAROLA_IZLEME ve MQTT_CIHAZ_PAROLA birlikte verilmedi)"
 fi

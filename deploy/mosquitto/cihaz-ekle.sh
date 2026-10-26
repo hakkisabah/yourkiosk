@@ -29,13 +29,21 @@ sil() {
   local kimlik="$1" kullanici="cihaz-$1"
   mosquitto_passwd -D "$PASSWD" "$kullanici" >/dev/null 2>&1 || true
   # ACL'de bu kullanıcıya ait 3 satırlık bloğu kaldır
+  # ÖNGÖRÜLEBİLİR yol YASAK (i5 bulgusu): `$ACL.yeni` bilinen bir ad; dizin mosquitto'ya ait
+  # (0750 mosquitto:mosquitto) olduğu için broker süreci oraya sembolik bağ koyup root'a keyfî
+  # dosya yazdırabilirdi. mktemp ile rastgele ad + atomik `mv` kullanılır.
+  local yeni
+  yeni="$(mktemp "$AUTH_DIZIN/.acl.XXXXXX")"
+  trap 'rm -f "$yeni"' EXIT
   awk -v u="$kullanici" '
     $1=="user" { atla = ($2==u); if (atla) next }
     atla && /^topic / { next }
     { print }
-  ' "$ACL" >"$ACL.yeni"
-  install -m 640 -o mosquitto -g mosquitto "$ACL.yeni" "$ACL"
-  rm -f "$ACL.yeni"
+  ' "$ACL" >"$yeni"
+  chown mosquitto:mosquitto "$yeni"
+  chmod 640 "$yeni"
+  mv -f "$yeni" "$ACL"
+  trap - EXIT
   systemctl reload mosquitto
   echo "✓ $kullanici silindi (cihaz ayarlarını paylaşılan 'cihaz' hesabına döndürün)"
 }
@@ -51,15 +59,22 @@ ekle() {
   chmod 640 "$PASSWD"
 
   if ! grep -q "^user $kullanici\$" "$ACL"; then
-    cat >>"$ACL" <<EOF
+    # Ekleme de atomik: kopya üzerinde değiştir, sonra mv (yarım kalan ACL broker'ı kilitlemesin).
+    local yeni
+    yeni="$(mktemp "$AUTH_DIZIN/.acl.XXXXXX")"
+    trap 'rm -f "$yeni"' EXIT
+    cp -p "$ACL" "$yeni"
+    cat >>"$yeni" <<EOF
 
 # cihaz: $kimlik (yalnız kendi durum konusuna yazar)
 user $kullanici
 topic read $KONU_TABANI/yayin
 topic write $KONU_TABANI/durum/$kimlik
 EOF
-    chown mosquitto:mosquitto "$ACL"
-    chmod 640 "$ACL"
+    chown mosquitto:mosquitto "$yeni"
+    chmod 640 "$yeni"
+    mv -f "$yeni" "$ACL"
+    trap - EXIT
   fi
   systemctl reload mosquitto
 
@@ -73,8 +88,19 @@ EOF
 }
 
 case "${1:-}" in
-  ""|-h|--help) echo "kullanım: $0 <cihazId>|--sil <cihazId>|--liste" >&2; exit 2 ;;
-  --liste) listele ;;
-  --sil) [[ -n "${2:-}" ]] || { echo "✗ cihaz kimliği gerekli" >&2; exit 2; }; sil "$2" ;;
-  *) ekle "$1" ;;
+  ""|-h|--help) echo "kullanım: $0 <cihazId>|--sil <cihazId>|<cihazId> --sil|--liste" >&2; exit 2 ;;
+  --liste|--list) listele ;;
+  --sil)
+    [[ -n "${2:-}" ]] || { echo "✗ cihaz kimliği gerekli" >&2; exit 2; }
+    sil "$2"
+    ;;
+  *)
+    # i5 bulgusu: belge `cihaz-ekle.sh C1 --sil` yazıyordu ama bu biçim eşleşmiyordu →
+    # komut cihazı SİLMİYOR, yeni parola üretip cihazı yeniden ekliyordu (sessiz yanlış iş).
+    if [[ "${2:-}" == "--sil" ]]; then
+      sil "$1"
+    else
+      ekle "$1"
+    fi
+    ;;
 esac
