@@ -249,6 +249,10 @@ class KontrolLanDenetimiTesti(unittest.TestCase):
         self.ev = self.kok / "ev"
         (self.ev / ".config" / "hermes-secrets").mkdir(parents=True)
         (self.ev / ".config" / "hermes-secrets" / "api-server.key").write_text("k" * 64 + "\n", encoding="utf-8")
+        # 26 Ekim i5 bulgusu: --kontrol artık anahtar dosyasının İZNİNİ de denetler; "temiz"
+        # senaryoların 0600 olması gerekir (izin testleri ayrı sınıfta).
+        (self.ev / ".config" / "hermes-secrets" / "api-server.key").chmod(0o600)
+        (self.ev / ".config" / "hermes-secrets").chmod(0o700)
         self.host_dosya = self.kok / "host"
         self.dinlenen_dosya = self.kok / "dinlenen"
         self.sayac = self.kok / "sayac"
@@ -320,6 +324,139 @@ class KontrolLanDenetimiTesti(unittest.TestCase):
         s = self._senaryo("172.17.0.1", "[::]:8642")
         self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
         self.assertIn(":: → beyaz liste dışı", s.stdout)
+
+
+class AnahtarIzinDenetimiTesti(unittest.TestCase):
+    """26 Ekim i5 bulgusu: `--kontrol` anahtar dosyasının iznine hiç bakmıyordu.
+
+    0644 (dünya-okur) bir anahtar dosyası "temiz" görünüyordu; sır dosyası 0600 olmalı.
+    """
+
+    def _kontrol(self, *, dosya_mod: int, dizin_mod: int = 0o700) -> subprocess.CompletedProcess:
+        import tempfile
+        with tempfile.TemporaryDirectory() as dizin:
+            kok = Path(dizin)
+            bin = kok / "bin"; bin.mkdir()
+            ev = kok / "ev"; (ev / ".config" / "hermes-secrets").mkdir(parents=True)
+            anahtar = ev / ".config" / "hermes-secrets" / "api-server.key"
+            anahtar.write_text("k" * 64 + "\n", encoding="utf-8")
+            anahtar.chmod(dosya_mod)
+            (ev / ".config" / "hermes-secrets").chmod(dizin_mod)
+
+            def sahte(ad: str, govde: str) -> None:
+                yol = bin / ad
+                yol.write_text("#!/usr/bin/env bash\n" + govde, encoding="utf-8")
+                yol.chmod(0o755)
+
+            sahte("hermes", (
+                'case "$1 $2" in\n'
+                '  "config get") case "$3" in\n'
+                '    API_SERVER_HOST) echo 172.17.0.1 ;;\n'
+                '    API_SERVER_ENABLED) echo true ;;\n'
+                '    *) echo "" ;;\n'
+                '  esac ;;\n'
+                f'  "config env-path") echo "{ev}/.hermes/.env" ;;\n'
+                'esac\nexit 0\n'
+            ))
+            sahte("ss", 'echo "LISTEN 0 4096 172.17.0.1:8642"\n')
+            sayac = kok / "sayac"
+            sahte("curl", (
+                f'n=$(cat {sayac} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {sayac}\n'
+                'cat >/dev/null\n'
+                'if [ "$n" -eq 1 ]; then printf 200; else printf 401; fi\n'
+            ))
+            sahte("nft", 'echo "Error: No such file or directory" >&2\nexit 1\n')
+            return subprocess.run(
+                ["bash", str(BETIK), "--kontrol"], capture_output=True, text=True, timeout=60,
+                env={**os.environ,
+                     "HOME": str(ev),
+                     "PATH": f"{bin}:{os.environ.get('PATH', '')}"},
+            )
+
+    def test_dunya_okur_anahtar_kirmizi(self):
+        s = self._kontrol(dosya_mod=0o644)
+        self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
+        self.assertIn("anahtar dosyası izni", s.stdout)
+        self.assertIn("0600", s.stdout)
+
+    def test_0600_anahtar_yesil(self):
+        s = self._kontrol(dosya_mod=0o600)
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertIn("✓ anahtar dosyası izni", s.stdout)
+
+    def test_gevsek_sir_dizini_kirmizi(self):
+        s = self._kontrol(dosya_mod=0o600, dizin_mod=0o755)
+        self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
+        self.assertIn("sır dizini izni", s.stdout)
+
+
+class AnahtarUretimHatasiTesti(unittest.TestCase):
+    """26 Ekim i5 bulgusu: `openssl rand` başarısız olunca MEVCUT anahtar boş dosyayla eziliyordu.
+
+    Betik artık: üret → 64 karakter doğrula → geçici dosya → atomik taşı. Hata yolunda hiçbir
+    dosya değişmez ve çıkış kodu 3'tür (başarı bildirimi YOK).
+    """
+
+    def _calistir(self, openssl_govdesi: str) -> tuple[subprocess.CompletedProcess, Path, Path]:
+        import tempfile
+        self.dizin = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dizin.cleanup)
+        kok = Path(self.dizin.name)
+        bin = kok / "bin"; bin.mkdir()
+        ev = kok / "ev"; (ev / ".config" / "hermes-secrets").mkdir(parents=True)
+        anahtar = ev / ".config" / "hermes-secrets" / "api-server.key"
+        anahtar.write_text("a" * 64 + "\n", encoding="utf-8")
+        anahtar.chmod(0o600)
+        (ev / ".config" / "hermes-secrets").chmod(0o700)
+        env_dosya = ev / ".hermes" / ".env"
+        env_dosya.parent.mkdir(parents=True, exist_ok=True)
+        env_dosya.write_text("DOKUNMA=1\n", encoding="utf-8")
+
+        def sahte(ad: str, govde: str) -> None:
+            yol = bin / ad
+            yol.write_text("#!/usr/bin/env bash\n" + govde, encoding="utf-8")
+            yol.chmod(0o755)
+
+        sahte("hermes", (
+            'case "$1 $2" in\n'
+            f'  "config env-path") echo "{env_dosya}" ;;\n'
+            '  "config get") echo "" ;;\n'
+            'esac\nexit 0\n'
+        ))
+        sahte("ss", 'exit 0\n')
+        sahte("curl", 'cat >/dev/null; printf 000\n')
+        sahte("nft", 'echo "Error: No such file or directory" >&2\nexit 1\n')
+        sahte("openssl", openssl_govdesi)
+        s = subprocess.run(
+            ["bash", str(BETIK), "--anahtar-yenile"], capture_output=True, text=True, timeout=60,
+            env={**os.environ, "HOME": str(ev),
+                 "PATH": f"{bin}:{os.environ.get('PATH', '')}"},
+        )
+        return s, anahtar, env_dosya
+
+    def test_openssl_hatasinda_anahtar_korunur(self):
+        s, anahtar, env_dosya = self._calistir("exit 1\n")
+        self.assertEqual(s.returncode, 3, s.stdout + s.stderr)
+        self.assertEqual(anahtar.read_text(encoding="utf-8"), "a" * 64 + "\n",
+                         "mevcut anahtar boşaltılmamalı")
+        self.assertEqual(env_dosya.read_text(encoding="utf-8"), "DOKUNMA=1\n")
+        self.assertIn("KORUNUYOR", s.stderr)
+        self.assertNotIn("yeni anahtar üretildi", s.stdout)
+
+    def test_kisa_ciktida_anahtar_korunur(self):
+        # openssl "başarılı" ama beklenen uzunlukta değil (kaynak tükenmesi/bozuk çıktı).
+        s, anahtar, _ = self._calistir("echo abc\n")
+        self.assertEqual(s.returncode, 3, s.stdout + s.stderr)
+        self.assertEqual(anahtar.read_text(encoding="utf-8"), "a" * 64 + "\n")
+        self.assertIn("KORUNUYOR", s.stderr)
+
+    def test_basarili_uretim_anahtari_degistirir(self):
+        s, anahtar, env_dosya = self._calistir("echo $(printf 'b%.0s' {1..64})\n")
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertEqual(anahtar.read_text(encoding="utf-8").strip(), "b" * 64)
+        self.assertEqual(anahtar.stat().st_mode & 0o777, 0o600)
+        self.assertIn("API_SERVER_KEY=" + "b" * 64, env_dosya.read_text(encoding="utf-8"))
+        self.assertIn("DOKUNMA=1", env_dosya.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -96,9 +96,12 @@ Depo kuralları: `kiosk/GUVENLIK.md`, `kiosk/KOMUTLAR.md`, `docs/AWS-KURULUM.md`
    ```
    `yaz.py` aynı kapıyı kendi de çalıştırır: geçmezse GitHub'a **hiçbir şey** yazılmaz (çıkış 5).
    `--kapi-atla` kullanma; kullanman gerekiyorsa nedenini özete yaz. (Kapı atlama ayrıca operatörün
-   `YAZ_KAPI_ATLA_ONAY=1` ortam anahtarını ister; otomatik oturumda tanımlı değildir.)
-   `--kanit-yok` da aynı korumalara bağlıdır (operatör anahtarı + `--gerekce` ≥20 karakter, 'yüksek'
-   bulgu varken imkânsız) ve her kullanım `kapi-red.log`'a `ATLANDI` satırı yazar — varsayılan yol DEĞİL.
+   `YAZ_KAPI_ATLA_ONAY=1` ortam anahtarını **ve** root sahipli `/run/yourkiosk-kapi-atla.bilet`
+   biletini ister; otomatik oturumda ikisi de yoktur. Biletin yolu ortam değişkeniyle
+   değiştirilemez, `/proc` · `/sys` · `/dev` altındaki yollar reddedilir.)
+   `--kanit-yok` da aynı korumalara bağlıdır (operatör anahtarı + bilet + `--gerekce` ≥20 karakter,
+   'yüksek' bulgu varken imkânsız) ve her kullanım `kapi-red.log`'a `ATLANDI` satırı yazar —
+   varsayılan yol DEĞİL.
 
 ## Sınırlar
 

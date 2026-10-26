@@ -110,7 +110,8 @@ class _BiletDestekli(unittest.TestCase):
             _os.utime(yol, (eski, eski))
         return yol
 
-    def calistir(self, *ek: str, env_anahtar: bool = False, bilet=None, uid_taklit: bool = False):
+    def calistir(self, *ek: str, env_anahtar: bool = False, bilet=None, uid_taklit: bool = False,
+                 dizin_gercek: bool = False):
         import os
         import subprocess
         ortam = {**os.environ, "YAZ_KAPI_LOG": str(self.log), "HOME": str(self.kok)}
@@ -118,13 +119,20 @@ class _BiletDestekli(unittest.TestCase):
             ortam.pop(ad, None)
         if env_anahtar:
             ortam["YAZ_KAPI_ATLA_ONAY"] = "1"
+        # 26 Ekim i5 bulgusu: bilet YOLU artık ortam değişkeniyle verilemez (ajan `/proc/1/stat`
+        # gösterip iki faktörlü korumayı tek faktöre düşürüyordu). Test yolu MODÜL özniteliğiyle
+        # enjekte eder; üretim CLI'ında böyle bir anahtar yoktur.
+        onsoz = []
         if bilet is not None:
-            ortam["YAZ_KAPI_ATLA_BILET"] = str(bilet)
+            onsoz.append(f"import pathlib; yaz.BILET_VARSAYILAN = pathlib.Path({str(bilet)!r})")
         if uid_taklit:
+            onsoz.append("yaz.bilet_sahibi_denetimi = lambda st: True")
+            if not dizin_gercek:
+                onsoz.append("yaz.bilet_dizini_denetimi = lambda st: True")
+        if onsoz:
             ortam["PYTHONPATH"] = str(self.yaz_py.parent)
             komut = [sys.executable, "-c",
-                     "import sys, yaz; yaz.bilet_sahibi_denetimi = lambda st: True; "
-                     "raise SystemExit(yaz.main())",
+                     "import sys, yaz; " + "; ".join(onsoz) + "; raise SystemExit(yaz.main())",
                      str(self.karar_yolu), "--kuru", "--token-dosya", str(self.token), *ek]
         else:
             komut = [sys.executable, str(self.yaz_py), str(self.karar_yolu), "--kuru",
@@ -194,6 +202,28 @@ class KapiAtlamaTesti(_BiletDestekli):
         self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
         self.assertIn("root sahipli değil", s.stderr)
         self.assertIn("root sahipli değil", self.log.read_text(encoding="utf-8"))
+
+    def test_bilet_yolu_ortam_degiskeniyle_tasinamaz(self):
+        """26 Ekim i5 bulgusu (uçtan uca): `YAZ_KAPI_ATLA_BILET=/proc/1/stat` bilet saymamalı.
+
+        Eski kodda yol ortam değişkeninden geliyordu → root sahipli, dünya-okur `/proc/1/stat`
+        denetimden geçip iki faktörlü korumayı tek faktöre (ortam anahtarı) düşürüyordu.
+        """
+        import os
+        ortam_once = os.environ.get("YAZ_KAPI_ATLA_BILET")
+        os.environ["YAZ_KAPI_ATLA_BILET"] = "/proc/1/stat"
+        try:
+            s = self.calistir("--kapi-atla", "--gerekce",
+                              "kanıt katmanı çevrimdışı, elle doğrulandı", env_anahtar=True)
+        finally:
+            if ortam_once is None:
+                os.environ.pop("YAZ_KAPI_ATLA_BILET", None)
+            else:
+                os.environ["YAZ_KAPI_ATLA_BILET"] = ortam_once
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("/run/yourkiosk-kapi-atla.bilet", s.stderr,
+                      "ortam değişkeni yolu değiştirmemeli")
+        self.assertIn("--kapi-atla reddedildi", self.log.read_text(encoding="utf-8"))
 
     def test_bayat_bilet_reddedilir(self):
         s = self.calistir("--kapi-atla", "--gerekce", "kanıt katmanı çevrimdışı, elle doğrulandı",
@@ -307,6 +337,15 @@ class BiletDenetimiTesti(unittest.TestCase):
             os.utime(yol, (eski, eski))
         return yol
 
+    def _denetle(self, yol, **ek):
+        """Test enjeksiyonu: sahiplik ve DİZİN denetimleri fonksiyon olarak "güvenli" sayılır.
+
+        Gerçek `/run` dizini root sahipli; geçici test dizini değil — bu yüzden testler bu iki
+        denetimi enjekte eder. Ortam değişkeniyle gevşetilebilen bir anahtar YOKTUR.
+        """
+        return yaz.bilet_denetle(yol, sahip_denetimi=lambda st: True,
+                                 dizin_denetimi=lambda st: True, **ek)
+
     def test_bilet_yoksa_reddedilir(self):
         gecerli, neden = yaz.bilet_denetle(self.kok / "yok.bilet")
         self.assertFalse(gecerli)
@@ -319,23 +358,23 @@ class BiletDenetimiTesti(unittest.TestCase):
         self.assertIn("root sahipli değil", neden)
 
     def test_dunya_okur_olmayan_bilet_reddedilir(self):
-        gecerli, neden = yaz.bilet_denetle(self._bilet(mod=0o600), sahip_denetimi=lambda st: True)
+        gecerli, neden = self._denetle(self._bilet(mod=0o600))
         self.assertFalse(gecerli)
         self.assertIn("dünya-okur değil", neden)
 
     def test_dunya_yazilabilir_bilet_reddedilir(self):
-        gecerli, neden = yaz.bilet_denetle(self._bilet(mod=0o666), sahip_denetimi=lambda st: True)
+        gecerli, neden = self._denetle(self._bilet(mod=0o666))
         self.assertFalse(gecerli)
         self.assertIn("yazılabilir", neden)
 
     def test_bayat_bilet_reddedilir(self):
-        gecerli, neden = yaz.bilet_denetle(self._bilet(yas_sn=3600), sahip_denetimi=lambda st: True)
+        gecerli, neden = self._denetle(self._bilet(yas_sn=3600))
         self.assertFalse(gecerli)
         self.assertIn("bayat", neden)
         self.assertIn("TTL", neden)
 
     def test_gecerli_bilet_kabul_edilir(self):
-        gecerli, neden = yaz.bilet_denetle(self._bilet(), sahip_denetimi=lambda st: True)
+        gecerli, neden = self._denetle(self._bilet())
         self.assertTrue(gecerli, neden)
 
     def test_sembolik_bag_bilet_sayilmaz(self):
@@ -343,17 +382,36 @@ class BiletDenetimiTesti(unittest.TestCase):
         hedef = self._bilet()
         bag = self.kok / "bag"
         os.symlink(hedef, bag)
-        gecerli, neden = yaz.bilet_denetle(bag, sahip_denetimi=lambda st: True)
+        gecerli, neden = self._denetle(bag)
         self.assertFalse(gecerli)
         self.assertIn("normal dosya değil", neden)
 
-    def test_varsayilan_yol_run_altinda(self):
+    # ── 26 Ekim i5 bulgusu: bilet yolu ortam değişkeniyle taşınamaz ───────────────────────────
+    def test_sanal_dosya_sistemi_bilet_sayilmaz(self):
+        """`/proc/1/stat` root sahipli + dünya-okur + 0644 görünür → eski denetimden GEÇİYORDU."""
+        for yol in (Path("/proc/1/stat"), Path("/sys/kernel/mm/transparent_hugepage/enabled"),
+                    Path("/dev/null")):
+            gecerli, neden = yaz.bilet_denetle(yol, sahip_denetimi=lambda st: True,
+                                               dizin_denetimi=lambda st: True)
+            self.assertFalse(gecerli, str(yol))
+            self.assertIn("sanal dosya sisteminde", neden, str(yol))
+
+    def test_guvensiz_dizindeki_bilet_reddedilir(self):
+        """Bilet dosyası sağlam olsa da üst dizini yazılabilirse aynı kullanıcı onu yeniden koyar."""
+        gecerli, neden = yaz.bilet_denetle(self._bilet(), sahip_denetimi=lambda st: True)
+        self.assertFalse(gecerli, "geçici dizin root sahipli değil → reddedilmeliydi")
+        self.assertIn("bilet dizini güvenli değil", neden)
+
+    def test_bilet_yolu_ortam_degiskeniyle_degismez(self):
         import os
-        os.environ.pop("YAZ_KAPI_ATLA_BILET", None)
         self.assertEqual(str(yaz.bilet_yolu()), "/run/yourkiosk-kapi-atla.bilet")
-        os.environ["YAZ_KAPI_ATLA_BILET"] = str(self.kok / "x")
+        os.environ["YAZ_KAPI_ATLA_BILET"] = "/proc/1/stat"
         try:
-            self.assertEqual(yaz.bilet_yolu(), self.kok / "x")
+            self.assertEqual(str(yaz.bilet_yolu()), "/run/yourkiosk-kapi-atla.bilet",
+                             "YAZ_KAPI_ATLA_BILET yolu DEĞİŞTİRMEMELİ (i5 bulgusu)")
+            gecerli, neden = yaz.bilet_denetle()
+            self.assertFalse(gecerli)
+            self.assertIn("/run/yourkiosk-kapi-atla.bilet", neden)
         finally:
             os.environ.pop("YAZ_KAPI_ATLA_BILET", None)
 
