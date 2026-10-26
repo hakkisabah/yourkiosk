@@ -27,17 +27,17 @@ beyanıydı** → i5 oturumu `"makine": "i3"` yazıp `guvenlik/inceleme` + `guve
 kontrollerini tek başına yeşile çevirebiliyordu (AGENTS.md §3.3 yasaklıyor). Dosya `root`
 sahipli olduğu için ajan onu yazamaz; beyan ile dosya çelişirse `yaz.py` **çıkış 5** ile reddeder.
 
-`i5` makinesinde:
+`i5` makinesinde (depo kökünden; betik atomik yazar + doğrular):
 
 ```bash
-sudo sh -c 'printf i5 > /etc/yourkiosk-makine-kimligi'
-sudo chmod 0644 /etc/yourkiosk-makine-kimligi
+sudo ./otomasyon/betik/makine-kimligi-kur.sh i5
 ```
 
-`i3` makinesinde aynısı `printf i3` ile. Doğrula (ikisi de ✓ olmalı):
+`i3` makinesinde aynısı `sudo ./otomasyon/betik/makine-kimligi-kur.sh i3` ile. Doğrula:
 
 ```bash
-ls -l /etc/yourkiosk-makine-kimligi        # -rw-r--r-- root root … ve içerik: i5 | i3
+sudo ./otomasyon/betik/makine-kimligi-kur.sh --kontrol    # ✓ kimlik geçerli: i5
+ls -l /etc/yourkiosk-makine-kimligi                        # -rw-r--r-- root root … içerik: i5
 python3 otomasyon/betik/ortam-kontrol.py --rol i5 | grep 'makine kimliği'
 ```
 
