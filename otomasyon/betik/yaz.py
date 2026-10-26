@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import stat
 import subprocess
 import time
 import os
@@ -40,6 +41,13 @@ BASLIKLAR = {"Accept": "application/vnd.github+json", "User-Agent": "yourkiosk-o
 #: Karar kapısı reddi/atlaması buraya JSON satırları olarak yazılır (nobetci denetler).
 KAPI_LOG = Path(os.environ.get("YAZ_KAPI_LOG") or
                 Path.home() / ".local" / "state" / "yourkiosk-otomasyon" / "kapi-red.log")
+
+#: Kapı atlama BİLETİ — operatörün ürettiği, ajanın üretemediği ikinci anahtar.
+#: Neden: ortam değişkenini ajan kendi kabuğundan verebiliyor (terminal yetkisi var). Bilet
+#: /run altında ROOT sahipli olmalı; root olmayan kullanıcı orada dosya oluşturamaz.
+BILET_VARSAYILAN = Path("/run/yourkiosk-kapi-atla.bilet")
+#: Bilet TTL'i (saniye): eski bir bilet kazara kalıcı arka kapıya dönüşmesin.
+BILET_TTL_SN = 600
 
 #: makine → (commit durumu adı, onay etiketi, sorun etiketi)
 MAKINE_AYARI = {
@@ -323,6 +331,69 @@ def _yuksek_bulgular(karar: dict) -> list[dict]:
             and str(b.get("onem", "")).lower() in {"yuksek", "yüksek", "kritik"}]
 
 
+def bilet_yolu() -> Path:
+    """Bilet yolu: varsayılan `/run/...`; `YAZ_KAPI_ATLA_BILET` yalnız test/özel kurulum için."""
+    ham = os.environ.get("YAZ_KAPI_ATLA_BILET", "").strip()
+    return Path(ham) if ham else BILET_VARSAYILAN
+
+
+def bilet_sahibi_denetimi(st: "os.stat_result") -> bool:
+    """Bilet root sahipli mi? (ajan root olmadığı için kendi bileti üretemez).
+
+    Testler bu FONKSİYONU enjekte eder (`bilet_denetle(..., sahip_denetimi=...)` ya da modül
+    özniteliği). Ortam değişkeniyle gevşetilebilen bir anahtar YOKTUR: aksi hâlde aynı boşluk
+    (ajanın kendi kabuğundan anahtar vermesi) yeni bir adla geri gelirdi.
+    """
+    return st.st_uid == 0
+
+
+def bilet_denetle(yol: Path | None = None, *, sahip_denetimi=None,
+                  simdi: float | None = None) -> tuple[bool, str]:
+    """Operatör bileti geçerli mi? → (kabul, ret gerekçesi).
+
+    Bilet: normal dosya, ROOT sahipli (uid 0), dünya-okur, grup/dünya-yazılamaz, mtime ≤ 10 dk.
+    """
+    hedef = Path(yol) if yol is not None else bilet_yolu()
+    try:
+        st = hedef.lstat()          # sembolik bağı İZLEME: bağ üzerinden root dosyası gösterilemesin
+    except OSError as hata:
+        return False, f"bilet yok ({hedef}): {hata.strerror or hata}"
+    if not stat.S_ISREG(st.st_mode):
+        return False, f"bilet normal dosya değil ({hedef})"
+    denetim = sahip_denetimi if sahip_denetimi is not None else bilet_sahibi_denetimi
+    if not denetim(st):
+        return False, f"bilet root sahipli değil (uid {st.st_uid}, yol {hedef})"
+    mod = st.st_mode & 0o777
+    if not mod & 0o004:
+        return False, f"bilet dünya-okur değil (mod {mod:04o}, yol {hedef})"
+    if mod & 0o022:
+        return False, f"bilet grup/dünya-yazılabilir (mod {mod:04o}, yol {hedef})"
+    yas = (simdi if simdi is not None else time.time()) - st.st_mtime
+    if yas > BILET_TTL_SN:
+        return False, f"bilet bayat ({int(yas)} sn > {BILET_TTL_SN} sn TTL, yol {hedef})"
+    return True, ""
+
+
+def operator_izi_denetle() -> tuple[bool, str, str]:
+    """Kapı atlama/kanıt kapatma izni → (kabul, uzun gerekçe, günlük için kısa gerekçe).
+
+    26 Ekim i5 bulgusu: koruma YALNIZ `YAZ_KAPI_ATLA_ONAY=1` ortam değişkenine bakıyordu; ajanın
+    terminal yetkisi olduğu için anahtarı kendi kabuğundan sağlayabiliyordu. Artık iki parça
+    birlikte aranır: (1) ortam anahtarı, (2) operatörün ürettiği root sahipli TTL'li bilet.
+    """
+    if os.environ.get("YAZ_KAPI_ATLA_ONAY", "") != "1":
+        return (False,
+                "operatör ortam anahtarı yok (YAZ_KAPI_ATLA_ONAY=1)",
+                "operatör anahtarı yok")
+    gecerli, neden = bilet_denetle()
+    if not gecerli:
+        return (False,
+                f"operatör bileti geçersiz — {neden}; operatör: "
+                f"sudo install -m 0644 /dev/null {bilet_yolu()}",
+                f"operatör bileti geçersiz: {neden}")
+    return True, "", ""
+
+
 def _kapi_red_yaz(karar: dict, makine: str, hatalar: list[str], atlandi: bool) -> None:
     """Kapı reddi/atlaması kalıcı iz bıraksın.
 
@@ -357,11 +428,14 @@ def main() -> int:
     )
     ap.add_argument("--kanit-yok", action="store_true",
                     help="karar kapısında dosya:satır kanıtını ağdan denetleme — --kapi-atla ile AYNI "
-                         "korumalar: YAZ_KAPI_ATLA_ONAY=1 (operatör), --gerekce ≥20 karakter, 'yüksek' "
-                         "bulgu yokluğu; her kullanım kapi-red.log'a ATLANDI satırı yazar")
+                         "korumalar: YAZ_KAPI_ATLA_ONAY=1 (operatör) VE root sahipli TTL'li bilet "
+                         "/run/yourkiosk-kapi-atla.bilet (ortam anahtarı tek başına yetmez), "
+                         "--gerekce ≥20 karakter, 'yüksek' bulgu yokluğu; her kullanım "
+                         "kapi-red.log'a ATLANDI satırı yazar")
     ap.add_argument("--kapi-atla", action="store_true",
                     help="karar kapısı hatalarına RAĞMEN yayınla — AYRICA YAZ_KAPI_ATLA_ONAY=1 "
-                         "ortam anahtarı ister (operatör), --gerekce zorunlu, 'yüksek' bulgu varsa imkânsız")
+                         "ortam anahtarı VE operatör bileti (/run/yourkiosk-kapi-atla.bilet, root "
+                         "sahipli, ≤10 dk) ister; --gerekce zorunlu, 'yüksek' bulgu varsa imkânsız")
     ap.add_argument("--gerekce", default="",
                     help="--kapi-atla / --kanit-yok için gerekçe (≥20 karakter); PR yorumuna ve kapi-red.log'a yazılır")
     ap.add_argument(
@@ -426,11 +500,11 @@ def main() -> int:
     # Her kullanım (kabul de ret de) kapi-red.log'a iz bırakır; kabulde olay=ATLANDI.
     if a.kanit_yok:
         gerekce = a.gerekce.strip()
-        if os.environ.get("YAZ_KAPI_ATLA_ONAY", "") != "1":
-            print("[yaz] KANIT KATMANI: --kanit-yok REDDEDİLDİ — operatör ortam anahtarı yok "
-                  "(YAZ_KAPI_ATLA_ONAY=1). Kanıt denetimini kapatmak ajanın tek başına verebileceği "
-                  "bir karar değil.", file=sys.stderr)
-            _kapi_red_yaz(karar, makine, ["--kanit-yok reddedildi: operatör anahtarı yok"], atlandi=False)
+        izin, ret_uzun, ret_kisa = operator_izi_denetle()
+        if not izin:
+            print(f"[yaz] KANIT KATMANI: --kanit-yok REDDEDİLDİ — {ret_uzun}. Kanıt denetimini "
+                  "kapatmak ajanın tek başına verebileceği bir karar değil.", file=sys.stderr)
+            _kapi_red_yaz(karar, makine, [f"--kanit-yok reddedildi: {ret_kisa}"], atlandi=False)
             return 5
         if _yuksek_bulgular(karar):
             print(f"[yaz] KANIT KATMANI: --kanit-yok REDDEDİLDİ — {len(_yuksek_bulgular(karar))} "
@@ -464,16 +538,18 @@ def main() -> int:
         yuksek = _yuksek_bulgular(karar)
         gerekce = a.gerekce.strip()
         # 26 Ekim i5 bulgusu: bayrak ajanın KENDİ elindeydi (terminal yetkisi olan ajan --kapi-atla
-        # yazıp şemayı/kanıtı devre dışı bırakabiliyordu). Kapı atlama artık iki anahtar ister:
+        # yazıp şemayı/kanıtı devre dışı bırakabiliyordu). Kapı atlama artık ÜÇ parça ister:
         #   (1) operatörün ortam anahtarı `YAZ_KAPI_ATLA_ONAY=1` — nöbetçi biriminde TANIMLI DEĞİL,
-        #       yani otomatik oturumlar kendi kendine atlayamaz;
-        #   (2) yazılı gerekçe + 'yüksek' bulgu yokluğu.
+        #   (2) operatörün ürettiği ROOT sahipli, TTL'li bilet `/run/yourkiosk-kapi-atla.bilet` —
+        #       ortam anahtarı tek başına yetmez, çünkü ajan anahtarı kendi kabuğundan verebilir
+        #       ama root sahipli dosyayı üretemez;
+        #   (3) yazılı gerekçe + 'yüksek' bulgu yokluğu.
         # Atlama her durumda kapi-red.log'a ve PR yorumuna yazılır (denetlenebilir).
-        if a.kapi_atla and os.environ.get("YAZ_KAPI_ATLA_ONAY", "") != "1":
-            print("[yaz] KARAR KAPISI: --kapi-atla REDDEDİLDİ — operatör ortam anahtarı yok "
-                  "(YAZ_KAPI_ATLA_ONAY=1). Kapı atlama ajanın tek başına kullanabileceği bir anahtar değil.",
-                  file=sys.stderr)
-            _kapi_red_yaz(karar, makine, kapi.hatalar + ["--kapi-atla reddedildi: operatör anahtarı yok"],
+        izin, ret_uzun, ret_kisa = operator_izi_denetle()
+        if a.kapi_atla and not izin:
+            print(f"[yaz] KARAR KAPISI: --kapi-atla REDDEDİLDİ — {ret_uzun}. Kapı atlama ajanın "
+                  "tek başına kullanabileceği bir anahtar değil.", file=sys.stderr)
+            _kapi_red_yaz(karar, makine, kapi.hatalar + [f"--kapi-atla reddedildi: {ret_kisa}"],
                           atlandi=False)
             return 5
         if a.kapi_atla and yuksek:

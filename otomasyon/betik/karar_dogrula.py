@@ -172,8 +172,14 @@ def kanit_denetle(karar: dict, sonuc: Sonuc, token: str, depo: str) -> None:
         kod, pr_veri = _api(f"/pulls/{pr_no}", token, depo)
         if kod == 200 and isinstance(pr_veri, dict):
             head_sha = str((pr_veri.get("head") or {}).get("sha", "")).strip()
-        elif kod in (0, 403, 429):
-            sonuc.uyarilar.append(f"PR head doğrulanamadı (HTTP {kod}) — sha karşılaştırması yapılmadı")
+        elif not head_sha:
+            # FAIL-CLOSED (26 Ekim i5 bulgusu): head okunamayınca (0/403/429/…) eski sürüm yalnız
+            # UYARI yazıp sha karşılaştırmasını atlıyordu → karar dosyasındaki bayat sha ile
+            # "kanıt var" denebiliyordu. Head doğrulanamıyorsa tazelik denetimi de yapılamaz;
+            # karar geçmez (yaz.py bu satırı kapi-red.log'a yazar).
+            sonuc.hatalar.append(
+                f"kanıt tazeliği doğrulanamadı: PR #{pr_no} head okunamadı (HTTP {kod}) — fail-closed")
+            return
     if head_sha:
         if not sha:
             sha = head_sha

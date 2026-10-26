@@ -84,7 +84,55 @@ class DurumMetniTesti(unittest.TestCase):
         self.assertEqual(yaz.durum_metni(karar(karar="onay", onem="dusuk", bulgular=[]))[0], "success")
 
 
-class KapiAtlamaTesti(unittest.TestCase):
+class _BiletDestekli(unittest.TestCase):
+    """Ortak koşum: ortam anahtarı + operatör bileti senaryoları (alt süreç, ağ yok).
+
+    `uid_taklit=True` uid denetimini FONKSİYON enjeksiyonuyla "root say" yapar
+    (`yaz.bilet_sahibi_denetimi`). Bu bir ortam değişkeni DEĞİL: üretimdeki CLI hiçbir ortam
+    değişkeniyle bu denetimi gevşetmez — root olmayan kullanıcı yalnız testte bu sarmalayıcıyla
+    kabul yolunu koşturabilir (tasarım gerekçesi commit mesajında).
+    """
+
+    kok: Path
+    log: Path
+    yaz_py: Path
+    karar_yolu: Path
+    token: Path
+
+    def bilet_olustur(self, *, yas_sn: float = 0.0, mod: int = 0o644) -> Path:
+        import os as _os
+        import time
+        yol = self.kok / "kapi-atla.bilet"
+        yol.write_text("", encoding="utf-8")
+        _os.chmod(yol, mod)
+        if yas_sn:
+            eski = time.time() - yas_sn
+            _os.utime(yol, (eski, eski))
+        return yol
+
+    def calistir(self, *ek: str, env_anahtar: bool = False, bilet=None, uid_taklit: bool = False):
+        import os
+        import subprocess
+        ortam = {**os.environ, "YAZ_KAPI_LOG": str(self.log), "HOME": str(self.kok)}
+        for ad in ("YAZ_KAPI_ATLA_ONAY", "YAZ_KAPI_ATLA_BILET"):
+            ortam.pop(ad, None)
+        if env_anahtar:
+            ortam["YAZ_KAPI_ATLA_ONAY"] = "1"
+        if bilet is not None:
+            ortam["YAZ_KAPI_ATLA_BILET"] = str(bilet)
+        if uid_taklit:
+            ortam["PYTHONPATH"] = str(self.yaz_py.parent)
+            komut = [sys.executable, "-c",
+                     "import sys, yaz; yaz.bilet_sahibi_denetimi = lambda st: True; "
+                     "raise SystemExit(yaz.main())",
+                     str(self.karar_yolu), "--kuru", "--token-dosya", str(self.token), *ek]
+        else:
+            komut = [sys.executable, str(self.yaz_py), str(self.karar_yolu), "--kuru",
+                     "--token-dosya", str(self.token), *ek]
+        return subprocess.run(komut, capture_output=True, text=True, timeout=120, env=ortam)
+
+
+class KapiAtlamaTesti(_BiletDestekli):
     """--kapi-atla artık ajanın tek başına kullanabileceği bir anahtar DEĞİL (26 Ekim i5 bulgusu).
 
     Ret yolları gerçekten koşturulur (alt süreç + --kuru; ağa çıkılmaz, günlük geçici dosyaya).
@@ -99,23 +147,11 @@ class KapiAtlamaTesti(unittest.TestCase):
         self.karar_yolu.write_text(_json.dumps(karar(), ensure_ascii=False), encoding="utf-8")
         self.log = self.kok / "kapi-red.log"
         self.yaz = Path(__file__).resolve().parents[1] / "yaz.py"
+        self.yaz_py = self.yaz
         self.token = self.kok / "yok.token"   # kanıt katmanı fail-closed → kapı geçmez
 
     def tearDown(self):
         self.dizin.cleanup()
-
-    def calistir(self, *ek: str, env_anahtar: bool = False):
-        import os
-        import subprocess
-        ortam = {**os.environ, "YAZ_KAPI_LOG": str(self.log), "HOME": str(self.kok)}
-        ortam.pop("YAZ_KAPI_ATLA_ONAY", None)
-        if env_anahtar:
-            ortam["YAZ_KAPI_ATLA_ONAY"] = "1"
-        return subprocess.run(
-            [sys.executable, str(self.yaz), str(self.karar_yolu), "--kuru",
-             "--token-dosya", str(self.token), *ek],
-            capture_output=True, text=True, timeout=120, env=ortam,
-        )
 
     def _karar_yaz(self, bulgular):
         import json as _json
@@ -132,30 +168,55 @@ class KapiAtlamaTesti(unittest.TestCase):
         self._karar_yaz([{"dosya": "a.py", "satir": 1, "onem": "yuksek", "aciklama": "x",
                           "kabul": "düzeltilince kapanır"}])
         s = self.calistir("--kapi-atla", "--gerekce", "kanıt katmanı çevrimdışı, elle doğrulandı",
-                          env_anahtar=True)
+                          env_anahtar=True, bilet=self.bilet_olustur(), uid_taklit=True)
         self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
         self.assertIn("atlanamaz", s.stderr)
 
     def test_kisa_gerekce_reddedilir(self):
-        s = self.calistir("--kapi-atla", "--gerekce", "kısa", env_anahtar=True)
+        s = self.calistir("--kapi-atla", "--gerekce", "kısa", env_anahtar=True,
+                          bilet=self.bilet_olustur(), uid_taklit=True)
         self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
         self.assertIn("gerekce", s.stderr.replace("ç", "c").replace("Ç", "C"))
 
-    def test_operator_anahtari_ve_gerekceyle_atlanir(self):
+    def test_yalniz_ortam_anahtari_yetmez(self):
+        """26 Ekim i5 bulgusu: anahtar tek başına yetiyordu; ajan onu kendi kabuğundan verebiliyor."""
         s = self.calistir("--kapi-atla", "--gerekce", "kanıt katmanı çevrimdışı, elle doğrulandı",
                           env_anahtar=True)
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("operatör bileti", s.stderr)
+        self.assertIn("bilet yok", s.stderr)
+        self.assertIn("--kapi-atla reddedildi: operatör bileti geçersiz", self.log.read_text(encoding="utf-8"))
+
+    def test_root_olmayan_bilet_reddedilir(self):
+        """Bilet var ama root sahipli DEĞİL: ajanın kendi ürettiği dosya işe yaramaz."""
+        s = self.calistir("--kapi-atla", "--gerekce", "kanıt katmanı çevrimdışı, elle doğrulandı",
+                          env_anahtar=True, bilet=self.bilet_olustur())
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("root sahipli değil", s.stderr)
+        self.assertIn("root sahipli değil", self.log.read_text(encoding="utf-8"))
+
+    def test_bayat_bilet_reddedilir(self):
+        s = self.calistir("--kapi-atla", "--gerekce", "kanıt katmanı çevrimdışı, elle doğrulandı",
+                          env_anahtar=True, bilet=self.bilet_olustur(yas_sn=3600), uid_taklit=True)
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("bayat", s.stderr)
+        self.assertIn("TTL", self.log.read_text(encoding="utf-8"))
+
+    def test_operator_anahtari_bilet_ve_gerekceyle_atlanir(self):
+        s = self.calistir("--kapi-atla", "--gerekce", "kanıt katmanı çevrimdışı, elle doğrulandı",
+                          env_anahtar=True, bilet=self.bilet_olustur(), uid_taklit=True)
         self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
         self.assertIn("KARAR KAPISI: ATLANDI", s.stdout)
         self.assertIn("KARAR KAPISI ATLANDI", s.stdout)          # PR yorumunda görünür
         self.assertIn('"olay": "ATLANDI"', self.log.read_text(encoding="utf-8"))
 
 
-class KanitKatmaniTesti(unittest.TestCase):
+class KanitKatmaniTesti(_BiletDestekli):
     """`--kanit-yok` artık ajanın tek başına kapatabileceği bir anahtar DEĞİL (26 Ekim i5 bulgusu).
 
     Eskiden bayrak `kanit=not a.kanit_yok` ile dosya:satır kanıtı denetimini tamamen kapatıyordu ve
-    ajanın kendi elindeydi. Artık --kapi-atla ile aynı desen: operatör anahtarı, gerekçe, 'yüksek'
-    bulgu yasağı ve her kullanımda kapi-red.log'a ATLANDI satırı. Üç ret yolu + kabul yolu koşturulur.
+    ajanın kendi elindeydi. Artık --kapi-atla ile aynı desen: operatör anahtarı + operatör bileti,
+    gerekçe, 'yüksek' bulgu yasağı ve her kullanımda kapi-red.log'a ATLANDI satırı.
     """
 
     def setUp(self):
@@ -176,19 +237,6 @@ class KanitKatmaniTesti(unittest.TestCase):
         import json as _json
         self.karar_yolu.write_text(_json.dumps(k, ensure_ascii=False), encoding="utf-8")
 
-    def calistir(self, *ek: str, env_anahtar: bool = False):
-        import os
-        import subprocess
-        ortam = {**os.environ, "YAZ_KAPI_LOG": str(self.log), "HOME": str(self.kok)}
-        ortam.pop("YAZ_KAPI_ATLA_ONAY", None)
-        if env_anahtar:
-            ortam["YAZ_KAPI_ATLA_ONAY"] = "1"
-        return subprocess.run(
-            [sys.executable, str(self.yaz_py), str(self.karar_yolu), "--kuru",
-             "--token-dosya", str(self.token), *ek],
-            capture_output=True, text=True, timeout=120, env=ortam,
-        )
-
     def _log(self) -> str:
         return self.log.read_text(encoding="utf-8") if self.log.exists() else ""
 
@@ -203,26 +251,150 @@ class KanitKatmaniTesti(unittest.TestCase):
         k["bulgular"] = [{**k["bulgular"][0], "onem": "yuksek"}]
         self._karar_yaz(k)
         s = self.calistir("--kanit-yok", "--gerekce", "kanıt katmanı çevrimdışı, elle doğrulandı",
-                          env_anahtar=True)
+                          env_anahtar=True, bilet=self.bilet_olustur(), uid_taklit=True)
         self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
         self.assertIn("kapatılamaz", s.stderr)
         self.assertIn("--kanit-yok reddedildi: yüksek bulgu", self._log())
 
     def test_gerekcesiz_reddedilir(self):
-        s = self.calistir("--kanit-yok", "--gerekce", "kısa", env_anahtar=True)
+        s = self.calistir("--kanit-yok", "--gerekce", "kısa", env_anahtar=True,
+                          bilet=self.bilet_olustur(), uid_taklit=True)
         self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
         self.assertIn("gerekce", s.stderr.replace("ç", "c").replace("Ç", "C"))
         self.assertIn("--kanit-yok reddedildi: gerekçe yok", self._log())
 
-    def test_operator_anahtari_ve_gerekceyle_atlanir_ve_loglanir(self):
+    def test_yalniz_ortam_anahtari_yetmez(self):
         s = self.calistir("--kanit-yok", "--gerekce", "kanıt katmanı çevrimdışı, elle doğrulandı",
                           env_anahtar=True)
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("operatör bileti", s.stderr)
+        self.assertIn("--kanit-yok reddedildi: operatör bileti geçersiz", self._log())
+
+    def test_operator_anahtari_bilet_ve_gerekceyle_atlanir_ve_loglanir(self):
+        s = self.calistir("--kanit-yok", "--gerekce", "kanıt katmanı çevrimdışı, elle doğrulandı",
+                          env_anahtar=True, bilet=self.bilet_olustur(), uid_taklit=True)
         self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
         self.assertIn("KANIT KATMANI: ATLANDI", s.stdout)
         self.assertIn("KANIT KATMANI ATLANDI", s.stdout)       # PR yorumunda görünür
         kayit = self._log()
         self.assertIn('"olay": "ATLANDI"', kayit)
         self.assertIn("kanıt katmanı ATLANDI", kayit)
+
+
+class BiletDenetimiTesti(unittest.TestCase):
+    """Operatör bileti birim testleri — uid denetimi FONKSİYON olarak enjekte edilir.
+
+    Root olmayan kullanıcı gerçek bilet üretemez; bu yüzden "root say" davranışı ortam değişkeniyle
+    DEĞİL, `bilet_denetle(..., sahip_denetimi=...)` ile verilir (üretim CLI'ında böyle bir anahtar yok).
+    """
+
+    def setUp(self):
+        import tempfile
+        self.dizin = tempfile.TemporaryDirectory()
+        self.kok = Path(self.dizin.name)
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def _bilet(self, mod: int = 0o644, yas_sn: float = 0.0) -> Path:
+        import os
+        import time
+        yol = self.kok / "bilet"
+        yol.write_text("", encoding="utf-8")
+        os.chmod(yol, mod)
+        if yas_sn:
+            eski = time.time() - yas_sn
+            os.utime(yol, (eski, eski))
+        return yol
+
+    def test_bilet_yoksa_reddedilir(self):
+        gecerli, neden = yaz.bilet_denetle(self.kok / "yok.bilet")
+        self.assertFalse(gecerli)
+        self.assertIn("bilet yok", neden)
+
+    def test_root_olmayan_bilet_reddedilir(self):
+        # Enjeksiyon YOK: gerçek uid denetimi (test kullanıcısı root değil).
+        gecerli, neden = yaz.bilet_denetle(self._bilet())
+        self.assertFalse(gecerli)
+        self.assertIn("root sahipli değil", neden)
+
+    def test_dunya_okur_olmayan_bilet_reddedilir(self):
+        gecerli, neden = yaz.bilet_denetle(self._bilet(mod=0o600), sahip_denetimi=lambda st: True)
+        self.assertFalse(gecerli)
+        self.assertIn("dünya-okur değil", neden)
+
+    def test_dunya_yazilabilir_bilet_reddedilir(self):
+        gecerli, neden = yaz.bilet_denetle(self._bilet(mod=0o666), sahip_denetimi=lambda st: True)
+        self.assertFalse(gecerli)
+        self.assertIn("yazılabilir", neden)
+
+    def test_bayat_bilet_reddedilir(self):
+        gecerli, neden = yaz.bilet_denetle(self._bilet(yas_sn=3600), sahip_denetimi=lambda st: True)
+        self.assertFalse(gecerli)
+        self.assertIn("bayat", neden)
+        self.assertIn("TTL", neden)
+
+    def test_gecerli_bilet_kabul_edilir(self):
+        gecerli, neden = yaz.bilet_denetle(self._bilet(), sahip_denetimi=lambda st: True)
+        self.assertTrue(gecerli, neden)
+
+    def test_sembolik_bag_bilet_sayilmaz(self):
+        import os
+        hedef = self._bilet()
+        bag = self.kok / "bag"
+        os.symlink(hedef, bag)
+        gecerli, neden = yaz.bilet_denetle(bag, sahip_denetimi=lambda st: True)
+        self.assertFalse(gecerli)
+        self.assertIn("normal dosya değil", neden)
+
+    def test_varsayilan_yol_run_altinda(self):
+        import os
+        os.environ.pop("YAZ_KAPI_ATLA_BILET", None)
+        self.assertEqual(str(yaz.bilet_yolu()), "/run/yourkiosk-kapi-atla.bilet")
+        os.environ["YAZ_KAPI_ATLA_BILET"] = str(self.kok / "x")
+        try:
+            self.assertEqual(yaz.bilet_yolu(), self.kok / "x")
+        finally:
+            os.environ.pop("YAZ_KAPI_ATLA_BILET", None)
+
+
+class HeadOkunamazsaKapiTesti(unittest.TestCase):
+    """26 Ekim i5 bulgusu: kanıt katmanı head'i okuyamazsa (429/403/0) sha tazeliği denetlenmiyordu.
+
+    `_api` taklit edilir; `yaz.main()` gerçek kapıdan geçirilir ve ret kapi-red.log'a yazılır.
+    """
+
+    def test_head_429_karari_reddeder_ve_loglar(self):
+        import json
+        import os
+        import tempfile
+        import unittest.mock as mock
+        with tempfile.TemporaryDirectory() as dizin:
+            kok = Path(dizin)
+            karar_yolu = kok / "karar.json"
+            karar_yolu.write_text(json.dumps(dogru_karar(), ensure_ascii=False), encoding="utf-8")
+            token = kok / "t.token"
+            token.write_text("x" * 40, encoding="utf-8")
+            log = kok / "kapi-red.log"
+
+            def api(yol, _token, _depo):
+                if "/files" in yol:
+                    return 429, None
+                if yol.startswith("/pulls/"):
+                    return 429, None
+                raise AssertionError(f"beklenmeyen istek: {yol}")
+
+            argv = [str(Path(__file__).resolve().parents[1] / "yaz.py"), str(karar_yolu),
+                    "--token-dosya", str(token)]
+            with mock.patch.object(kd, "_api", api), \
+                 mock.patch.object(yaz, "KAPI_LOG", log), \
+                 mock.patch.object(sys, "argv", argv), \
+                 mock.patch.dict(os.environ, {"YAZ_KAPI_LOG": str(log)}):
+                kod = yaz.main()
+            self.assertEqual(kod, 5)
+            kayit = log.read_text(encoding="utf-8")
+            self.assertIn("head okunamadı (HTTP 429)", kayit)
+            self.assertIn("kanıt tazeliği doğrulanamadı", kayit)
 
 
 class YabanciCommitDenetimiTesti(unittest.TestCase):

@@ -229,5 +229,98 @@ class GeriAlDinleBeyazListeTesti(unittest.TestCase):
         self.assertEqual(self.kayit.read_text(encoding="utf-8"), "")
 
 
+class KontrolLanDenetimiTesti(unittest.TestCase):
+    """`--kontrol` LAN durumunu İKİ kaynaktan denetler (26 Ekim i5 bulgusu).
+
+    Eskiden yalnız `0.0.0.0` kırmızıydı; `192.168.1.50` gibi bir LAN adresi "✓ LAN'a kapalı"
+    görünüyordu. Artık (a) yapılandırılmış `API_SERVER_HOST`, (b) `ss -tlnH` ile GERÇEKTEN dinlenen
+    adres beyaz listede (127.0.0.1 · 172.17.0.1 · 172.18.0.1) değilse çıkış 1 verir.
+
+    Betik SAHTE PATH ile koşturulur: `hermes`/`ss`/`curl`/`nft` taklittir. Gerçek config'e, gerçek
+    dinlenen soketlere ve gerçek ağa dokunulmaz.
+    """
+
+    def setUp(self):
+        import tempfile
+        self.dizin = tempfile.TemporaryDirectory()
+        self.kok = Path(self.dizin.name)
+        self.bin = self.kok / "bin"
+        self.bin.mkdir()
+        self.ev = self.kok / "ev"
+        (self.ev / ".config" / "hermes-secrets").mkdir(parents=True)
+        (self.ev / ".config" / "hermes-secrets" / "api-server.key").write_text("k" * 64 + "\n", encoding="utf-8")
+        self.host_dosya = self.kok / "host"
+        self.dinlenen_dosya = self.kok / "dinlenen"
+        self.sayac = self.kok / "sayac"
+
+        def sahte(ad: str, govde: str) -> None:
+            yol = self.bin / ad
+            yol.write_text("#!/usr/bin/env bash\n" + govde, encoding="utf-8")
+            yol.chmod(0o755)
+
+        sahte("hermes", (
+            'case "$1 $2" in\n'
+            '  "config get")\n'
+            '    case "$3" in\n'
+            f'      API_SERVER_HOST) cat "{self.host_dosya}" ;;\n'
+            '      API_SERVER_ENABLED) echo true ;;\n'
+            '      *) echo "" ;;\n'
+            '    esac ;;\n'
+            f'  "config env-path") echo "{self.ev}/.hermes/.env" ;;\n'
+            'esac\n'
+            'exit 0\n'
+        ))
+        # `ss -tlnH "sport = :8642"` → 4. alan adres:port
+        sahte("ss", f'echo "LISTEN 0 4096 $(cat {self.dinlenen_dosya})"\n')
+        # 1. çağrı anahtarlı (200), 2. çağrı anahtarsız (401)
+        sahte("curl", (
+            f'n=$(cat {self.sayac} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {self.sayac}\n'
+            'cat >/dev/null\n'
+            'if [ "$n" -eq 1 ]; then printf 200; else printf 401; fi\n'
+        ))
+        sahte("nft", 'echo "Error: No such file or directory" >&2\nexit 1\n')
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def _senaryo(self, host: str, dinlenen: str):
+        self.host_dosya.write_text(host, encoding="utf-8")
+        self.dinlenen_dosya.write_text(dinlenen, encoding="utf-8")
+        self.sayac.unlink(missing_ok=True)
+        ortam = {**os.environ, "PATH": f"{self.bin}:{os.environ.get('PATH', '')}", "HOME": str(self.ev)}
+        return subprocess.run(["bash", str(BETIK), "--kontrol"], capture_output=True, text=True,
+                              timeout=60, env=ortam)
+
+    def test_beyaz_liste_temiz_yesil(self):
+        for adres in ("127.0.0.1", "172.17.0.1", "172.18.0.1"):
+            s = self._senaryo(adres, f"{adres}:8642")
+            self.assertEqual(s.returncode, 0, f"{adres}: {s.stdout}{s.stderr}")
+            self.assertIn("✓", s.stdout)
+
+    def test_lan_host_kirmizi(self):
+        s = self._senaryo("192.168.1.50", "192.168.1.50:8642")
+        self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
+        self.assertIn("✗", s.stdout)
+        self.assertIn("192.168.1.50 → beyaz liste dışı", s.stdout)
+
+    def test_0000_dinlenirse_kirmizi(self):
+        # Yapılandırılmış host temiz olsa bile GERÇEKTEN dinlenen adres tüm ağlara açıksa kırmızı.
+        s = self._senaryo("172.17.0.1", "0.0.0.0:8642")
+        self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
+        self.assertIn("LAN'a kapalı (dinlenen adres)", s.stdout)
+        self.assertIn("0.0.0.0 → beyaz liste dışı", s.stdout)
+
+    def test_host_lan_dinlenen_loopback_yine_kirmizi(self):
+        # Config LAN'a açık, gerçek dinleyici loopback: "yeniden başlatma bekliyor" sessizce geçmesin.
+        s = self._senaryo("192.168.1.50", "127.0.0.1:8642")
+        self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
+        self.assertIn("LAN'a kapalı (yapılandırılmış host)", s.stdout)
+
+    def test_ipv6_wildcard_kirmizi(self):
+        s = self._senaryo("172.17.0.1", "[::]:8642")
+        self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
+        self.assertIn(":: → beyaz liste dışı", s.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

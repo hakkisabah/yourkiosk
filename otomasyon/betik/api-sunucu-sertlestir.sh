@@ -150,14 +150,47 @@ if [ "$KIP" = "kontrol" ]; then
   [ "${#ANAHTAR}" -ge 32 ] && satir 1 "anahtar ≥ 32 karakter" "${#ANAHTAR}" \
     || satir 0 "anahtar ≥ 32 karakter" "${#ANAHTAR} (16'dan kısa anahtarla Hermes sunucuyu BAŞLATMAZ)"
 
+  # 26 Ekim i5 bulgusu: burada yalnız `0.0.0.0` kırmızıydı; geri kalan HER adres "LAN'a kapalı"
+  # sayılıyordu (`192.168.1.50` yeşil görünüyordu). Artık iki ayrı kaynak beyaz listeye karşı
+  # denetlenir: (a) yapılandırılmış API_SERVER_HOST, (b) `ss -tlnH` ile GERÇEKTEN dinlenen adres.
+  # İkisinden biri 127.0.0.1 · 172.17.0.1 · 172.18.0.1 dışındaysa kontrol ÇIKIŞ 1 verir.
+  beyaz_listede() {
+    case "${1:-}" in
+      127.0.0.1|172.17.0.1|172.18.0.1) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+
   host="$(cfg_get API_SERVER_HOST)"; host="${host:-127.0.0.1}"
   case "$host" in
-    0.0.0.0) satir 0 "LAN'a kapalı (dinleme adresi)" "$host → tüm ağlara açık" ;;
-    *)       satir 1 "LAN'a kapalı (dinleme adresi)" "$host" ;;
+    0.0.0.0)
+      satir 0 "LAN'a kapalı (yapılandırılmış host)" "$host → tüm ağlara açık" ;;
+    *)
+      if beyaz_listede "$host"; then
+        satir 1 "LAN'a kapalı (yapılandırılmış host)" "$host"
+      else
+        satir 0 "LAN'a kapalı (yapılandırılmış host)" \
+          "$host → beyaz liste dışı (127.0.0.1 · 172.17.0.1 · 172.18.0.1)"
+      fi ;;
   esac
 
   adres="$(dinlenen)"
   [ -n "$adres" ] && satir 1 "port $PORT dinleniyor" "$adres" || satir 0 "port $PORT dinleniyor" "hayır"
+
+  # `ss` çıktısı `adres:port` biçiminde (IPv6: `[::]:port`) → portu ayır, adresi denetle.
+  adres_host=""
+  if [ -n "$adres" ]; then
+    case "$adres" in
+      \[*\]:*) adres_host="${adres%]:*}"; adres_host="${adres_host#[}" ;;
+      *:*)     adres_host="${adres%:*}" ;;
+      *)       adres_host="$adres" ;;
+    esac
+    if beyaz_listede "$adres_host"; then
+      satir 1 "LAN'a kapalı (dinlenen adres)" "$adres_host"
+    else
+      satir 0 "LAN'a kapalı (dinlenen adres)" "$adres_host → beyaz liste dışı (LAN'a açık)"
+    fi
+  fi
 
   if [ -n "$adres" ]; then
     kod="$(kod_al "http://$DINLE:$PORT/v1/models" "$ANAHTAR")"
