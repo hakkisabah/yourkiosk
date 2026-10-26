@@ -103,14 +103,21 @@ def yorum_govdesi(karar: dict, durum: str) -> str:
         str(karar.get("ozet", "")).strip(),
         "",
     ]
+    if karar.get("kapi_atlandi"):
+        satirlar += [f"⚠️ **KARAR KAPISI ATLANDI** — gerekçe: {karar['kapi_atlandi']}", ""]
     bulgular = karar.get("bulgular") or []
     if bulgular:
-        satirlar += ["| Dosya | Satır | Önem | Bulgu |", "|---|---|---|---|"]
+        # `kabul` (kapanış ölçütü) yorumda GÖRÜNMEK ZORUNDA: 26 Ekim i5 bulgusu — kapı bu alanı
+        # zorunlu kılıyordu ama tablo onu basmıyordu, yani ölçüt geliştiriciye hiç ulaşmıyordu.
+        satirlar += ["| Dosya | Satır | Önem | Bulgu | Kapanış ölçütü |", "|---|---|---|---|---|"]
         for b in bulgular[:25]:
             aciklama = str(b.get("aciklama", "")).replace("|", "\\|")[:200]
-            satirlar.append(f"| `{b.get('dosya', '?')}` | {b.get('satir', '')} | {b.get('onem', '')} | {aciklama} |")
+            kabul = str(b.get("kabul", "") or "").replace("|", "\\|")[:220] or "—"
+            satirlar.append(
+                f"| `{b.get('dosya', '?')}` | {b.get('satir', '')} | {b.get('onem', '')} "
+                f"| {aciklama} | {kabul} |")
         if len(bulgular) > 25:
-            satirlar.append(f"| … | | | (+{len(bulgular) - 25} bulgu daha) |")
+            satirlar.append(f"| … | | | (+{len(bulgular) - 25} bulgu daha) | |")
         satirlar.append("")
     denetlenen = karar.get("denetlenen") or []
     if denetlenen:
@@ -129,11 +136,13 @@ def yorum_govdesi(karar: dict, durum: str) -> str:
 
     eksikler = karar.get("eksikler") or []
     if eksikler:
-        satirlar += ["#### i5'in kaçırdığı bulgular (i3)", "", "| Dosya | Satır | Önem | Bulgu |", "|---|---|---|---|"]
+        satirlar += ["#### i5'in kaçırdığı bulgular (i3)", "",
+                     "| Dosya | Satır | Önem | Bulgu | Kapanış ölçütü |", "|---|---|---|---|---|"]
         for e in eksikler[:25]:
+            kabul = str(e.get("kabul", "") or "").replace("|", "\\|")[:220] or "—"
             satirlar.append(
                 f"| `{e.get('dosya', '?')}` | {e.get('satir', '')} | {e.get('onem', '')} "
-                f"| {str(e.get('aciklama', '')).replace('|', '\\|')[:200]} |"
+                f"| {str(e.get('aciklama', '')).replace('|', '\\|')[:200]} | {kabul} |"
             )
         satirlar.append("")
 
@@ -332,7 +341,9 @@ def main() -> int:
     ap.add_argument("--kanit-yok", action="store_true",
                     help="karar kapısında dosya:satır kanıtını ağdan denetleme (yalnız çevrimdışı acil durum)")
     ap.add_argument("--kapi-atla", action="store_true",
-                    help="karar kapısı hatalarına RAĞMEN yayınla (gerekçe kapi-red.log'a yazılır)")
+                    help="karar kapısı hatalarına RAĞMEN yayınla (--gerekce zorunlu, 'yüksek' bulgu varsa imkânsız)")
+    ap.add_argument("--gerekce", default="",
+                    help="--kapi-atla için gerekçe (≥20 karakter); PR yorumuna ve kapi-red.log'a yazılır")
     ap.add_argument(
         "--birlestir", action="store_true",
         help="karar 'onay' ise PR'ı otomatik birleştir (koruma: etiketler/çakışma/kontrol durumu)",
@@ -397,9 +408,26 @@ def main() -> int:
     if not kapi.gecti:
         for hata in kapi.hatalar:
             print(f"[kapı] ✗ {hata}")
+        # Kapıyı atlamak serbest bir anahtar DEĞİL: (a) yazılı gerekçe zorunlu, (b) 'yüksek' önemde
+        # bulgu varken hiç atlanamaz, (c) atlama PR yorumunda görünür. 26 Ekim i5 bulgusu: bayrak
+        # ajanın kendi elindeydi ve hiçbir makine itiraz etmiyordu.
+        yuksek = [b for b in (karar.get("bulgular") or []) if isinstance(b, dict)
+                  and str(b.get("onem", "")).lower() in {"yuksek", "yüksek", "kritik"}]
+        gerekce = a.gerekce.strip()
+        if a.kapi_atla and yuksek:
+            print(f"[yaz] KARAR KAPISI: atlama REDDEDİLDİ — {len(yuksek)} 'yüksek' bulgusu varken "
+                  "kapı atlanamaz (önce düzelt).", file=sys.stderr)
+            _kapi_red_yaz(karar, makine, kapi.hatalar + ["--kapi-atla reddedildi: yüksek bulgu"], atlandi=False)
+            return 5
+        if a.kapi_atla and len(gerekce) < 20:
+            print("[yaz] KARAR KAPISI: --kapi-atla için --gerekce \"…\" (≥20 karakter) zorunlu.",
+                  file=sys.stderr)
+            _kapi_red_yaz(karar, makine, kapi.hatalar + ["--kapi-atla reddedildi: gerekçe yok"], atlandi=False)
+            return 5
         if a.kapi_atla:
-            print("[yaz] KARAR KAPISI: ATLANDI (--kapi-atla) → yayınlanıyor; sebep günlüğe yazıldı")
-            _kapi_red_yaz(karar, makine, kapi.hatalar, atlandi=True)
+            print("[yaz] KARAR KAPISI: ATLANDI (--kapi-atla) → yayınlanıyor; gerekçe günlüğe ve yoruma yazıldı")
+            karar["kapi_atlandi"] = gerekce
+            _kapi_red_yaz(karar, makine, kapi.hatalar + [f"gerekçe: {gerekce}"], atlandi=True)
         else:
             _kapi_red_yaz(karar, makine, kapi.hatalar, atlandi=False)
             print("[yaz] KARAR KAPISI: reddedildi → GitHub'a hiçbir şey yazılmadı.\n"

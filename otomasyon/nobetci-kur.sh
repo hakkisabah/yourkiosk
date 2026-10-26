@@ -17,6 +17,7 @@ if [ "$ROL" != "i5" ] && [ "$ROL" != "i3" ]; then
 fi
 KIP="kur"
 CRON_KALDIR=0
+PROFIL="${NOBETCI_PROFIL:-}"
 for a in "$@"; do
   case "$a" in
     # --cron-kaldir EK bir işlemdir: servisi kurmayı ENGELLEMEZ (ilk sürümde engelliyordu)
@@ -26,8 +27,17 @@ for a in "$@"; do
     --durum) KIP="durum" ;;
     --kaldir) KIP="kaldir" ;;
     --kuru) KIP="kuru" ;;
+    --profil=*) PROFIL="${a#--profil=}" ;;
   esac
 done
+# --profil <ad> (ayrı boşluklu biçim)
+for ((i = 1; i <= $#; i++)); do
+  if [ "${!i}" = "--profil" ]; then j=$((i + 1)); PROFIL="${!j:-}"; fi
+done
+if [ -n "$PROFIL" ] && [ "$PROFIL" = "$ROL" ]; then
+  echo "✗ --profil değeri rol adıyla aynı olamaz ($ROL)" >&2; exit 2
+fi
+
 
 # ESKİ HATA: yalnız "i5/i3 guvenlik" ADINI arıyordu; "i3 karar" adlı görev silinmiyordu → oturumlar
 # iki kaynaktan açılmaya devam ediyordu. Artık ada değil İŞ DİZİNİNE bakıyor ve silmeyi DOĞRULUYOR.
@@ -61,7 +71,11 @@ Type=simple
 WorkingDirectory=$DEPO
 Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=GITHUB_DEPO=hakkisabah/yourkiosk
-ExecStart=$PYTHON $DEPO/otomasyon/betik/nobetci.py --rol $ROL --aralik 15
+$([ -n "$PROFIL" ] && echo "Environment=NOBETCI_PROFIL=$PROFIL")
+# Ayrı profil + düşük öncelik: Open WebUI/sohbet yükü nöbetçiyi aç bırakmasın (26 Ekim i5 mimarisi)
+Nice=10
+CPUWeight=50
+ExecStart=$PYTHON $DEPO/otomasyon/betik/nobetci.py --rol $ROL --aralik 15${PROFIL:+ --profil $PROFIL}
 Restart=always
 RestartSec=5
 StandardOutput=append:$HOME/.local/state/yourkiosk-otomasyon/nobetci-$ROL.log
@@ -87,6 +101,13 @@ case "$KIP" in
     echo "--- $UNIT_YOL ---"; unit_metni
     ;;
   kur)
+    if [ -n "$PROFIL" ] && ! "$HERMES" profile list 2>/dev/null | grep -qw "$PROFIL"; then
+      echo "✗ Hermes profili yok: '$PROFIL'"
+      echo "  Önce oluşturun, sonra tekrar çalıştırın:"
+      echo "    hermes profile create $PROFIL"
+      echo "    hermes -p $PROFIL config set platforms.api_server.enabled false   # bu profilde API sunucusu YOK"
+      exit 3
+    fi
     mkdir -p "$HOME/.config/systemd/user" "$HOME/.local/state/yourkiosk-otomasyon"
     unit_metni > "$UNIT_YOL"
     systemctl --user daemon-reload

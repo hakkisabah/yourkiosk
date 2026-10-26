@@ -64,6 +64,8 @@ genişlediyse, yeni sır eklendiyse, koşul değiştiyse) `sorun` ver ve farkı 
 | Panel TOTP/MFA **varsayılan kapalı** | Tek yönetici hesabı; altyapı hazır, açmak tek env (`VITE_MFA_AKTIF=1`). Açılana kadar parola + Cognito kaba kuvvet koruması geçerli | `panel/README.md` §6 |
 | Kiosk önbelleği **512 MB** üst sınır | Cihaz diskini korumak için; kota aşımında en eski kullanılan silinir. Daha büyük kota **yeni** risk değil, ayar | `kiosk/core/onbellek.py` (`ONBELLEK_MAKS_BAYT`) |
 | Yayın görselleri 30 günde silinir (S3 yaşam döngüsü) | Maliyet; görsel 30 günden eskiyse cihaz yer tutucuya düşer | `panel/infra/s3-lifecycle.json`, `docs/AWS-KURULUM.md` |
+| Hermes API anahtarı **docker0 köprüsünde** düz `http://` ile taşınır | `172.17.0.1` fiziksel ağ kartı değil, bu makinenin köprü arayüzü: paket makineden çıkmaz, LAN'a görünmez; uç yalnız konteynerden erişilir. TLS sonlandırmak konteyner↔ana makine içi ek altyapı demekti (ölçek: 1 makine, 1 istemci). **Koşul:** `API_SERVER_HOST` beyaz listede kalmalı (`127.0.0.1`/`172.17.0.1`/`172.18.0.1`); `0.0.0.0` ancak `--kabul-et-lan` ile. Anahtar bir ağdan (LAN/tünel) geçecekse TLS vekili zorunlu | `otomasyon/betik/api-sunucu-sertlestir.sh`, `docs/API-SUNUCU.md` §3 |
+| Open WebUI arayüzü `127.0.0.1:3000`'de, imaj **sabit etiketle** | Panel benzeri bir yönetim arayüzü; LAN'a açmak kimlik avı yüzeyi. `:main` etiketi sabitlenmediyse denetlenmemiş kod riski → etiket sabitleme operatör adımı | `docs/API-SUNUCU.md` §3 |
 
 Yeni bir riski kabul ediyorsan bu tabloya **PR ile** satır ekle (gerekçe + dosya referansı).
 Tabloya eklenmemiş her şey tartışmaya açıktır.
@@ -79,12 +81,17 @@ Tabloya eklenmemiş her şey tartışmaya açıktır.
 - **Draft PR** inceleme kapsamı dışıdır.
 - **`node_modules/`, `dist/`, `.venv/`** içindeki dosyalar bulgu kaynağı değildir.
 - **`main` ucunu incelemek** PR'ı "Expected" bırakır: durum **head commit**'e yazılmalı.
+- **Sır maskesi yanılgısı:** araç çıktısı `Authorization: Bearer ***` gibi maskelenmiş görünebilir;
+  bu bir bulgu DEĞİLDİR. Dosyanın ham baytına bakmadan (`od -c` / `grep -c 'Bearer \$'`) "sabit
+  dize gönderiliyor" demeyin — 26 Ekim'de bu yüzden yanlış bir `orta` bulgu yazıldı ve geri alındı.
 
 ## 7. Kanıt standardı
 
 Her bulgu: `dosya:satır` + **neden sömürülebilir** + **somut düzeltme** + bölge (A–E).
-`karar_dogrula.py` her `dosya:satir`'ın PR head'inde gerçekten var olduğunu ve satır numarasının
-dosya sınırında kaldığını ağdan doğrular; uydurma satır numarası kararı yayınlatmaz.
+`karar_dogrula.py` her `dosya:satir`'ın PR head'inde gerçekten var olduğunu, satır numarasının
+dosya sınırında kaldığını ve **kararın sha'sının PR'ın güncel head'i olduğunu** ağdan doğrular;
+uydurma satır numarası veya bayat sha kararı yayınlatmaz. Kanıt katmanı çalışamıyorsa (token yok)
+kapı **fail-closed** davranır: karar geçmez.
 
 ## 8. Bu dosyayı kim günceller
 

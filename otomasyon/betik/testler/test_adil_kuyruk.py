@@ -9,6 +9,7 @@ sıralamanın ve `limit`in sırasını kilitler: sıralama ÖNCE, dilimleme SONR
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,12 +35,20 @@ def pr(no: int, yas_dk: int, draft: bool = False, etiketler=(), sha: str = "") -
 
 
 class SahteGithub(nobetci.Github):
-    """Yalnız `al()` taklidi: PR listesi + commit durumları (ağ ve dosya yok)."""
+    """Yalnız `al()` taklidi: PR listesi + commit durumları (ağ ve dosya yok).
 
-    def __init__(self, prlar: list[dict], durumlar: dict[str, dict[str, str]] | None = None):
+    DİKKAT: `gunluk` bir SÖZLÜK (günlük oturum sayacı), `gunluk_yolu` bir Path. Bu ayrım
+    gerçek sınıfla AYNI olmalı — 26 Ekim'de taklit `gunluk` alanını hiç tanımlamadığı için
+    gerçek sınıftaki AttributeError'ı testler göremedi (i5 bulgusu).
+    """
+
+    def __init__(self, prlar: list[dict], durumlar: dict[str, dict[str, str]] | None = None,
+                 gunluk_yolu: Path | None = None):
         self.depo = "hakkisabah/yourkiosk"
         self.prlar = prlar
         self.durumlar = durumlar or {}
+        self.gunluk: dict[str, int] = {}
+        self.gunluk_yolu = gunluk_yolu
         self.cagrilar: list[str] = []
 
     def al(self, yol: str):
@@ -99,6 +108,54 @@ class AdilKuyrukTesti(unittest.TestCase):
         eski, yeni = f"{84:040d}", f"{85:040d}"
         gh = SahteGithub([pr(84, 600, sha=yeni)], {eski: {"guvenlik/inceleme": "failure"}})
         self.assertEqual([i["pr"] for i in nobetci.isler(gh, "i5", 8)], [84])
+
+    def test_karara_bagli_pr_nobetciyi_dusurmez(self):
+        """26 Ekim i5 bulgusu: `gunluk` (sözlük) günlük DOSYA YOLU sanılıp AttributeError atıyordu.
+
+        Bir PR karara bağlandığı anda nöbetçi her turda çöküyor ve HİÇBİR inceleme açılmıyordu.
+        Bu test gerçek sınıfla aynı alanları (gunluk=sözlük, gunluk_yolu=Path) kullanır ve
+        günlük satırının DOSYAYA yazıldığını doğrular.
+        """
+        # NOT: unittest.TestCase pytest'in `tmp_path` fixture'ını ALMAZ (pytest değil, unittest
+        # çalıştırıyoruz). Bu yüzden geçici dizin `tempfile` ile kurulur — regresyonun kendisi.
+        with tempfile.TemporaryDirectory() as dizin:
+            sha = f"{89:040d}"
+            log = Path(dizin) / "nobetci-i3.log"
+            gh = SahteGithub([pr(89, 120)], {sha: {"guvenlik/inceleme": "success",
+                                                   "guvenlik/karar": "failure"}}, gunluk_yolu=log)
+            self.assertEqual(nobetci.isler(gh, "i3", 8), [])          # çökmemeli
+            metin = log.read_text(encoding="utf-8")
+            self.assertIn("zaten karara bağlı", metin)
+            self.assertIn("i3", metin)
+
+    def test_gunluk_adi_yol_ve_sayac_karismaz(self):
+        """Regresyon kilidi: `Github.gunluk` sözlük, `Github.gunluk_yolu` yol olmalı."""
+        with tempfile.TemporaryDirectory() as dizin:
+            gh = nobetci.Github("t", "hakkisabah/yourkiosk", Path(dizin) / "durum.json",
+                                Path(dizin) / "nobetci-i5.log")
+            self.assertIsInstance(gh.gunluk, dict)
+            self.assertEqual(gh.gunluk, {})
+            self.assertEqual(gh.gunluk_yolu, Path(dizin) / "nobetci-i5.log")
+
+    def test_pending_ve_error_karar_sayilmaz(self):
+        """26 Ekim i5 bulgusu: yarım kalmış durum (pending/error) PR'ı kuyruktan düşürmemeli.
+
+        Durum kontrolleri commit'e bağlı; yazım yarıda kaldıysa (ağ kesintisi, süreç çökmesi)
+        yeni commit gelmeyecek — o PR sonsuza kadar "karara bağlı" görünüyordu.
+        """
+        sha = f"{91:040d}"
+        for durum in ("pending", "error"):
+            gh = SahteGithub([pr(91, 30)], {sha: {"guvenlik/inceleme": durum}})
+            self.assertEqual([i["pr"] for i in nobetci.isler(gh, "i5", 8)], [91], durum)
+        # karar yazılmışsa (failure) atlanır
+        gh = SahteGithub([pr(91, 30)], {sha: {"guvenlik/inceleme": "failure"}})
+        self.assertEqual(nobetci.isler(gh, "i5", 8), [])
+
+    def test_i3_yarim_karar_yeniden_kuyruga_girer(self):
+        sha = f"{92:040d}"
+        gh = SahteGithub([pr(92, 20)], {sha: {"guvenlik/inceleme": "success",
+                                              "guvenlik/karar": "pending"}})
+        self.assertEqual([i["pr"] for i in nobetci.isler(gh, "i3", 8)], [92])
 
     def test_i3_ayni_sha_ikinci_karar_yazmaz(self):
         # 25 Ekim: i3 aynı head'e (cc4e4b81) üç tur üst üste "düzeltme" yazdı.
