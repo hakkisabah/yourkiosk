@@ -537,20 +537,35 @@ class KontrolNoktalariTesti(unittest.TestCase):
             self.assertIn("onay dosyası yok", s.stdout)
 
     def test_lan_onayi_varsa_0000_onayli(self):
+        """Onay dosyası artık ROOT sahipli /etc altında: root değilsek senaryo kurulamaz."""
+        import os
+        import tempfile
+        if os.geteuid() != 0:  # pragma: no cover - root olmayan geliştirici makinesi
+            self.skipTest("onay dosyası root sahipli olmalı: /etc'ye yazmak root ister")
+        with tempfile.TemporaryDirectory() as d:
+            kok = Path(d)
+            ortam = self._ortam(kok, host="0.0.0.0", env_mod=0o600, onay=True)
+            s = self._kontrol(kok, ortam)
+            self.assertRegex(s.stdout, r"✓ LAN'a açık \(operatör onaylı\)")
+
+    def test_eski_yol_onay_sayilmaz(self):
+        """26 Ekim i5 bulgusu: `~/.config/.../api-server.lan-onay` (ajan yazabiliyordu) onay SAYILMAZ."""
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             kok = Path(d)
             s = self._kontrol(kok, self._ortam(kok, host="0.0.0.0", env_mod=0o600, onay=True))
-            self.assertRegex(s.stdout, r"✓ LAN'a açık \(operatör onaylı\)")
+            self.assertNotRegex(s.stdout, r"✓ LAN'a açık \(operatör onaylı\)")
+            self.assertRegex(s.stdout, r"✗ LAN'a kapalı \(yapılandırılmış host\)")
+            self.assertIn("/etc/yourkiosk-api-lan-onay", s.stdout)
 
     def test_uygula_lan_onayi_yazar_kuru_modda_soyler(self):
         s = subprocess.run(["bash", str(BETIK), "--dinle", "0.0.0.0", "--kabul-et-lan", "--kuru"],
                            capture_output=True, text=True, timeout=60)
         self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
         self.assertIn("onay dosyası yazılacak", s.stdout)
-        self.assertIn("api-server.lan-onay", s.stdout)
+        self.assertIn("/etc/yourkiosk-api-lan-onay", s.stdout)
 
     def test_geri_alma_lan_onay_kaydini_siler(self):
         ham = GERI_AL.read_text(encoding="utf-8")
-        self.assertIn("api-server.lan-onay", ham)
-        self.assertIn('rm -f "$LAN_ONAY_DOSYA"', ham)
+        self.assertIn("/etc/yourkiosk-api-lan-onay", ham)
+        self.assertIn('sudo rm -f "$LAN_ONAY_DOSYA"', ham)

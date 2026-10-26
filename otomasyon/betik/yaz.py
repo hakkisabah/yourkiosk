@@ -270,14 +270,17 @@ def _yabanci_commitler(depo: str, token: str, pr_no: int) -> tuple[list[str], st
             if isinstance(c, dict) and c.get("sha") in baska], ""
 
 
-def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay: bool = False) -> tuple[bool, str]:
+def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay: bool = True) -> tuple[bool, str]:
     """PR'ı SQUASH ile birleştirir — yalnız güvenli koşullarda.
 
     Koruma katmanları (hepsi sağlanmazsa birleştirmez):
       · PR açık, taslak değil, `mergeable_state == clean`,
       · PR'ın head sha'sı kararın işaretlediği sha ile AYNI (incelenen kod birleşsin),
       · engelleyici etiket yok (`guvenlik/sorun`, `duzeltme/gerekli`, `birlestirme/durdur`),
-      · head sha üzerindeki tüm durum kontrolleri başarılı (pending/failure varsa bekle).
+      · head sha üzerindeki tüm durum kontrolleri başarılı (pending/failure varsa bekle),
+      · ÇİFT ONAY VARSAYILAN (26 Ekim i5 bulgusu): `guvenlik/inceleme` VE `guvenlik/karar`
+        ikisi de `success` olmalı. Tek kapıyla birleştirme yalnız `--tek-onay` + yazılı
+        gerekçeyle, yani açık bir istisna olarak yapılır (günlüğe ATLANDI satırı düşer).
     """
     kod, pr = istek(f"/repos/{depo}/pulls/{pr_no}", token)
     if kod != 200 or not isinstance(pr, dict):
@@ -540,7 +543,13 @@ def main() -> int:
     ap.add_argument("--kuru", action="store_true", help="hiçbir istek atmadan göster")
     ap.add_argument(
         "--cift-onay", action="store_true",
-        help="birleştirme için 'guvenlik/inceleme' VE 'guvenlik/karar' success olmalı (D modu)",
+        help="(VARSAYILAN, geriye dönük uyumluluk için duruyor) birleştirme için "
+             "'guvenlik/inceleme' VE 'guvenlik/karar' success olmalı",
+    )
+    ap.add_argument(
+        "--tek-onay", action="store_true",
+        help="İSTİSNA: ikinci kapı olmadan birleştir — --gerekce (≥20 karakter) zorunlu, "
+             "kullanım kapi-red.log'a ATLANDI olarak yazılır",
     )
     ap.add_argument("--kanit-yok", action="store_true",
                     help="karar kapısında dosya:satır kanıtını ağdan denetleme — --kapi-atla ile AYNI "
@@ -559,6 +568,19 @@ def main() -> int:
         help="karar 'onay' ise PR'ı otomatik birleştir (koruma: etiketler/çakışma/kontrol durumu)",
     )
     a = ap.parse_args()
+
+    # ---- TEK ONAY (İSTİSNA) ------------------------------------------------------------------
+    # 26 Ekim i5 bulgusu: çift onay VARSAYILAN KAPALIYDI (birlestir(..., cift_onay=False)) →
+    # iki kapılı modelin ikinci kapısı fiilen isteğe bağlıydı. Artık çift onay varsayılan; tek
+    # kapıyla birleştirme açık bir istisna: --tek-onay + yazılı gerekçe + günlük kaydı.
+    tek_onay = bool(a.tek_onay)
+    if tek_onay and not a.birlestir:
+        print("[yaz] --tek-onay yalnız --birlestir ile anlamlıdır.", file=sys.stderr)
+        return 2
+    if tek_onay and len(a.gerekce.strip()) < 20:
+        print("[yaz] --tek-onay için --gerekce \"…\" (≥20 karakter) zorunlu — ikinci kapı "
+              "atlanıyor, gerekçe günlüğe yazılır.", file=sys.stderr)
+        return 2
 
     # --- şablon üret (JSON elle yazmak hataya açık; bu komut her zaman geçerli dosya üretir)
     if a.ornek:
@@ -735,7 +757,7 @@ def main() -> int:
             kuru_token = token_oku(a.token_dosya)
             if kuru_token:
                 uygun, mesaj = birlestir(a.depo_adresi, kuru_token, karar["pr"],
-                                         karar.get("sha") or "", kuru=True, cift_onay=a.cift_onay)
+                                         karar.get("sha") or "", kuru=True, cift_onay=not tek_onay)
                 print(f"[KURU] birleştirme kapısı: {'✓ geçer' if uygun else '✗ engelli'} — {mesaj}")
             else:
                 print(f"[KURU] otomatik birleştirme denenecek: PR #{karar['pr']} "
@@ -784,7 +806,14 @@ def main() -> int:
         print("[yaz] etiketler güncellendi")
 
         if a.birlestir and durum == "success":
-            basarili, neden = birlestir(a.depo_adresi, token, int(pr_no), sha, kuru=False, cift_onay=a.cift_onay)
+            if tek_onay:
+                _kapi_red_yaz(karar, makine,
+                              [f"--tek-onay: ikinci kapı atlandı; gerekçe: {a.gerekce.strip()}"],
+                              atlandi=True)
+                print("[yaz] ⚠ TEK ONAY: ikinci kapı (guvenlik/inceleme) aranmadan birleştiriliyor; "
+                      "gerekçe kapi-red.log'a yazıldı")
+            basarili, neden = birlestir(a.depo_adresi, token, int(pr_no), sha, kuru=False,
+                                        cift_onay=not tek_onay)
             print(f"[yaz] otomatik birleştirme: {'✓' if basarili else '✗'} {neden}")
             if not basarili:
                 # nedeni PR'a yaz (görünür olsun, sessizce kalmasın)

@@ -72,6 +72,17 @@ ES_ANLAMLILAR = {
     "kapsayıcı": "kapsayıcı/servis", "docker": "kapsayıcı/servis", "systemd": "kapsayıcı/servis",
     "kapsayıcı/servis": "kapsayıcı/servis",
     "test": "test kanıtı", "test kanıtı": "test kanıtı",
+    # ASCII karşılıklar (26 Ekim i5 bulgusu): dürüst bir inceleme Türkçe harf yazmadan alan
+    # bildirebilmeli. Aksi hâlde "12 alanın TAMAMI bildirilmeli" hatası doğru kararı reddediyordu.
+    "gomulu sir": "gömülü sır", "gomulu sır": "gömülü sır", "gömülü sir": "gömülü sır",
+    "komut calistirma": "komut çalıştırma", "komut çaliştirma": "komut çalıştırma",
+    "ag/tls": "ağ/tls", "ag": "ağ/tls", "ağ/tls": "ağ/tls",
+    "kimlik/yetki": "kimlik/yetki", "girdi dogrulama": "girdi doğrulama",
+    "sir sizintisi": "sır sızıntısı",
+    "bagimlilik": "bağımlılık", "dos/maliyet": "dos/maliyet",
+    "kalicilik/geri donus": "kalıcılık/geri dönüş", "kalicilik": "kalıcılık/geri dönüş",
+    "geri donus": "kalıcılık/geri dönüş", "kapsayici/servis": "kapsayıcı/servis",
+    "test kaniti": "test kanıtı", "kapsayici": "kapsayıcı/servis",
 }
 
 KARARLAR_I5 = {"onay", "sorun", "red"}
@@ -156,6 +167,8 @@ def kanit_denetle(karar: dict, sonuc: Sonuc, token: str, depo: str) -> None:
     bulgular = [b for b in (karar.get("bulgular") or []) if isinstance(b, dict)]
     if not bulgular:
         return
+    #: Bulgu taşıyan karar "sorun/red/duzeltme" ise dosya:satır ZORUNLU; onay/kabul kararında değil.
+    satir_zorunlu = str(karar.get("karar", "")).strip().lower() not in ONAY_KARARLARI
     pr_no, sha = karar.get("pr"), str(karar.get("sha") or "").strip()
 
     degisen: set[str] | None = None
@@ -212,7 +225,16 @@ def kanit_denetle(karar: dict, sonuc: Sonuc, token: str, depo: str) -> None:
             sonuc.hatalar.append(f"kanıt yok: `{dosya}` bu commit'te bulunamadı (head {sha[:12]})")
             continue
         if satir == 0:
-            sonuc.uyarilar.append(f"`{dosya}` için satır numarası verilmemiş")
+            # 26 Ekim i5 bulgusu: satır numarası olmayan bulgu yalnız UYARI alıyordu → kapının
+            # temel iddiası ("dosya:satır kanıtı") dosyanın var olmasına indirgeniyordu. Kanıt
+            # kapısı fail-closed: bulgu taşıyan sorun/red/duzeltme kararında satır numarası
+            # YOKSA karar reddedilir. Onay/kabul kararlarında bulgu yoktur; varsa da satır
+            # numarası istenmez (onayın kanıtı bulgu değil, denetlenen alan listesidir).
+            if satir_zorunlu:
+                sonuc.hatalar.append(
+                    f"kanıt eksik: `{dosya}` için satır numarası verilmemiş (dosya:satır zorunlu)")
+            else:
+                sonuc.uyarilar.append(f"`{dosya}` için satır numarası verilmemiş")
         elif satir > satir_sayisi:
             sonuc.hatalar.append(
                 f"kanıt yanlış: `{dosya}:{satir}` — dosya yalnız {satir_sayisi} satır (head {sha[:12]})")

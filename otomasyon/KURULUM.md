@@ -27,17 +27,21 @@ beyanıydı** → i5 oturumu `"makine": "i3"` yazıp `guvenlik/inceleme` + `guve
 kontrollerini tek başına yeşile çevirebiliyordu (AGENTS.md §3.3 yasaklıyor). Dosya `root`
 sahipli olduğu için ajan onu yazamaz; beyan ile dosya çelişirse `yaz.py` **çıkış 5** ile reddeder.
 
-`i5` makinesinde (depo kökünden; betik atomik yazar + doğrular):
+`i5` makinesinde (depo kökünden; betik atomik yazar + doğrular). **Önce root sahipli kopyaya
+alın**: betik `root` olarak depo kodu çalıştırmaz ve ajanın yazabildiği ağaçtan çağrılırsa
+`GÜVENİLMEYEN AĞAÇ` diyerek durur (26 Ekim i5 bulgusu):
 
 ```bash
-sudo ./otomasyon/betik/makine-kimligi-kur.sh i5
+sudo install -o root -g root -m 0755 otomasyon/betik/makine-kimligi-kur.sh \
+  /usr/local/lib/yourkiosk/makine-kimligi-kur.sh
+sudo /usr/local/lib/yourkiosk/makine-kimligi-kur.sh i5
 ```
 
-`i3` makinesinde aynısı `sudo ./otomasyon/betik/makine-kimligi-kur.sh i3` ile. Doğrula:
+`i3` makinesinde aynısı `… /usr/local/lib/yourkiosk/makine-kimligi-kur.sh i3` ile. Doğrula:
 
 ```bash
-sudo ./otomasyon/betik/makine-kimligi-kur.sh --kontrol    # ✓ kimlik geçerli: i5
-ls -l /etc/yourkiosk-makine-kimligi                        # -rw-r--r-- root root … içerik: i5
+sudo /usr/local/lib/yourkiosk/makine-kimligi-kur.sh --kontrol   # ✓ kimlik geçerli: i5
+ls -l /etc/yourkiosk-makine-kimligi                             # -rw-r--r-- root root … içerik: i5
 python3 otomasyon/betik/ortam-kontrol.py --rol i5 | grep 'makine kimliği'
 ```
 
