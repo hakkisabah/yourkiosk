@@ -90,6 +90,7 @@ anahtari_env_yaz() {  # anahtar dosyası → .env (değer argv'de DEĞİL)
 import os
 import pathlib
 import sys
+import tempfile
 
 env_yolu, anahtar_yolu = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 anahtar = anahtar_yolu.read_text(encoding="utf-8").strip()
@@ -106,19 +107,30 @@ for satir in satirlar:
 if not bulundu:
     cikti.append(f"API_SERVER_KEY={anahtar}")
 env_yolu.parent.mkdir(parents=True, exist_ok=True)
-gecici = env_yolu.with_suffix(env_yolu.suffix + ".tmp")
-fd = os.open(gecici, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-with os.fdopen(fd, "w", encoding="utf-8") as f:
-    f.write("\n".join(cikti) + "\n")
-os.replace(gecici, env_yolu)
+# 26 Ekim i5 bulgusu: sabit adlı `.env.tmp` + O_CREAT sembolik bağı izler → aynı kullanıcıdaki
+# bir süreç bağı önceden koyup .env'i başka yere taşıtabilirdi. mkstemp: tahmin edilemez ad,
+# O_EXCL, 0600; dosya .env ile AYNI dizinde olduğu için os.replace atomik kalır.
+fd, gecici = tempfile.mkstemp(prefix=".env.", suffix=".tmp", dir=str(env_yolu.parent))
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write("\n".join(cikti) + "\n")
+    os.chmod(gecici, 0o600)
+    os.replace(gecici, env_yolu)
+finally:
+    if os.path.exists(gecici):
+        os.unlink(gecici)
 os.chmod(env_yolu, 0o600)
 print(f"  API_SERVER_KEY .env'e yazıldı (0600): {env_yolu}")
 PY
 }
 
 kod_al() {  # kod_al <url> [anahtar]
+  # 26 Ekim i5 bulgusu: anahtar `-H "Authorization: Bearer $2"` ile curl'ün ARGV'sine giriyordu
+  # (/proc/<pid>/cmdline aynı makinedeki herkese okunur). Artık başlık `--config -` ile
+  # STDIN'den verilir: değer hiçbir süreç argümanında görünmez.
   if [ -n "${2:-}" ]; then
-    curl -s -m 4 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $2" "$1" || true
+    printf 'header = "Authorization: Bearer %s"\n' "$2" \
+      | curl -s -m 4 -o /dev/null -w '%{http_code}' --config - "$1" || true
   else
     curl -s -m 4 -o /dev/null -w '%{http_code}' "$1" || true
   fi

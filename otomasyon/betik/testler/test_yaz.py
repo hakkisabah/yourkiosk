@@ -66,5 +66,71 @@ class DurumMetniTesti(unittest.TestCase):
         self.assertEqual(yaz.durum_metni(karar(karar="onay", onem="dusuk", bulgular=[]))[0], "success")
 
 
+class KapiAtlamaTesti(unittest.TestCase):
+    """--kapi-atla artık ajanın tek başına kullanabileceği bir anahtar DEĞİL (26 Ekim i5 bulgusu).
+
+    Ret yolları gerçekten koşturulur (alt süreç + --kuru; ağa çıkılmaz, günlük geçici dosyaya).
+    """
+
+    def setUp(self):
+        import json as _json
+        import tempfile
+        self.dizin = tempfile.TemporaryDirectory()
+        self.kok = Path(self.dizin.name)
+        self.karar_yolu = self.kok / "karar.json"
+        self.karar_yolu.write_text(_json.dumps(karar(), ensure_ascii=False), encoding="utf-8")
+        self.log = self.kok / "kapi-red.log"
+        self.yaz = Path(__file__).resolve().parents[1] / "yaz.py"
+        self.token = self.kok / "yok.token"   # kanıt katmanı fail-closed → kapı geçmez
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def calistir(self, *ek: str, env_anahtar: bool = False):
+        import os
+        import subprocess
+        ortam = {**os.environ, "YAZ_KAPI_LOG": str(self.log), "HOME": str(self.kok)}
+        ortam.pop("YAZ_KAPI_ATLA_ONAY", None)
+        if env_anahtar:
+            ortam["YAZ_KAPI_ATLA_ONAY"] = "1"
+        return subprocess.run(
+            [sys.executable, str(self.yaz), str(self.karar_yolu), "--kuru",
+             "--token-dosya", str(self.token), *ek],
+            capture_output=True, text=True, timeout=120, env=ortam,
+        )
+
+    def _karar_yaz(self, bulgular):
+        import json as _json
+        k = karar(bulgular=bulgular)
+        self.karar_yolu.write_text(_json.dumps(k, ensure_ascii=False), encoding="utf-8")
+
+    def test_operator_anahtari_olmadan_atlama_reddedilir(self):
+        s = self.calistir("--kapi-atla", "--gerekce", "kanıt katmanı çevrimdışı, elle doğrulandı")
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("operatör ortam anahtarı yok", s.stderr)
+        self.assertIn("reddedildi: operatör anahtarı yok", self.log.read_text(encoding="utf-8"))
+
+    def test_yuksek_bulguda_atlama_imkansiz(self):
+        self._karar_yaz([{"dosya": "a.py", "satir": 1, "onem": "yuksek", "aciklama": "x",
+                          "kabul": "düzeltilince kapanır"}])
+        s = self.calistir("--kapi-atla", "--gerekce", "kanıt katmanı çevrimdışı, elle doğrulandı",
+                          env_anahtar=True)
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("atlanamaz", s.stderr)
+
+    def test_kisa_gerekce_reddedilir(self):
+        s = self.calistir("--kapi-atla", "--gerekce", "kısa", env_anahtar=True)
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("gerekce", s.stderr.replace("ç", "c").replace("Ç", "C"))
+
+    def test_operator_anahtari_ve_gerekceyle_atlanir(self):
+        s = self.calistir("--kapi-atla", "--gerekce", "kanıt katmanı çevrimdışı, elle doğrulandı",
+                          env_anahtar=True)
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertIn("KARAR KAPISI: ATLANDI", s.stdout)
+        self.assertIn("KARAR KAPISI ATLANDI", s.stdout)          # PR yorumunda görünür
+        self.assertIn('"olay": "ATLANDI"', self.log.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

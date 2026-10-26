@@ -37,7 +37,27 @@ done
 if [ -n "$PROFIL" ] && [ "$PROFIL" = "$ROL" ]; then
   echo "✗ --profil değeri rol adıyla aynı olamaz ($ROL)" >&2; exit 2
 fi
-
+# 26 Ekim i5 bulgusu: --profil değeri doğrulanmadan systemd birim METNİNE yazılıyordu; satır sonu
+# taşıyan bir ad birime yeni yönerge enjekte edebiliyordu (`--profil "a\nExecStartPre=..."`).
+# Hermes profil adları küçük harf/rakam/tire/alt çizgi; birim dosyasına giden her değer bu kapıdan geçer.
+profil_gecerli() {  # 1..32 karakter; ilk harf küçük harf/rakam; kalanı a-z 0-9 _ -
+  local p="$1"
+  [ "${#p}" -ge 1 ] && [ "${#p}" -le 32 ] || return 1
+  case "$p" in
+    [a-z0-9]*) ;;
+    *) return 1 ;;
+  esac
+  case "$p" in
+    *[!a-z0-9_-]*) return 1 ;;
+  esac
+  return 0
+}
+if [ -n "$PROFIL" ] && ! profil_gecerli "$PROFIL"; then
+  echo "✗ geçersiz --profil değeri: '$PROFIL'" >&2
+  echo "  İzinli biçim: 1–32 karakter, ilk harf küçük harf/rakam, kalanı a-z 0-9 _ -" >&2
+  echo "  (satır sonu/boşluk/özel karakter kabul edilmez: değer systemd birim METNİNE yazılıyor)" >&2
+  exit 2
+fi
 
 # ESKİ HATA: yalnız "i5/i3 guvenlik" ADINI arıyordu; "i3 karar" adlı görev silinmiyordu → oturumlar
 # iki kaynaktan açılmaya devam ediyordu. Artık ada değil İŞ DİZİNİNE bakıyor ve silmeyi DOĞRULUYOR.

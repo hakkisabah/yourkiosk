@@ -55,6 +55,23 @@ class UnitTesti(unittest.TestCase):
         self.assertEqual(s.returncode, 2)
         self.assertIn("rol adıyla aynı", s.stderr)
 
+    def test_profil_degeri_birime_enjeksiyon_yapamaz(self):
+        """26 Ekim i5 bulgusu: --profil doğrulanmıyordu → satır sonu birime yönerge ekliyordu."""
+        kotu = ["a\nExecStartPre=/bin/touch /tmp/pwn", "guvenlik\n", "Guvenlik", "gu venlik",
+                "a" * 40, "-x", "guvenlik;rm", "../../etc"]
+        for deger in kotu:
+            ortam = {**os.environ, "HOME": self.home}
+            s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--profil", deger],
+                               capture_output=True, text=True, timeout=60, env=ortam)
+            self.assertEqual(s.returncode, 2, f"kabul edildi: {deger!r} → {s.stdout}")
+            self.assertNotIn("ExecStartPre", s.stdout)
+            self.assertIn("geçersiz --profil", s.stderr)
+
+    def test_gecerli_profil_kabul_edilir(self):
+        for deger in ("guvenlik", "guvenlik-2", "guvenlik_2", "g"):
+            metin = unit_uret("--profil", deger, home=self.home)
+            self.assertIn(f"--profil {deger}", metin)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

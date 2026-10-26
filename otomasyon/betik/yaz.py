@@ -38,7 +38,8 @@ from pathlib import Path
 TABAN = "https://api.github.com"
 BASLIKLAR = {"Accept": "application/vnd.github+json", "User-Agent": "yourkiosk-otomasyon"}
 #: Karar kapısı reddi/atlaması buraya JSON satırları olarak yazılır (nobetci denetler).
-KAPI_LOG = Path.home() / ".local" / "state" / "yourkiosk-otomasyon" / "kapi-red.log"
+KAPI_LOG = Path(os.environ.get("YAZ_KAPI_LOG") or
+                Path.home() / ".local" / "state" / "yourkiosk-otomasyon" / "kapi-red.log")
 
 #: makine → (commit durumu adı, onay etiketi, sorun etiketi)
 MAKINE_AYARI = {
@@ -341,7 +342,8 @@ def main() -> int:
     ap.add_argument("--kanit-yok", action="store_true",
                     help="karar kapısında dosya:satır kanıtını ağdan denetleme (yalnız çevrimdışı acil durum)")
     ap.add_argument("--kapi-atla", action="store_true",
-                    help="karar kapısı hatalarına RAĞMEN yayınla (--gerekce zorunlu, 'yüksek' bulgu varsa imkânsız)")
+                    help="karar kapısı hatalarına RAĞMEN yayınla — AYRICA YAZ_KAPI_ATLA_ONAY=1 "
+                         "ortam anahtarı ister (operatör), --gerekce zorunlu, 'yüksek' bulgu varsa imkânsız")
     ap.add_argument("--gerekce", default="",
                     help="--kapi-atla için gerekçe (≥20 karakter); PR yorumuna ve kapi-red.log'a yazılır")
     ap.add_argument(
@@ -414,6 +416,19 @@ def main() -> int:
         yuksek = [b for b in (karar.get("bulgular") or []) if isinstance(b, dict)
                   and str(b.get("onem", "")).lower() in {"yuksek", "yüksek", "kritik"}]
         gerekce = a.gerekce.strip()
+        # 26 Ekim i5 bulgusu: bayrak ajanın KENDİ elindeydi (terminal yetkisi olan ajan --kapi-atla
+        # yazıp şemayı/kanıtı devre dışı bırakabiliyordu). Kapı atlama artık iki anahtar ister:
+        #   (1) operatörün ortam anahtarı `YAZ_KAPI_ATLA_ONAY=1` — nöbetçi biriminde TANIMLI DEĞİL,
+        #       yani otomatik oturumlar kendi kendine atlayamaz;
+        #   (2) yazılı gerekçe + 'yüksek' bulgu yokluğu.
+        # Atlama her durumda kapi-red.log'a ve PR yorumuna yazılır (denetlenebilir).
+        if a.kapi_atla and os.environ.get("YAZ_KAPI_ATLA_ONAY", "") != "1":
+            print("[yaz] KARAR KAPISI: --kapi-atla REDDEDİLDİ — operatör ortam anahtarı yok "
+                  "(YAZ_KAPI_ATLA_ONAY=1). Kapı atlama ajanın tek başına kullanabileceği bir anahtar değil.",
+                  file=sys.stderr)
+            _kapi_red_yaz(karar, makine, kapi.hatalar + ["--kapi-atla reddedildi: operatör anahtarı yok"],
+                          atlandi=False)
+            return 5
         if a.kapi_atla and yuksek:
             print(f"[yaz] KARAR KAPISI: atlama REDDEDİLDİ — {len(yuksek)} 'yüksek' bulgusu varken "
                   "kapı atlanamaz (önce düzelt).", file=sys.stderr)

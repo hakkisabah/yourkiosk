@@ -91,7 +91,8 @@ Depo kuralları: `kiosk/GUVENLIK.md`, `kiosk/KOMUTLAR.md`, `docs/AWS-KURULUM.md`
    python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/yaz.py /tmp/karar-<NO>.json
    ```
    `yaz.py` aynı kapıyı kendi de çalıştırır: geçmezse GitHub'a **hiçbir şey** yazılmaz (çıkış 5).
-   `--kapi-atla` kullanma; kullanman gerekiyorsa nedenini özete yaz.
+   `--kapi-atla` kullanma; kullanman gerekiyorsa nedenini özete yaz. (Kapı atlama ayrıca operatörün
+   `YAZ_KAPI_ATLA_ONAY=1` ortam anahtarını ister; otomatik oturumda tanımlı değildir.)
 
 ## Sınırlar
 
