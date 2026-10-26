@@ -183,7 +183,7 @@ sonra bu geçerli değil**: içerik değişmedikçe gövde inmiyor.
 
 | Kalem | Hesap | Aylık |
 |---|---|---|
-| Yoklama istekleri (600 cihaz, 300 sn) | 15,6 M istek | **$17,88** |
+| Yoklama istekleri (600 cihaz, 300 sn — `durum.json` öncesi 3 dosyalı yolun tabanı) | 15,6 M istek | **$17,88** |
 | Yeni kampanya indirmesi | 600 × 2,5 MB = 1,5 GB | **$0,13** (WebP ile $0,011) |
 | S3 depolama (100 görsel × 200 KB) | 20 MB | **$0,0005** |
 | CloudFront invalidation | `/*` = 1 path, ilk 1.000 ücretsiz | **$0** |
@@ -253,10 +253,17 @@ Cihaz (`kiosk/core/durum.py`): tek istekle damgayı, tetikleyiciyi ve komut işa
 
 ### 8.3 Uyarlanabilir yoklama (maliyet)
 
-| Durum | Aralık | Gerekçe |
-|---|---|---|
-| MQTT **bağlı** | **1800 sn** | anlıklık push'tan gelir; yoklama emniyet ağı |
-| MQTT **koptu** | 60 sn → 120 → 240 → **300 sn** (katlanır) | bağlantı yokken tek yol yoklama; ısrar maliyeti sınırlanır |
+Değerler **koddan** gelir (`kiosk/config.py` + `pharmacy_app.yoklama_araligi()`):
+
+| Durum | Aralık | Kaynak | Gerekçe |
+|---|---|---|---|
+| MQTT **bağlı** (`TETIK_PUSH_AKTIF=true` ve bağlantı açık) | **120 sn** | `DAMGA_KONTROL_MS_PUSH` | anlıklık push'tan gelir; yoklama emniyet ağı |
+| push **kapalı** ya da bağlantı **koptu** | **30 sn** | `DAMGA_KONTROL_MS_PUSH_YOK` | tek yol yoklama; gecikme yarım dakikayı geçmesin |
+
+`TETIK_PUSH_AKTIF` varsayılanı `false` → **bugün sahada etkin aralık 30 sn**'dir. 1800 sn'lik eski
+"tasarruf" bilinçli olarak kaldırıldı: push sessizce öldüğünde 30 dakikalık gecikmeye dönüşüyordu.
+`calistirma.degisiklik_kontrol_ms` yalnız Qt'nin damga aralığını (`DAMGA_KONTROL_MS`) yazar;
+çalışma anındaki aralık yukarıdaki iki sabitten gelir.
 
 ### 8.4 WebP hattı
 
@@ -267,12 +274,21 @@ Cihaz (`kiosk/core/durum.py`): tek istekle damgayı, tetikleyiciyi ve komut işa
 
 ## 9) MALİYET — yeni mimari (600 cihaz)
 
+Birim fiyat: CloudFront $0,75/M istek · S3 GET $0,40/M istek. `durum.json` yolu 1 istek/tur.
+İstek/ay = 600 cihaz × (30,44 gün × 86 400 sn ÷ aralık).
+
 | Senaryo | İstek/ay | CloudFront | S3 GET | **Toplam** |
 |---|---|---|---|---|
-| Eski: 3 dosya · 300 sn | 15,55 M | $11,66 | $6,22 | **$17,88** |
-| Yeni: `durum.json` · 1800 sn (MQTT bağlı) | 0,86 M | $0,65 | $0,35 | **~$1,00** |
-| Daha agresif: 3600 sn | 0,43 M | $0,32 | $0,17 | **~$0,50** |
-| MQTT kopuk (en kötü, 300 sn'de sabitlenir) | 5,18 M | $3,88 | $2,07 | ~$5,95 (geçici) |
+| Eski: 3 dosya · 300 sn (yoklama öncesi taban) | 15,55 M | $11,66 | $6,22 | **$17,88** |
+| `durum.json` · **30 sn — BUGÜNKÜ VARSAYILAN** (`TETIK_PUSH_AKTIF=false`) | 52,60 M | $39,45 | $21,04 | **~$60,49** |
+| `durum.json` · 120 sn (push bağlı, `DAMGA_KONTROL_MS_PUSH`) | 13,15 M | $9,86 | $5,26 | **~$15,12** |
+| `durum.json` · 300 sn (elle ayarlanırsa) | 5,26 M | $3,95 | $2,10 | **~$6,05** |
+| `durum.json` · 1800 sn (elle ayarlanırsa) | 0,88 M | $0,66 | $0,35 | **~$1,01** |
+
+**Sonuç:** tasarruf 1800 sn'den değil, *3 isteğin 1 isteğe inmesinden* ve push'un açık olmasından
+gelir. Push kapalıyken (bugünkü varsayılan) filo ~$60/ay yoklama isteği üretir; `tetik.push_*`
+açılıp bağlantı 120 sn'lik emniyet ağına geçince ~$15/ay'a iner. Broker maliyeti ayrı kalemdir
+(bkz. `docs/ONBELLEK-VE-MALIYET.md`).
 
 Görsel egress (içerik adlı + immutable, 304 yok):
 
