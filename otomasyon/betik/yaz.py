@@ -210,6 +210,32 @@ def etiket_ekle(depo: str, token: str, no: int, eklenecek: list[str], cikarilaca
         istek(f"/repos/{depo}/issues/{no}/labels/{urllib.parse.quote(etiket, safe='')}", token, "DELETE")
 
 
+def _yabanci_commitler(depo: str, token: str, pr_no: int) -> list[str]:
+    """Dalın taşıdığı, BAŞKA bir açık PR'a ait commit'ler.
+
+    Neden: 25 Ekim'de #89 dalı, birleşmemiş #88'in commit'ini (11a5a89) taşıyordu. Squash-merge
+    olsa bile "onaylanmamış iş main'e girer" riski doğar ya da PR sonsuza kadar bekler. Kapı bunu
+    birleştirme anında makineyle denetler; dal temizlenince (rebase) kendiliğinden geçer.
+    """
+    kod, digerleri = istek(f"/repos/{depo}/pulls?state=open&per_page=100", token)
+    if kod != 200 or not isinstance(digerleri, list):
+        return []
+    baska: dict[str, int] = {}
+    for p in digerleri:
+        if not isinstance(p, dict) or p.get("number") == pr_no:
+            continue
+        sha = ((p.get("head") or {}).get("sha") or "").strip()
+        if sha:
+            baska[sha] = p.get("number", 0)
+    if not baska:
+        return []
+    kod, commitler = istek(f"/repos/{depo}/pulls/{pr_no}/commits?per_page=100", token)
+    if kod != 200 or not isinstance(commitler, list):
+        return []
+    return [f"#{baska[c['sha']]} ({c['sha'][:7]})" for c in commitler
+            if isinstance(c, dict) and c.get("sha") in baska]
+
+
 def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay: bool = False) -> tuple[bool, str]:
     """PR'ı SQUASH ile birleştirir — yalnız güvenli koşullarda.
 
@@ -229,6 +255,10 @@ def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay
     if (pr.get("head") or {}).get("sha") != sha:
         return False, "PR'ın head sha'sı değişmiş (yeni commit var) — yeniden inceleme gerekir"
     etiketler = [e.get("name") for e in pr.get("labels", [])]
+    yabanci = _yabanci_commitler(depo, token, pr_no)
+    if yabanci:
+        return False, ("dal başka AÇIK PR'ın commit'ini taşıyor: " + ", ".join(yabanci)
+                       + " — rebase edin, sonra yeniden karar")
     engel = [e for e in etiketler if e in ENGELLEYEN_ETIKETLER]
     if engel:
         return False, f"engelleyici etiket: {', '.join(engel)}"
@@ -391,7 +421,16 @@ def main() -> int:
             print(f"POST /repos/{a.depo_adresi}/issues/{karar['pr']}/comments")
         print(f"etiketler: +{[onay_etiketi if durum == 'success' else sorun_etiketi]}")
         if a.birlestir and durum == "success" and karar.get("pr"):
-            print(f"[KURU] otomatik birleştirme denenecek: PR #{karar['pr']} (squash)")
+            # KURU modda da birleştirme kapısını GERÇEKTEN denetle (yazma yok): yabancı commit,
+            # eksik çift onay, head sha kayması gibi engeller denenmeden "olur" demek yanıltıcıydı.
+            kuru_token = token_oku(a.token_dosya)
+            if kuru_token:
+                uygun, mesaj = birlestir(a.depo_adresi, kuru_token, karar["pr"],
+                                         karar.get("sha") or "", kuru=True, cift_onay=a.cift_onay)
+                print(f"[KURU] birleştirme kapısı: {'✓ geçer' if uygun else '✗ engelli'} — {mesaj}")
+            else:
+                print(f"[KURU] otomatik birleştirme denenecek: PR #{karar['pr']} "
+                      "(token yok → kapı denetlenemedi)")
         return 0
 
     token = token_oku(a.token_dosya)

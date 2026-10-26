@@ -86,11 +86,26 @@ class AdilKuyrukTesti(unittest.TestCase):
         gh = SahteGithub([pr(86, 30)], {sha: {"guvenlik/inceleme": "success"}})
         self.assertEqual(nobetci.isler(gh, "i5", 8), [])
 
-    def test_i5_sorun_etiketli_pr_yeniden_incelenir(self):
+    def test_i5_ayni_sha_yeniden_incelenmez(self):
+        # iş 1 kez yapıldı: "sorun" yazılmış + aynı sha. Yeniden incelemek boş oturum üretir;
+        # sıra geliştiricide (yeni commit atınca sha değişir, PR tekrar girer).
         sha = f"{84:040d}"
         gh = SahteGithub([pr(84, 600, etiketler=["guvenlik/sorun"])],
-                         {sha: {"guvenlik/inceleme": "success"}})
+                         {sha: {"guvenlik/inceleme": "failure"}})
+        self.assertEqual(nobetci.isler(gh, "i5", 8), [])
+
+    def test_i5_yeni_commit_gelince_yeniden_incelenir(self):
+        # aynı PR numarası, YENİ sha (düzeltme geldi) → durum yok → yeniden incele
+        eski, yeni = f"{84:040d}", f"{85:040d}"
+        gh = SahteGithub([pr(84, 600, sha=yeni)], {eski: {"guvenlik/inceleme": "failure"}})
         self.assertEqual([i["pr"] for i in nobetci.isler(gh, "i5", 8)], [84])
+
+    def test_i3_ayni_sha_ikinci_karar_yazmaz(self):
+        # 25 Ekim: i3 aynı head'e (cc4e4b81) üç tur üst üste "düzeltme" yazdı.
+        sha = f"{89:040d}"
+        gh = SahteGithub([pr(89, 120, etiketler=["duzeltme/gerekli"])],
+                         {sha: {"guvenlik/inceleme": "success", "guvenlik/karar": "failure"}})
+        self.assertEqual(nobetci.isler(gh, "i3", 8), [])
 
     def test_i3_yalniz_i5_onayli_ve_kararsiz_prlari_alir(self):
         onayli_kararsiz, onayli_kararli, onaysiz = f"{83:040d}", f"{84:040d}", f"{88:040d}"

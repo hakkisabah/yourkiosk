@@ -30,9 +30,18 @@ açık PR'ların head sha + durum kontrolleri   iş listesi dolu → TEK `hermes
   PR'lar çekilir, yaşa göre sıralanır, `limit` **sonra** uygulanır. 120 dakikayı geçen iş varsa
   günlüğe `AÇLIK:` satırı yazılır.
 - Oturum başına PR: i5 → 1, i3 → 3 (`OTURUM_BASI_PR`). Kalanlar bir sonraki turda alınır.
+- **Aynı commit'e ikinci karar yazılmaz.** Durum kontrolleri commit'e bağlıdır: bu sha için rolün
+  kararı yazılmışsa iş bitmiştir, sıra geliştiricide. Yeni commit → yeni sha → PR kendiliğinden
+  geri gelir. Bu kural 25 Ekim'deki iki arızayı kapatır: i3 aynı head'e (cc4e4b81) üç tur üst üste
+  "düzeltme" yazdı; i5 kendi "sorun" verdiği sha'yı sonsuz yeniden inceledi (boş oturum = token).
+  Atlanan her PR için günlüğe tek satır yazılır: `N PR bu commit için zaten karara bağlı`.
 - **Karar kapısı:** ajan `yaz.py` ile yazmadan önce `karar_dogrula.py` şemayı, 12 denetim alanını,
-  karar tutarlılığını ve `dosya:satır` kanıtını denetler. Geçmezse GitHub'a **hiçbir şey** yazılmaz;
-  reddin izi `~/.local/state/yourkiosk-otomasyon/kapi-red.log` dosyasına düşer.
+  karar tutarlılığını, `dosya:satır` kanıtını ve **kapanış ölçütünü** (`kabul`: "neyi yapınca bu
+  bulgu kapanır") denetler. Geçmezse GitHub'a **hiçbir şey** yazılmaz; reddin izi
+  `~/.local/state/yourkiosk-otomasyon/kapi-red.log` dosyasına düşer.
+- **Yabancı commit koruması:** `yaz.py --birlestir`, dalın BAŞKA bir açık PR'ın commit'ini taşıyıp
+  taşımadığını birleştirme anında denetler (25 Ekim: #89 dalı #88'in commit'ini taşıyordu). Taşıyorsa
+  birleştirmez; çözüm rebase.
 - İki makine birbirini **commit status** üzerinden görür; ayrı bir kuyruk/veritabanı yok.
 - Aynı anda iki nöbetçi çalışmasın diye `flock` kilidi var (`nobetci-<rol>.lock`).
 

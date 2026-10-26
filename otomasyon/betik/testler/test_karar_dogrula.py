@@ -20,7 +20,8 @@ DOGRU_I5 = {
     "makine": "i5", "pr": 83, "sha": "a" * 40, "karar": "sorun", "onem": "orta",
     "ozet": "MQTT ACL betikleri ve push katmanı incelendi; yeniden bağlanma döngüsü riskli.",
     "bulgular": [{"dosya": "kiosk/core/push.py", "satir": 42, "onem": "orta",
-                  "aciklama": "Yeniden bağlanma gecikmesi sabit; broker düşerse tüm cihazlar aynı saniyede bağlanır."}],
+                  "aciklama": "Yeniden bağlanma gecikmesi sabit; broker düşerse tüm cihazlar aynı saniyede bağlanır.",
+                  "kabul": "Gecikme rastgele dağıtılmalı (jitter) ve testte 600 cihazın dağılımı ölçülmeli."}],
     "denetlenen": ALANLAR,
 }
 
@@ -100,6 +101,25 @@ class TutarlilikTesti(unittest.TestCase):
     def test_onay_bulgusuz_gecer(self):
         s = dogrula(kopya(karar="onay", bulgular=[], onem="dusuk"))
         self.assertTrue(s.gecti, s.rapor())
+
+    def test_kapanis_olcutu_zorunlu(self):
+        # Düzeltme/sorun kararında her bulgu "neyi yapınca kapanır" yazmalı; yoksa iki tur sonra
+        # aynı bulgu geri döner (25 Ekim: i3'ün reçetesi uygulandı, aynı sınıf hata açık kaldı).
+        k = copy.deepcopy(DOGRU_I5)
+        del k["bulgular"][0]["kabul"]
+        s = dogrula(k)
+        self.assertFalse(s.gecti)
+        self.assertIn("kapanış ölçütü", s.rapor())
+
+    def test_kapanis_olcutu_serbest_metin_olamaz(self):
+        k = copy.deepcopy(DOGRU_I5)
+        k["bulgular"][0]["kabul"] = "buraya yazılacak"
+        self.assertIn("şablon", dogrula(k).rapor())
+
+    def test_onayda_kapanis_olcutu_istenmez(self):
+        k = copy.deepcopy(DOGRU_I5)
+        del k["bulgular"][0]["kabul"]
+        self.assertTrue(dogrula(kopya(karar="onay", bulgular=[])).gecti)
 
 
 class FailClosedTesti(unittest.TestCase):
