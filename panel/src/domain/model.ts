@@ -153,22 +153,54 @@ export function kapsamiYaz(kayit: YayinDto, kapsam: YayinKapsamiDto): YayinDto {
 const YEREL_AD = /^(localhost|\.local|.*\.local|.*\.internal|.*\.localhost)$/i
 
 function ozelHostMu(host: string): boolean {
-  const h = host.trim().toLowerCase().replace(/^\[|\]$/g, '')
+  // Cihaz tarafı `hostname.rstrip('.').lower()` uygular (`kiosk/security/network.py`); panel
+  // aynı normalleştirmeyi yapmazsa `https://localhost./a.png` panelde GEÇER, cihazda REDDEDİLİR
+  // (26 Ekim i3 bulgusu: sondaki noktada host paritesi açıktı).
+  const h = host.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '')
   if (!h) return true
   // IPv6 literal ÖNCE: "2a00:1450::1" nokta içermez; nokta kuralı onu yanlışlıkla yerel sayardı.
   if (h.includes(':')) {
-    return h === '::1' || h === '::' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h)
-  }
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
-  if (ipv4) {
-    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])]
-    if (a === 0 || a === 10 || a === 127 || a >= 224) return true
-    if (a === 169 && b === 254) return true
-    if (a === 172 && b >= 16 && b <= 31) return true
-    if (a === 192 && b === 168) return true
+    if (h === '::1' || h === '::' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h)) return true
+    // IPv4-mapped IPv6 (::ffff:127.0.0.1): gömülü IPv4 aynı kurallardan geçmeli, yoksa panel
+    // loopback'i geçirir (26 Ekim i5 bilgi bulgusu). WHATWG URL host'u hex biçime çevirebilir
+    // (::ffff:127.0.0.1 → ::ffff:7f00:1), bu yüzden iki biçim de çözülür.
+    const eslenik = /^::ffff:(.+)$/.exec(h)
+    if (eslenik) {
+      const kalan = eslenik[1]
+      if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(kalan)) return ozelIpv4Mu(kalan)
+      const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(kalan)
+      if (hex) {
+        const ust = parseInt(hex[1], 16)
+        const alt = parseInt(hex[2], 16)
+        return ozelIpv4Mu(`${ust >> 8}.${ust & 255}.${alt >> 8}.${alt & 255}`)
+      }
+      return true // tanınmayan eşlenik biçim → güvenli taraf
+    }
     return false
   }
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(h)) return ozelIpv4Mu(h)
   return !h.includes('.') || YEREL_AD.test(h)
+}
+
+/**
+ * IPv4 ayrılmış/özel aralık denetimi — Python `ipaddress.is_global` ile aynı sonucu verir
+ * (cihaz `_host_herkese_acik` bunu kullanır). Ayrılmış aralıklar (192.0.0/24, 198.18/15,
+ * 198.51.100/24, 203.0.113/24, 100.64/10) da yerel sayılır: panel geçirirse cihaz reddeder.
+ */
+function ozelIpv4Mu(adres: string): boolean {
+  const p = adres.split('.').map(Number)
+  if (p.length !== 4 || p.some((x) => !Number.isInteger(x) || x < 0 || x > 255)) return true
+  const [a, b, c] = p
+  if (a === 0 || a === 10 || a === 127 || a >= 224) return true
+  if (a === 100 && b >= 64 && b <= 127) return true
+  if (a === 169 && b === 254) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true
+  if (a === 198 && (b === 18 || b === 19)) return true
+  if (a === 198 && b === 51 && c === 100) return true
+  if (a === 203 && b === 0 && c === 113) return true
+  return false
 }
 
 /** Görsel adresi üst sınırı (kiosk tarafındaki ağ sınırlarıyla uyumlu, bol pay bırakır). */
@@ -211,9 +243,12 @@ export function gorselUrlHatalari(url: string, izinliPortlar: readonly number[] 
 /**
  * Görsel adresini kayda yazar ve eski ALIAS'ları temizler.
  *
- * NEDEN TEMİZLEME: cihazın gösterim yolu `contentUrl ?? contentURL` okur (data_handler.py:80,
- * tarayici.py:705, pharmacy_app.py:819 — üçü de aynı sıra). `url` ve `gorsel` alanlarını cihaz
- * HİÇ okumaz (model.py:46'daki alias listesi yalnız eski kayıtları normalleştirmek içindir).
+ * NEDEN TEMİZLEME: cihazın Qt gösterim yolu `contentUrl ?? contentURL` okur (data_handler.py:80,
+ * tarayici.py:705, pharmacy_app.py:819 — üçü de aynı sıra); `gorsel` alanını cihaz HİÇ okumaz
+ * (model.py:46'daki alias listesi yalnız eski kayıtları normalleştirmek içindir). Tarayıcı modu
+ * ise `contentUrl → contentURL → url` sırasını izler (`web/src/veri/yayin.ts` ADRES_ALANLARI),
+ * yani `url` ÜÇÜNCÜ yedek olarak okunur — "cihaz url alanını hiç okumaz" YANLIŞTIR (26 Ekim i3
+ * bulgusu; `model.gorsel.test.ts` bu iddiayı tüketici listesine karşı kilitler).
  * Alias silinmezse eski adres veride kalır ve iki alan çeliştiğinde hangisinin kazandığı anlaşılmaz.
  */
 export function gorselUrlYaz(kayit: YayinDto, url: string): YayinDto {

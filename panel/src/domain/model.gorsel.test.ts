@@ -6,6 +6,8 @@
  * kurallarını (cihazın GERÇEK kuralları: https + kimlik bilgisi yok + 443 + içerik türü) hem de
  * yazma davranışını kilitler.
  */
+import { readFileSync } from 'node:fs'
+
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -97,6 +99,17 @@ describe('gorselUrlHatalari', () => {
       'https://kiosk.local/a.png',
       'https://sunucu/a.png',          // nokta yok → yerel ad
       'https://nas.internal/a.png',
+      // Sondaki nokta: cihaz `rstrip('.')` uygular, panel uygulamazsa parite bozulur (i3 bulgusu).
+      'https://localhost./a.png',
+      'https://127.0.0.1./a.png',
+      'https://kiosk.local./a.png',
+      // Ayrılmış aralıklar ve IPv4-mapped IPv6 loopback (i5 bilgi bulgusu).
+      'https://192.0.0.8/a.png',
+      'https://198.18.0.1/a.png',
+      'https://198.51.100.7/a.png',
+      'https://203.0.113.9/a.png',
+      'https://100.64.0.1/a.png',
+      'https://[::ffff:127.0.0.1]/a.png',
     ]) {
       const hatalar = gorselUrlHatalari(adres)
       expect(hatalar.length, adres).toBeGreaterThan(0)
@@ -163,5 +176,28 @@ describe('gorselUrlYaz', () => {
 
   it('boşluklar kırpılır', () => {
     expect(gorselUrlYaz(kayit, `  ${GECERLI}  `).contentUrl).toBe(GECERLI)
+  })
+})
+
+describe('docstring ↔ tüketici paritesi (i3 bulgusu)', () => {
+  // i3: "cihaz url alanını HİÇ okumaz" yanlışı belgeden silinmişti ama model.ts yorumunda duruyordu;
+  // yeni kiosk testi yalnız belgeyi koruyordu. Bu test YORUMU tüketici listesine bağlar:
+  // tarayıcı modu `url`ü okuyorsa panel yorumu bunu yazmak zorunda.
+  const oku = (yol: string) => readFileSync(new URL(yol, import.meta.url), 'utf8')
+
+  it('model.ts yorumu url alanını "hiç okunmaz" diye nitelemez', () => {
+    const kaynak = oku('./model.ts')
+    expect(kaynak).not.toMatch(/url`?\s*ve\s*`?gorsel`?\s*alanlarını cihaz\s+HİÇ okumaz/)
+    expect(kaynak).toMatch(/`?url`?[^\n]*ÜÇÜNCÜ yedek/)
+  })
+
+  it('tarayıcı modu adres alanları yorumda anlatılanla aynı', () => {
+    const kaynak = oku('./model.ts')
+    const yayin = oku('../../../web/src/veri/yayin.ts')
+    const alanlar = /ADRES_ALANLARI\s*=\s*\[([^\]]+)\]/.exec(yayin)?.[1] ?? ''
+    // web tarafında `url` varsa panel yorumu tarayıcı sırasını yazmalı
+    if (alanlar.includes("'url'")) {
+      expect(kaynak).toContain('contentUrl → contentURL → url')
+    }
   })
 })
