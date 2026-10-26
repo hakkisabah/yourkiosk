@@ -122,8 +122,7 @@ Yan kazanç: **bellek**. 1916×1080 → **7,9 MB RAM**; 1280×721 → **3,5 MB**
 
 ## 5) Panelden görsel yükleme hattı (henüz yok — tasarım önerisi)
 
-Bugün panel `contentUrl` alanını **SALT-OKUNUR** gösteriyor (yayın sekmesi yalnız hedefleme
-düzenler; adres düzenlemesi #88 ile gelecek) ve dosya yükleme yok. Yükleme eklendiğinde:
+Dosya **yükleme** hâlâ yok; adres **düzenleme** var (§5.1). Yükleme eklendiğinde:
 
 ```
 seçilen dosya
@@ -150,7 +149,8 @@ Dosya **yükleme** yok (5. bölümdeki öneri), ama **adres düzenleme** var ve 
 yapılır. Adımlar (menüdeki adlar görünür; `VeriView` yalnız dosya adıdır):
 
 1. Panelde soldan **Nöbet ve Yayınlar** → üstteki **Yayınlar (N gün)** sekmesi.
-2. Değiştirmek istediğiniz satırda **Görsel** düğmesi → *Yayın görseli* penceresi.
+2. Değiştirmek istediğiniz satırda **Görsel** düğmesi → *Yayın görseli* penceresi →
+   **Görsel adresi (contentUrl)** alanı.
 3. Adresi yazın. Panel cihazın kurallarını uygular: `https`, kullanıcı adı/parola **yok**, port
    **443**, uzantı varsa `png/jpg/jpeg/webp` (uzantısız adres kabul — cihaz `image/png|jpeg|webp`
    içerik türüne bakar). Hata metni adresi geri basmaz (kimlik bilgisi ekrana sızmasın).
@@ -236,8 +236,8 @@ Uygulama noktaları:
 - Testler: `kiosk/tests/test_yayin_kapsam.py` (14) + `web/tests/yayin-kapsam.test.ts`
 
 > Not: `Yayinlar` bugün **bölge alanı taşımıyordu**; bu eklemeyle bölgesel kampanya mümkün.
-> Panelde yayınlar salt-okunur görüntülendiği için **arayüz değişmedi**; alanlar veri dosyasından
-> (ya da ileride yükleme ekranından) yazılır.
+> Kapsam alanları yayın verisinden (veri dosyası / araçlar) yazılır; görsel adresi ise panelden
+> **"Görsel adresi (contentUrl)"** alanıyla düzenlenebilir (bkz. §5.1).
 
 ### 8.2 `durum.json` — yoklama turu 3 istek → 1 istek
 

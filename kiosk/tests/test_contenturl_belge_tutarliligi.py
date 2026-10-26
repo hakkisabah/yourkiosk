@@ -8,9 +8,10 @@ düz metin, düzenleme iletişim kutusu yalnız HEDEFLEME alanlarını bağlar) 
   · `docs/GORSEL-MIMARISI.md` §5 ("bugün panel yalnız adres yazıyor" — yanlış),
   · `deploy/README.md` §2.5 (head'de düzeltildi; bu test geri gelmesini engeller).
 
-Düzeltme #88 (panelde adres düzenleme) birleşene kadar geçerli kural: panelde giriş ÖNERİLMEZ,
-adres veri dosyasına araçla yazılır. #88 birleşince VeriView'de `contentUrl`e bağlı bir girdi
-(`v-model`) görünür → bu testlerin ilk bölümü kendiliğinden gevşer, belge tarafı da güncellenir.
+Düzeltme: #88 BİRLEŞTİ → panel `contentUrl`i düzenleyebiliyor (`VeriView` → "Görsel adresi
+(contentUrl)", `v-model="gorselUrl"`). Bu yüzden belgelerdeki "panelden giremezsiniz / SALT-OKUNUR"
+metinleri yanlıştı ve kaldırıldı; testler artık TERSİNİ kilitler: panel alanı var olmalı ve her
+belge onun ADINI vermeli. Toplu geçiş yolu (`gorsel_webp.py --veri --yaz`) alternatif olarak kalır.
 
 İkinci yarı: `gorsel_webp.py --veri --yaz` üretilen WebP baytlarını bir klasöre YAZMAZSA veri
 dosyasındaki yeni adresler S3'te var olmayan nesnelere işaret eder (cihaz 404 → boş ekran).
@@ -57,59 +58,53 @@ BELGE = {
 # --- 1) panel gerçekten salt-okunur mu? -----------------------------------------
 
 
-def test_panelde_contenturl_girdisi_yok():
-    """Ön koşul: VeriView `contentUrl`e YAZMIYOR (v-model/input yok) — belge kuralı buna dayanır."""
+def test_panelde_contenturl_girdisi_var():
+    """#88 birleşti: panel `contentUrl`i DÜZENLEYEBİLİR (görsel adresi alanı bağlı).
+
+    Belge kuralı buna dayanır: "adresi panelden giremezsiniz" cümlesi artık yanlıştır ve
+    geri gelirse bu test kırmızı olur.
+    """
     metin = VERIVIEW.read_text(encoding="utf-8")
     assert "contentUrl" in metin, "VeriView contentUrl göstermiyor (test varsayımı geçersiz)"
-    for satir in metin.splitlines():
-        if "contentUrl" not in satir:
-            continue
-        assert "v-model" not in satir, f"contentUrl artık bağlanıyor gibi: {satir.strip()}"
-        assert "<input" not in satir and "<v-text-field" not in satir, satir.strip()
+    assert "v-model=\"gorselUrl\"" in metin, "contentUrl girişi (v-model) kaldırılmış (işlev geriledi)"
+    assert "Görsel adresi (contentUrl)" in metin, "alan etiketi kaldırılmış"
 
 
-# --- 2) belgeler/betikler panelde giriş önermemeli -------------------------------
+# --- 2) belgeler/betikler panel alanını göstermeli --------------------------------
 
 
 @pytest.mark.parametrize("belge", BELGELER, ids=[b.name for b in BELGELER])
-def test_belgeler_panelde_contenturl_girisi_onermez(belge: Path):
-    """Yönlendirme satırının YANINDA (≤3 satır) salt-okunur uyarısı olmalı.
-
-    Dosya düzeyinde arama yetmez: uyarı dosyanın başka yerinde dururken eski yanlış adım geri
-    gelebiliyordu (mutasyon 5a/5b bunu yakaladı). Bu yüzden pencere satır bazında denetlenir.
-    """
-    satirlar = belge.read_text(encoding="utf-8").splitlines()
-    hatalar: list[str] = []
-    for i, satir in enumerate(satirlar):
-        if "contentUrl" not in satir or SALT_OKUNUR.search(satir) or not YONLENDIRME.search(satir):
-            continue
-        pencere = "\n".join(satirlar[i:i + 3])
-        if not SALT_OKUNUR.search(pencere):
-            hatalar.append(f"{belge.name}:{i + 1}: {satir.strip()}")
-    assert not hatalar, (
-        "panelde contentUrl girisi oneriliyor, yaninda SALT-OKUNUR uyarisi yok:\n  "
-        + "\n  ".join(hatalar)
-    )
-    if any("contentUrl" in s for s in satirlar):
-        # Panel düzenlemesi #88'e ertelendiği her yerde atıf görünür olmalı.
-        assert "#88" in "\n".join(satirlar) or not any(YONLENDIRME.search(s) for s in satirlar), (
-            f"{belge.name}: contentUrl yonlendirmesi var ama #88 atfi yok"
-        )
+def test_belgeler_yanlis_salt_okunur_iddiasini_yazmaz(belge: Path):
+    """Panel artık düzenlenebilir: "SALT-OKUNUR / panelden giremezsiniz" YANLIŞ bilgidir."""
+    kacak = [f"{belge.name}:{i}" for i, satir in enumerate(
+        belge.read_text(encoding="utf-8").splitlines(), 1)
+        if "contentUrl" in satir and SALT_OKUNUR.search(satir)]
+    assert not kacak, (
+        "contentUrl hâlâ SALT-OKUNUR diye anlatılıyor (#88 birleşti): " + ", ".join(kacak))
 
 
-def test_gorseller_yukle_ciktisi_veri_dosyasi_yolunu_gosterir():
-    """Betiğin ÇIKTISI (operatörün birebir izlediği metin) panelde alan doldurmayı söylememeli."""
+@pytest.mark.parametrize("belge", BELGELER, ids=[b.name for b in BELGELER])
+def test_belgeler_panel_alanini_gosterir(belge: Path):
+    """contentUrl'den söz eden her belge paneldeki alanın ADINI vermeli (uygulanabilir adım)."""
+    metin = belge.read_text(encoding="utf-8")
+    if "contentUrl" not in metin:
+        pytest.skip(f"{belge.name}: contentUrl geçmiyor")
+    assert "Görsel adresi (contentUrl)" in metin or "Nöbet ve Yayınlar" in metin, (
+        f"{belge.name}: panelde hangi alana yazılacağı yazmıyor")
+
+
+def test_gorseller_yukle_ciktisi_iki_yolu_da_gosterir():
+    """Betiğin ÇIKTISI (operatörün birebir izlediği metin) panel alanını ve toplu yolu göstermeli."""
     metin = (DEPO / "deploy" / "gorseller-yukle.sh").read_text(encoding="utf-8")
-    assert "contentUrl alanı:" not in metin, "eski 'panelde contentUrl alanı:' yönlendirmesi geri gelmiş"
-    assert "=== panelde yapılacak" not in metin, "eski 'panelde yapılacak' bloğu geri gelmiş"
-    assert "gorsel_webp.py --veri" in metin, "çıktı, çalışan (veri dosyası) yolunu göstermiyor"
-    assert SALT_OKUNUR.search(metin), "çıktı contentUrl'in salt-okunur olduğunu söylemiyor"
+    assert "Görsel adresi (contentUrl)" in metin, "çıktı paneldeki alanı göstermiyor"
+    assert "gorsel_webp.py --veri" in metin, "çıktı, toplu (veri dosyası) yolu göstermiyor"
+    assert "contentUrl alanı:" not in metin
 
 
 def test_gorsel_mimarisi_panelde_adres_yazildigini_iddia_etmez():
     metin = (DEPO / "docs" / "GORSEL-MIMARISI.md").read_text(encoding="utf-8")
     assert "panel yalnız **adres** yazıyor" not in metin, "panelde adres yazıldığı iddiası geri gelmiş"
-    assert SALT_OKUNUR.search(metin), "görsel mimarisi belgesi salt-okunur gerçeğini yazmıyor"
+    assert "Görsel adresi (contentUrl)" in metin, "görsel mimarisi belgesi panel alanını yazmıyor"
 
 
 # --- 3) --veri --yaz üretilen WebP'leri gerçekten yazmalı ------------------------

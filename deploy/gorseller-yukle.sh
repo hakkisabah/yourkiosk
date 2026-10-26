@@ -15,8 +15,10 @@
 #   * yazma izni olan profil: `AWS_PROFILE=yourkiosk-yayin` (politika: deploy/README.md §2)
 #   * WebP üretimi: `kiosk/tools/gorsel_webp.py <png> --cikti <klasör>`
 #
-# ÇIKIŞ: yüklenen her nesne için **tam adres** yazılır. Panelde `contentUrl` SALT-OKUNUR (yalnız
-# hedefleme düzenlenir; adres düzenlemesi #88) → adresi veri dosyasına yazın (deploy/README.md §2.5).
+# ÇIKIŞ: yüklenen her nesne için **tam adres** yazılır. Bu adres panelden girilebilir:
+#   Nöbet ve Yayınlar → yayın satırı → Görsel → "Görsel adresi (contentUrl)" → Uygula → Kaydet
+# Toplu geçişte (çok sayıda görsel) alternatif yol veri dosyasına araçla yazmaktır
+# (deploy/README.md §2.5). İki yol da aynı cihaz kapısından geçer.
 set -euo pipefail
 
 KOVA=""
@@ -113,9 +115,10 @@ if [[ -n "$DAGITIM" ]]; then
 fi
 
 echo
-echo "=== adresi veri dosyasına yaz (panelde contentUrl SALT-OKUNUR · düzenleme #88) ==="
-echo "  \"Nöbet ve Yayınlar\" ekranı yalnız HEDEFLEME düzenler; adresi panelden giremezsiniz."
-echo "  Aşağıdaki tek komut adresi lastSystemData.json içine yazar:"
+echo "=== adresi panele gir (tek görsel) YA DA veri dosyasına yaz (toplu geçiş) ==="
+echo "  Panel: \"Nöbet ve Yayınlar\" → yayın satırı → Görsel → \"Görsel adresi (contentUrl)\""
+echo "         → Uygula → Kaydet → Bildir."
+echo "  Toplu geçiş için aşağıdaki tek komut adresi lastSystemData.json içine yazar:"
 echo "    kiosk/.venv/bin/python kiosk/tools/gorsel_webp.py --veri lastSystemData.json \\"
 if [[ -n "$DAGITIM" ]]; then
   echo "      --url-taban https://${DAGITIM}/${ONEK##kiosk/} --yaz"

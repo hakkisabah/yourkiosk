@@ -70,11 +70,13 @@ cd deploy && ./gorseller-yukle.sh --kova yourkiosk-veri \
   --dagitim d2dnrvsx5eevod.cloudfront.net /tmp/gorsel/*.webp
 ```
 
-Çıktıdaki adres `lastSystemData.json` → `Yayinlar.<id>.contentUrl` alanına yazılmalıdır.
-**Bu alan panelde SALT-OKUNUR** (`panel/src/views/VeriView.vue:453,480` — yayın sekmesi yalnız
-hedefleme düzenler; adres düzenlemesi #88 ile gelecek). Bu yüzden panelde giriş denemeyin: bugünkü
-çalışan yol adresi **veri dosyasına araçla yazıp S3'e yüklemektir** — sıra önemlidir, önce görseller
-sonra veri dosyası:
+Çıktıdaki adres `Yayinlar.<id>.contentUrl` alanına yazılmalıdır. **İki yol var:**
+
+* **Tek görsel (panel):** *Nöbet ve Yayınlar* → yayın satırı → **Görsel** → "Görsel adresi
+  (contentUrl)" → **Uygula** → **Kaydet** → **Bildir**. Panel adresi cihaz kurallarından geçirir
+  (`https`, port 443, kullanıcı adı/parola yok, uzantı varsa png/jpg/jpeg/webp).
+* **Toplu geçiş (araç):** adresi veri dosyasına `gorsel_webp.py --veri --yaz` ile yazıp S3'e
+  yükleyin — sıra önemlidir, önce görseller sonra veri dosyası:
 
 ```bash
 # 1) tüm yayın görsellerini WebP'ye çevir + contentUrl'leri veri dosyasına YAZ (yedek: *.bak)
