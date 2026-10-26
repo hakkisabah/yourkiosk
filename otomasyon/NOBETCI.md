@@ -72,24 +72,49 @@ i5/i3 ev/ofis ağında, dışarıdan erişilebilir adresleri yok (NAT). Gerçek 
 
 15 saniye, PR akışı için pratikte "anlık" sayılır; bu yüzden nöbetçi varsayılan seçildi.
 
-## Kurulum (her makinede bir kez)
+## Kurulum (her makinede bir kez) — `git pull` YOK
+
+Servis **makineye ait ayrı bir klondan** çalışır: `~/.local/share/yourkiosk-nobetci/depo`.
+İnsan deposunun dalı, kirli ağacı ve `.git/config`'teki `[branch]` bölümleri bu işe **karışmaz**.
+Sebep gerçek bir arıza: i5'te `git pull` çalışmıyordu (`[branch "x"] merge = refs/heads/baska-dal`),
+kod güncellenmedi, makine bellek tavanı olmayan sürümü koştu ve `node-MainThread`
+`FatalProcessOutOfMemory` ile core dump üretti.
 
 ```bash
-cd ~/projeler/yourkiosk && git pull
-
-bash otomasyon/nobetci-kur.sh i5          # i5 makinesinde
-bash otomasyon/nobetci-kur.sh i3          # i3 makinesinde
-
-# eski cron görevini kaldır (artık gerekmiyor)
-bash otomasyon/nobetci-kur.sh i5 --cron-kaldir
+# TEK KOMUT (depo eski/bozuk olsa bile çalışır: fetch + show | bash — pull/checkout gerekmez)
+git -C ~/projeler/yourkiosk fetch origin main && \
+  git -C ~/projeler/yourkiosk show origin/main:otomasyon/betik/nobetci-bakim.sh | bash -s -- i5
 ```
 
-Kurulum sonrası:
+i3'te aynı komut `i3` argümanıyla. Bakım betiği şunları yapar (hepsi idempotent, sudo **yok**):
+
+| Adım | Ne yapar |
+|---|---|
+| 1 | Klon yoksa `git clone --branch main`, varsa `fetch` + `reset --hard origin/main` (makine kopyası) |
+| 2 | Bellek tavanlarını **drop-in** olarak yazar: `yourkiosk-nobetci.service.d/50-bellek.conf` (RAM'den ölçülür) |
+| 3 | Birimi klon yolundan üretir: `--depo <klon> --guncelle` |
+| 4 | Çalışan birime tavanı `set-property` ile **canlı** uygular (oturumu öldürmez) |
+| 5 | Oturum içinden çağrıldıysa restart'ı `systemd-run --on-active` ile **geciktirir** |
+
+Sonrasında doğrulama ve günlük:
 
 ```bash
-bash otomasyon/nobetci-kur.sh i5 --durum          # servis + nöbetçi durumu
+(cd ~/.local/share/yourkiosk-nobetci/depo && python3 otomasyon/betik/nobetci.py --rol i5 --kendini-denetle)
+bash otomasyon/nobetci-kur.sh i5 --durum        # servis + nöbetçi durumu
 tail -f ~/.local/state/yourkiosk-otomasyon/nobetci-i5.log
 journalctl --user -u yourkiosk-nobetci -f
+```
+
+### Kendini güncelleme (bir daha elle müdahale yok)
+
+Birim `nobetci.py --guncelle` ile çalışır. Nöbetçi **tur arasında** (açık oturum yokken) klonu
+`origin/main`e çeker; kod değiştiyse süreç `çıkış 75` ile biter ve `Restart=always` yeni kodu yükler.
+Yani bundan sonra bir düzeltme `main`e girdiğinde makinelere kendiliğinden ulaşır. İnsan deposunda
+(klon işareti yoksa) yalnız `merge --ff-only` denenir — kimsenin dalı/commit'i ezilmez.
+
+```bash
+# makine kopyası mı, kod güncel mi?
+python3 otomasyon/betik/nobetci.py --rol i5 --tani      # "kod: <sha> (makine kopyası) · kendini güncelleme: açık"
 ```
 
 ## Ayrı profil (i5 mimarisi — Open WebUI yükünü ayır)
@@ -126,6 +151,9 @@ Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce v
 | Belirti | Bak |
 |---|---|
 | Servis düşüyor | `journalctl --user -u yourkiosk-nobetci -n 50` |
+| `git pull` "no tracking information" veriyor | artık gerekmiyor — `nobetci-bakim.sh` klonu kendisi çeker (`fetch` + `reset`) |
+| Kod güncellenmiyor / makine eski sürümde | `--tani` → `kod:` satırı; `--kendini-denetle` 13–14 ✗ ise `nobetci-bakim.sh` |
+| `dumped core` / `FatalProcessOutOfMemory` | birimde + drop-in'de tavan var mı (kontrol 9), boş RAM (10), ağır komut koşucusu (12) |
 | "iş yok" ama PR bekliyor | `./otomasyon/betik/nobetci.py --rol i5 --tani` → yaş + sıra |
 | PR saatlerdir incelenmiyor | günlükte `AÇLIK:` satırı; `--tani` çıktısında en eski PR'ın `dk açık` değeri |
 | Oturum açılıyor ama durum yazılmıyor | `nobetci-i5.log` sonunda oturum çıktısı; `hermes chat -q` çalışıyor mu |
@@ -153,6 +181,8 @@ Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce v
 | 10 | **Boş RAM / takas** | ≥ 500 MB boş · takas <%50 |
 | 11 | **Son 24s OOM / core dump izi** | 0 (`journalctl --user -u …`) |
 | 12 | Ağır komut koşucusu (`agir-komut.sh`) | var + çalıştırılabilir |
+| 13 | **Kod `origin/main` ile aynı** (eski kod = eski hata) | eşit sha |
+| 14 | **Kod deposu makine kopyası** (insan deposu değil) | klon işareti var |
 
 ## Bellek tavanı (26 Ekim dersi — node core dump)
 
