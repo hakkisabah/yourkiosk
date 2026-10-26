@@ -166,3 +166,40 @@ def test_dogrulama_degisken_adlari_kodla_uyusur() -> None:
     assert "MQTT_CIHAZ_KULLANICI" not in metin, "eski/yanlış değişken adı kalmış (5. kontrol atlanır)"
     # 5. kontrol kimlik verilmezse ATLAR (paylaşılan `cihaz` hesabı yazamaz → sahte ✓ üretmesin)
     assert '"${MQTT_CIHAZ_ID:-}" ]' in metin
+
+
+# --- 26 Ekim i5 bulguları: kurulum testi ÜRETİM dosyalarını kirletmemeli ----------------
+
+def test_kurulum_testi_parola_dosyasini_da_yedekleyip_geri_yukler() -> None:
+    """`set -euo pipefail` altında yarıda çöken koşu test kullanıcısını üretimde bırakıyordu.
+
+    ACL geri yükleniyordu ama parola dosyası yüklenmiyordu → `cihaz-kurulumtestNNN` hesabı
+    (durum konusuna yazma izniyle) kalıcı olarak açık kalıyordu.
+    """
+    metin = _metin(KUR)
+    assert "passwd.yedek" in metin, "parola dosyası yedeklenmiyor"
+    geri = metin[metin.find("geri_yukle()"):]
+    assert "PAROLA_YEDEK" in geri and "/etc/mosquitto/auth/passwd" in geri, (
+        "çıkış tuzağı parola dosyasını geri yüklemiyor"
+    )
+    assert re.search(r"^trap\s+geri_yukle\s+EXIT", metin, re.MULTILINE), "EXIT tuzağı geri_yukle'ye bağlı değil"
+
+
+def test_acl_test_kullanicisi_atomik_eklenir() -> None:
+    """`cat >>` üretim ACL'ini yerinde değiştiriyordu; yarım yazım broker'ı kilitler."""
+    metin = _metin(KUR)
+    assert "cat >>/etc/mosquitto/auth/acl" not in metin, (
+        "ACL yine yerinde (>>) ekleniyor — atomik install kullanılmalı"
+    )
+    assert re.search(r"install -m 640 -o mosquitto -g mosquitto .*auth/acl", metin), (
+        "ACL atomik olarak kurulmuyor"
+    )
+
+
+def test_dogrulama_testleri_basarisiz_aboneyi_yesil_saymaz() -> None:
+    """Gözlemci reddedilirse (yetki/parola/ağ) sonuç '✓ güvenli' YAZMAMALI."""
+    metin = _metin(KUR)
+    assert "belirsiz()" in metin, "belirsiz sonuç dalı yok"
+    assert re.search(r"RC=0;\s*wait|RC=0\s*\n\s*wait", metin) or "|| RC=$?" in metin, (
+        "`wait` çıkış kodu `set -e` yüzünden okunamıyor olabilir (RC değişkeni koşullu bağlanmalı)"
+    )

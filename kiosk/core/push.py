@@ -105,14 +105,25 @@ def durum_kimligi(cihaz: str | None = None) -> str:
     return temiz
 
 
+def taban_konu() -> str:
+    """Durum konularının tabanı: yayın konusunun SON parçası atılır (`yourkiosk/yayin` → `yourkiosk`).
+
+    Panel aynı kuralı uygular (`panel/src/domain/cihazIzleme.ts: durumKonusu`). İki kapı:
+    (1) sonda eğik çizgi (`yourkiosk/yayin/`) tabanı kaydırıyordu; kırpılır.
+    (2) yayın konusu boş/tek parçasız kaldığında taban boş kalıp konu `/durum/<id>` oluyordu
+    (panel ise `yourkiosk/durum/+` dinler → cihaz sonsuza kadar "bilinmiyor"); `yourkiosk`'a düşer.
+    """
+    temiz = konu().rstrip("/")
+    taban = temiz.rsplit("/", 1)[0] if "/" in temiz else temiz
+    return taban or "yourkiosk"
+
+
 def durum_konusu(cihaz: str | None = None) -> str:
     """Cihaz durum konusu: `<taban>/durum/<cihazId>` (`yourkiosk/yayin` → `yourkiosk/durum/<id>`).
 
-    Kimlik `durum_kimligi()` ile normalleştirilir; tabanın sonundaki eğik çizgiler kırpılır
-    (26 Ekim i5 bulgusu: `yourkiosk/yayin/` → taban `yourkiosk/yayin` olup konu kayıyordu).
+    Kimlik `durum_kimligi()` ile normalleştirilir; taban `taban_konu()`dan gelir.
     """
-    taban = konu().rstrip("/").rsplit("/", 1)[0] if "/" in konu().rstrip("/") else konu().rstrip("/")
-    return f"{taban}/durum/{durum_kimligi(cihaz)}"
+    return f"{taban_konu()}/durum/{durum_kimligi(cihaz)}"
 
 
 def kalp_atisi_belgesi(cevrimici: bool = True, simdi: datetime | None = None) -> dict:
@@ -165,6 +176,32 @@ def mesaj_isle(govde: bytes | str) -> bool:
     return True
 
 
+def tls_gerekli() -> bool:
+    """TLS VARSAYILAN AÇIK — porttan BAĞIMSIZ (26 Ekim i5 bulgusu).
+
+    Eski kod TLS'i yalnız `port == 8883` iken kuruyordu. `TETIK_PUSH_PORT` başka bir değere
+    (1883, 8884, 443, ters vekil) ayarlanınca TLS hiç devreye girmiyor, kullanıcı/parola ve
+    kalp atışları (filo görünürlüğü) aynı kanaldan ŞİFRESİZ gidiyordu. Kapatmak artık açık bir
+    karar: `TETIK_PUSH_TLS=false` (yalnız yerel/test broker'ı — günlüğe uyarı yazılır).
+    """
+    return bool(getattr(config, "TETIK_PUSH_TLS", True))
+
+
+def tls_kur(istemci) -> None:
+    """TLS bağlamını kurar; istemci sertifikası verilmişse X.509 kimlik (AWS IoT Core) kullanır.
+
+    Hata durumunda istisna yükseltir — çağıran push'u kapatır (cihaz yoklama emniyet ağına döner).
+    """
+    ca = str(getattr(config, "TETIK_PUSH_CA", "") or "").strip()
+    sertifika = str(getattr(config, "TETIK_PUSH_SERTIFIKA", "") or "").strip()
+    anahtar = str(getattr(config, "TETIK_PUSH_ANAHTAR", "") or "").strip()
+    if sertifika and anahtar:
+        # AWS IoT Core: istemci sertifikası ile kimlik doğrulama
+        istemci.tls_set(ca_certs=ca or None, certfile=sertifika, keyfile=anahtar)
+    else:
+        istemci.tls_set(ca_certs=ca or None)  # sistem CA'sı / verilen CA
+
+
 def _dongu(durdur: threading.Event) -> None:
     try:
         import paho.mqtt.client as mqtt  # type: ignore
@@ -183,20 +220,18 @@ def _dongu(durdur: threading.Event) -> None:
 
     if getattr(config, "TETIK_PUSH_KULLANICI", ""):
         istemci.username_pw_set(str(config.TETIK_PUSH_KULLANICI), str(getattr(config, "TETIK_PUSH_PAROLA", "")))
-    if port == 8883:
-        ca = str(getattr(config, "TETIK_PUSH_CA", "") or "").strip()
-        sertifika = str(getattr(config, "TETIK_PUSH_SERTIFIKA", "") or "").strip()
-        anahtar = str(getattr(config, "TETIK_PUSH_ANAHTAR", "") or "").strip()
+    # TLS PORTTAN BAĞIMSIZ (i5 bulgusu): eskiden yalnız `port == 8883` iken kuruluyordu.
+    if tls_gerekli():
         try:
-            if sertifika and anahtar:
-                # AWS IoT Core: istemci sertifikası ile kimlik doğrulama
-                istemci.tls_set(ca_certs=ca or None, certfile=sertifika, keyfile=anahtar)
-            else:
-                istemci.tls_set(ca_certs=ca or None)  # sistem CA'sı / verilen CA
+            tls_kur(istemci)
         except Exception as hata:  # noqa: BLE001 - sertifika hatası push'u kapatır, cihaz çalışır
             _durum["hata"] = f"TLS/sertifika hatası: {hata}"[:200]
             log.error("MQTT TLS kurulamadı (%s) — push devre dışı, yoklama sürüyor", hata)
             return
+    else:
+        log.warning(
+            "MQTT TLS KAPALI (TETIK_PUSH_TLS=false) — kullanıcı/parola ve kalp atışı şifresiz gider"
+        )
 
     def _baglandi(_c, _u, _f, rc, _p=None):  # paho 2.x 5 argüman geçer (properties)
         _durum["bagli"] = rc == 0

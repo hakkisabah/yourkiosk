@@ -232,10 +232,24 @@ mosquitto_pub -h 127.0.0.1 -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
 # yerel kullanıcıya root'un rastgele bir dosyayı kesmesine izin verir (i5 bulgusu).
 GECICI_DIZIN="$(mktemp -d)"
 # 26 Ekim i5 bulgusu: geçici test ACL'i yalnız betiğin SONUNDA siliniyordu; `set -euo pipefail`
-# yüzünden arada çöken koşu üretim ACL'inde test kullanıcısı bırakıyordu. Yedek al, çıkışta dön.
+# yüzünden arada çöken koşu üretim ACL'inde VE parola dosyasında test kullanıcısı bırakıyordu
+# (`cihaz-kurulumtestNNN` + `durum/<id>` yazma izni kalıcı olarak açık kalıyordu). Yedek al,
+# çıkışta (hata dahil) ikisini de geri yükle.
 cp /etc/mosquitto/auth/acl "$GECICI_DIZIN/acl.yedek"
+cp /etc/mosquitto/auth/passwd "$GECICI_DIZIN/passwd.yedek"
 ACL_YEDEK="$GECICI_DIZIN/acl.yedek"
-trap 'cp "$ACL_YEDEK" /etc/mosquitto/auth/acl 2>/dev/null; chown mosquitto:mosquitto /etc/mosquitto/auth/acl 2>/dev/null; chmod 640 /etc/mosquitto/auth/acl 2>/dev/null; rm -rf "$GECICI_DIZIN"' EXIT
+PAROLA_YEDEK="$GECICI_DIZIN/passwd.yedek"
+geri_yukle() {
+  cp "$ACL_YEDEK" /etc/mosquitto/auth/acl 2>/dev/null || true
+  chown mosquitto:mosquitto /etc/mosquitto/auth/acl 2>/dev/null || true
+  chmod 640 /etc/mosquitto/auth/acl 2>/dev/null || true
+  cp "$PAROLA_YEDEK" /etc/mosquitto/auth/passwd 2>/dev/null || true
+  chown root:mosquitto /etc/mosquitto/auth/passwd 2>/dev/null || true
+  chmod 640 /etc/mosquitto/auth/passwd 2>/dev/null || true
+  systemctl reload mosquitto 2>/dev/null || true
+  rm -rf "$GECICI_DIZIN"
+}
+trap geri_yukle EXIT
 SORUN=0
 belirsiz() { echo "  ? $1 — abone bağlanamadı (çıkış $2); sonuç DOĞRULANAMADI"; SORUN=$((SORUN+1)); }
 CAFILE=/etc/ssl/certs/ca-certificates.crt
@@ -246,20 +260,27 @@ TEST_PAROLA="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
 mosquitto_passwd -b /etc/mosquitto/auth/passwd "cihaz-$TEST_CIHAZ" "$TEST_PAROLA"
 chown root:mosquitto /etc/mosquitto/auth/passwd
 chmod 640 /etc/mosquitto/auth/passwd
-cat >>/etc/mosquitto/auth/acl <<EOF
+# 26 Ekim i5 bulgusu: `cat >>` ACL'i YERİNDE değiştiriyordu → yarıda kalan yazım broker'ı
+# kilitleyebilir, çökme hâlinde test kullanıcısı üretim ACL'inde kalırdı. Kopya + atomik install.
+{
+  cat /etc/mosquitto/auth/acl
+  cat <<EOF
 
 # geçici kurulum testi cihazı (kur.sh sonunda silinir)
 user cihaz-$TEST_CIHAZ
 topic read yourkiosk/yayin
 topic write yourkiosk/durum/$TEST_CIHAZ
 EOF
-chown mosquitto:mosquitto /etc/mosquitto/auth/acl
-chmod 640 /etc/mosquitto/auth/acl
+} >"$GECICI_DIZIN/acl.test"
+install -m 640 -o mosquitto -g mosquitto "$GECICI_DIZIN/acl.test" /etc/mosquitto/auth/acl
 systemctl reload mosquitto
 sleep 1
 
 # 1) PAYLAŞILAN `cihaz` HESABI BAŞKA CİHAZIN KONUSUNA YAZAMAMALI (cihaz taklidi kapalı).
 #    Konu benzersiz ve retained DEĞİL → test yalnız gerçek sızıntıyı görür.
+#    ÖLÇÜM (26 Ekim i5 bulgusu): `set -e` altında `wait <pid>` sıfırdan farklı dönerse betik
+#    RC atamasından ÖNCE ölür; "gözlemci reddedildi" dalı hiç çalışmıyor, ayrıca 2/3 ve özet
+#    atlanıyordu. Doğru kalıp: `RC=0; wait ... || RC=$?` (wait'i koşullu bağlama al → set -e devre dışı).
 KONU_TAKLIT="yourkiosk/durum/taklit$$"
 ( timeout 5 mosquitto_sub -h 127.0.0.1 -p 8883 --cafile "$CAFILE" \
     -u panel-izleme -P "$PAROLA_IZLEME" -t "$KONU_TAKLIT" -C 1 \
@@ -268,7 +289,7 @@ ABONE1=$!
 sleep 1
 mosquitto_pub -h 127.0.0.1 -p 8883 --cafile "$CAFILE" \
   -u cihaz -P "$PAROLA_CIHAZ" -t "$KONU_TAKLIT" -m '{"cevrimici":true}' 2>/dev/null || true
-wait "$ABONE1" 2>/dev/null; RC1=$?
+RC1=0; wait "$ABONE1" 2>/dev/null || RC1=$?
 if [ -s "$GECICI_DIZIN/taklit" ]; then
   echo "  ✗ GÜVENLİK: paylaşılan cihaz hesabı başka cihazın durum konusuna yazabildi"
   SORUN=$((SORUN+1))
@@ -279,19 +300,24 @@ else
 fi
 
 # 2) Cihaz kimliği kalp atışını yazabilmeli, panel-izleme okuyabilmeli.
+#    Gözlemci REDDEDİLİRSE (parola/ACL) bu test ✗ ya da "?" üretmeli — sessiz ✓ ASLA.
 KONU_TEST="yourkiosk/durum/$TEST_CIHAZ"
 ( timeout 6 mosquitto_sub -h 127.0.0.1 -p 8883 --cafile "$CAFILE" \
     -u panel-izleme -P "$PAROLA_IZLEME" -t "$KONU_TEST" -C 1 \
-    >"$GECICI_DIZIN/kalp" 2>/dev/null || true ) &
+    >"$GECICI_DIZIN/kalp" 2>/dev/null ) &
+IZLE2=$!
 sleep 1
 mosquitto_pub -h 127.0.0.1 -p 8883 --cafile "$CAFILE" \
   -u "cihaz-$TEST_CIHAZ" -P "$TEST_PAROLA" -t "$KONU_TEST" -r \
   -m '{"cevrimici":true,"zaman":"2026-01-01T00:00:00Z","mod":"qt"}' 2>/dev/null || true
-wait
+RC2=0; wait "$IZLE2" 2>/dev/null || RC2=$?
 if grep -q cevrimici "$GECICI_DIZIN/kalp" 2>/dev/null; then
   echo "  ✓ cihaz kimliği kalp atışı yazdı, panel-izleme okudu"
+elif [ "$RC2" -ne 124 ] && [ "$RC2" -ne 0 ]; then
+  belirsiz "kalp atışı zinciri (panel-izleme abonesi)" "$RC2"
 else
   echo "  ✗ kalp atışı okunamadı (ACL: cihaz-<id> write / panel-izleme read eksik olabilir)"
+  SORUN=$((SORUN+1))
 fi
 
 # 3) panel-izleme YAYIN yapamamalı (salt-okur). Aynı yöntem: benzersiz konu, retained yok.
@@ -303,7 +329,7 @@ ABONE3=$!
 sleep 1
 mosquitto_pub -h 127.0.0.1 -p 8883 --cafile "$CAFILE" \
   -u panel-izleme -P "$PAROLA_IZLEME" -t "$KONU_SIZINTI" -m '{"cevrimici":true}' 2>/dev/null || true
-wait "$ABONE3" 2>/dev/null; RC3=$?
+RC3=0; wait "$ABONE3" 2>/dev/null || RC3=$?
 if [ -s "$GECICI_DIZIN/sizinti" ]; then
   echo "  ✗ GÜVENLİK: panel-izleme yayın yapabildi (ACL fazla geniş)"; SORUN=$((SORUN+1))
 elif [ "$RC3" -eq 124 ]; then

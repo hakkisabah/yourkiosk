@@ -18,10 +18,38 @@ export interface IzlemeKimligi {
 
 export const VARSAYILAN_IZLEME_KULLANICI = 'panel-izleme'
 const ANAHTAR = 'yourkiosk.izleme'
+/** Yerel geliştirme (vite dev sunucusu) için TLS'siz WebSocket'e izin verilen adlar. */
+const YEREL_ADLAR = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
 
-/** Yayın konusundan izleme adresi (sır değil; `.env`ten gelebilir). */
+/**
+ * Broker adresi GÜVENLİ mi? (26 Ekim i5 bulgusu)
+ *
+ * `izlemeAdresi` eskiden `.env`teki `VITE_MQTT_URL`i yalnız `trim` ediyordu. `ws://`/`http://`
+ * yazılırsa çalışma anında girilen izleme parolası DÜZ METİN gider (ve `http://` mqtt.js'te
+ * hiç bağlanmaz → izleme sessizce ölür). Kural: yalnız `wss://`; `ws://` yalnız yerel adlarda.
+ */
+export function guvenliAdresMi(adres: string): boolean {
+  let url: URL
+  try {
+    url = new URL(String(adres ?? '').trim())
+  } catch {
+    return false
+  }
+  if (url.protocol === 'wss:') return true
+  return url.protocol === 'ws:' && YEREL_ADLAR.has(url.hostname)
+}
+
+/** Yayın konusundan izleme adresi (sır değil; `.env`ten gelebilir). Güvenli değilse `''`. */
 export function izlemeAdresi(env: Record<string, string | undefined>): string {
-  return String(env.VITE_MQTT_URL ?? '').trim()
+  const ham = String(env.VITE_MQTT_URL ?? '').trim()
+  return guvenliAdresMi(ham) ? ham : ''
+}
+
+/** `VITE_MQTT_URL` dolu ama güvenli değilse yöneticiye gösterilecek hata; sorun yoksa `''`. */
+export function izlemeAdresiHatasi(env: Record<string, string | undefined>): string {
+  const ham = String(env.VITE_MQTT_URL ?? '').trim()
+  if (!ham || guvenliAdresMi(ham)) return ''
+  return `VITE_MQTT_URL güvenli değil (${ham}) — wss://… bekleniyor; ws:// / http:// parolayı şifresiz gönderir`
 }
 
 /** `.env`teki yayın konusu (varsayılan `yourkiosk/yayin`). */
