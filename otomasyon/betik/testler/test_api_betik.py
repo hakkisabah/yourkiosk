@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import unittest
 from pathlib import Path
@@ -71,6 +72,81 @@ class AnahtarSizintisiTesti(unittest.TestCase):
             self.assertIn("BASKA=1", satirlar)   # diğer satırlar korunur
             self.assertEqual(len(satirlar), 3)   # satır çoğaltmaz
             self.assertEqual(env.stat().st_mode & 0o777, 0o600)
+
+    def test_env_gecici_dosyasi_tahmin_edilemez(self):
+        """26 Ekim i5 bulgusu: sabit `.env.tmp` sembolik bağ saldırısına açıktı → mkstemp."""
+        ham = BETIK.read_text(encoding="utf-8")
+        self.assertNotIn('with_suffix(env_yolu.suffix + ".tmp")', ham)
+        self.assertIn("tempfile.mkstemp", ham)
+        self.assertIn("import tempfile", ham)
+
+
+class KodAlArgvTesti(unittest.TestCase):
+    """26 Ekim i5 bulgusu: anahtar `-H "Authorization: Bearer $2"` ile curl ARGV'sine giriyordu.
+
+    Sahte curl ile kod_al gerçekten koşturulur: argv'de anahtar OLMAMALI, başlık STDIN'den
+    (`--config -`) gelmeli. Eski biçim bu testte kırmızıya döner (mutasyon: `-H` satırını geri koy).
+    """
+
+    ANAHTAR = "s" * 24 + "GIZLI-ANAHTAR"
+
+    def _kod_al(self) -> str:
+        import re
+        ham = BETIK.read_text(encoding="utf-8")
+        m = re.search(r"^kod_al\(\) \{.*?\n\}\n", ham, re.S | re.M)
+        self.assertIsNotNone(m, "kod_al fonksiyonu bulunamadı")
+        assert m is not None
+        return m.group(0)
+
+    def test_anahtar_argv_degil_stdin_ile_gider(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as dizin:
+            bin_dizin = Path(dizin) / "bin"
+            bin_dizin.mkdir()
+            argv_kayit = Path(dizin) / "argv"
+            stdin_kayit = Path(dizin) / "stdin"
+            sahte = bin_dizin / "curl"
+            sahte.write_text(
+                "#!/usr/bin/env bash\n"
+                f"printf '%s\\n' \"$@\" > {argv_kayit}\n"
+                f"cat > {stdin_kayit}\n"
+                "printf '200'\n",
+                encoding="utf-8",
+            )
+            sahte.chmod(0o755)
+            betik = Path(dizin) / "kod_al.sh"
+            betik.write_text(self._kod_al() + '\nkod_al "http://127.0.0.1:8642/v1/models" "$1"\n',
+                             encoding="utf-8")
+            ortam = {**os.environ, "PATH": f"{bin_dizin}:{os.environ.get('PATH', '')}"}
+            s = subprocess.run(["bash", str(betik), self.ANAHTAR], capture_output=True,
+                               text=True, timeout=60, env=ortam)
+            self.assertEqual(s.returncode, 0, s.stderr)
+            self.assertEqual(s.stdout.strip(), "200")
+            argv = argv_kayit.read_text(encoding="utf-8")
+            self.assertNotIn(self.ANAHTAR, argv, f"anahtar argv'de: {argv!r}")
+            self.assertIn("--config", argv)
+            self.assertIn("-", argv)
+            self.assertIn(self.ANAHTAR, stdin_kayit.read_text(encoding="utf-8"))
+
+    def test_anahtarsiz_istek_baslik_gondermez(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as dizin:
+            bin_dizin = Path(dizin) / "bin"
+            bin_dizin.mkdir()
+            argv_kayit = Path(dizin) / "argv"
+            sahte = bin_dizin / "curl"
+            sahte.write_text("#!/usr/bin/env bash\n"
+                             f"printf '%s\\n' \"$@\" > {argv_kayit}\n"
+                             "cat >/dev/null\nprintf '401'\n", encoding="utf-8")
+            sahte.chmod(0o755)
+            betik = Path(dizin) / "kod_al.sh"
+            betik.write_text(self._kod_al() + '\nkod_al "http://127.0.0.1:8642/v1/models"\n',
+                             encoding="utf-8")
+            ortam = {**os.environ, "PATH": f"{bin_dizin}:{os.environ.get('PATH', '')}"}
+            s = subprocess.run(["bash", str(betik)], capture_output=True, text=True, timeout=60, env=ortam)
+            self.assertEqual(s.returncode, 0, s.stderr)
+            self.assertEqual(s.stdout.strip(), "401")
+            self.assertNotIn("--config", argv_kayit.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
