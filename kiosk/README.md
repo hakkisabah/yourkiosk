@@ -25,7 +25,7 @@ kiosk/
 │   ├── shift_dates.py     # tarih kaydırıcı (üretim aracı)
 │   ├── setup_qt_libs.py   # (geliştirme makinesi) eksik Qt kütüphanelerini aşamalar
 │   └── test.sh            # test çalıştırıcı
-└── tests/                 # 58 test
+└── tests/                 # birim + belge testleri
 ```
 
 ---
@@ -493,7 +493,7 @@ python3 tools/setup_qt_libs.py     # Arch paketlerini .qt-libs altına aşamalar
 ## 5. Testler
 
 ```bash
-./tools/test.sh            # 290 test (kiosk) · panel: cd ../panel && npm run test (104 test) · arayüz: cd ../web && npm run test (84 test)
+./tools/test.sh            # kiosk · panel: cd ../panel && npm run test · arayüz: cd ../web && npm run test
 ```
 
 | Dosya | Kapsam |
@@ -635,4 +635,4 @@ Adım adım rehber: [`../web/CALISTIRMA.md`](../web/CALISTIRMA.md).
    aynı dosyalardan sunulur.
 
 Ayrıntılar, adres parametreleri ve davranış tablosu: [`web/README.md`](../web/README.md).
-Arayüz testleri: `cd web && npm run test` (84 test).
+Arayüz testleri: `cd web && npm run test`.

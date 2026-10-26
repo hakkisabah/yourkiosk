@@ -216,7 +216,8 @@ yeniden başlat), yedekleme (S3 sürümleme), cihaz durumunun panelde izlenmesi.
 * **Nöbet değişikliğini anında yansıtma**: `tetikle.json` + uzun yoklama `/degisiklik` + damga
   yoklaması (push bağlı 120 sn / kopuk 30 sn) + panel düğmesi + Qt `tetik_kontrol()` +
   `tools/nobet_tetikle.py`.
-* **Test sayıları**: kiosk 352 · web 108 · panel 104.
+* **Testler**: sayı belgede TUTULMAZ (bayatlıyordu: 352 → 519). Güncel sayı için
+  `cd kiosk && bash tools/test.sh`, `cd web && npm run test`, `cd panel && npm run test`.
 * **İş 1 düzeltmesi**: geçici çoklu-nöbetçi aracı gösterilen bloğu dolduruyor + `lastupdate` damgasını
   tazeliyor; sunucu değişiklik imzasına `lastSystemData.json` eklendi; web'e zorla yenileme yolu.
 * **İş 3 — uzaktan komut**: `core/komut.py` (beyaz liste, HMAC imza, hedef cihaz, tek seferlik, kuru
@@ -248,4 +249,4 @@ yeniden başlat), yedekleme (S3 sürümleme), cihaz durumunun panelde izlenmesi.
 | 10 | 600 cihaz izleme (çevrimiçi/çevrimdışı) | MQTT `$SYS` ya da basit "son görülme" alanı; ölçek testi sonrası |
 | 11 | Yedekten geri dönme provası | S3 sürümleme açık; bir nesneyi eski sürümden geri alma tatbikatı |
 
-**Tamamlananlar (bu oturum):** panel CloudFront yayını · cihaz verisi ikinci dağıtım · giriş/404/structuredClone hataları · `veri.dosya_adresi` görünürlüğü · oto tetikleme (aktif+modlar) · anlık tetik (yoklama) · MQTT push altyapısı · panel yayın anahtarı · kiosk 370+ / web 111 / panel 114 test.
+**Tamamlananlar (bu oturum):** panel CloudFront yayını · cihaz verisi ikinci dağıtım · giriş/404/structuredClone hataları · `veri.dosya_adresi` görünürlüğü · oto tetikleme (aktif+modlar) · anlık tetik (yoklama) · MQTT push altyapısı · panel yayın anahtarı · testler (sayı belgede tutulmaz; çıktıdan okunur).

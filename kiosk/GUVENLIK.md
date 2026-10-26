@@ -174,7 +174,7 @@ kütüphaneleri kalır, "yetim" kalan her şey (ör. QtMultimedia'nın getirdiğ
 her şeydir (QML/Quick/Quick3D, PDF, SQL sürücüleri, Multimedia+FFmpeg, Sensors,
 Bluetooth/NFC, Positioning, RemoteObjects, StateMachine, WebChannel, TextToSpeech,
 OpenGL widget'ları, yazdırma, yardım, ağ bilgisi, 3B yükleyiciler). Uygulama yalnızca
-**QtCore + QtGui + QtWidgets** kullanır; doğrulama: 134 test + uçtan uca çalıştırma,
+**QtCore + QtGui + QtWidgets** kullanır; doğrulama: birim testleri + uçtan uca çalıştırma,
 karantina sonrası yapıldı ve geçti.
 
 **Geri alma (istediğin an):**
@@ -237,7 +237,7 @@ Beklenen çıktı (bu cihazda alınan gerçek sonuç):
 ### 5.2 Otomatik testler
 
 ```bash
-./tools/test.sh          # 134 test
+./tools/test.sh          # birim + güvenlik testleri
 ```
 
 Kapsam: ağ kapısı (yönlendirme/vek/TLS/port/URL), JSON sınırları, symlink/kök denetimi,

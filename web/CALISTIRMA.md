@@ -194,7 +194,7 @@ cd kiosk
 python3 tools/tarayici_kiosk.py --kuru                       # adres/komut
 python3 -c "from core import tarayici; print(tarayici.derlenmis_mi(), tarayici.web_kok())"
 grep -E "gösterim modu|web sunucu|tarayıcı" kiosk/kiosk.log | tail -5
-cd ../web && npm run test                                    # 86 test (arayüz)
+cd ../web && npm run test                                    # arayüz testleri
 ```
 
 ---

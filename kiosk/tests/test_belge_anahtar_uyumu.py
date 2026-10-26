@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 from pathlib import Path
 
 KIOSK = Path(__file__).resolve().parents[1]
@@ -53,11 +54,24 @@ def _ayar_tablosu() -> set[tuple[str, str]]:
 
 
 def _dosyalar() -> list[Path]:
+    """Taranacak dosyalar = **depoya izlenen** dosyalar (`git ls-files`).
+
+    26 Ekim i5 bulgusu: `KOK.rglob("*")` tüm çalışma ağacını geziyordu → cihaz verisi
+    (`lastSystemData.json`, `onbellek/`), `.karantina/`, `.cache/` gibi makineye özgü klasörler de
+    taranıyor; bu test cihazda anlamsız kırılmalar üretebiliyor ve tarama yavaştı. Depoya izlenen
+    dosya listesi hem `.gitignore`'u kendiliğinden uygular hem de "belge ↔ kod" iddiasının konusu
+    olan kümeyle birebir örtüşür.
+    """
+    sonuc = subprocess.run(["git", "-C", str(KOK), "ls-files", "-z"],
+                           capture_output=True, check=True, timeout=120)
     cikti = []
-    for yol in KOK.rglob("*"):
-        if not yol.is_file() or yol.suffix not in TARANAN:
+    for ad in sonuc.stdout.decode("utf-8", errors="replace").split("\0"):
+        if not ad:
             continue
-        if any(parca in ATLA for parca in yol.parts) or yol == KENDI:
+        yol = KOK / ad
+        if yol.suffix not in TARANAN or yol == KENDI:
+            continue
+        if any(parca in ATLA for parca in Path(ad).parts):
             continue
         cikti.append(yol)
     return cikti

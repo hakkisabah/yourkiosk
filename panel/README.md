@@ -248,7 +248,7 @@ VITE_MFA_AKTIF=1
 
 - Kod: `src/domain/mfa.ts` (tohum üretimi, base32, TOTP, sabit zamanlı karşılaştırma, ±1 pencere
   saat kayması toleransı, `fail-closed` doğrulama). Testler RFC 6238 Ek B vektörleriyle:
-  `npx vitest run src/domain/mfa.test.ts` (21 test).
+  `npx vitest run src/domain/mfa.test.ts`.
 - Tohum **asla** depoya/`.env`e yazılmaz: kurulum sırasında üretilir, Authenticator uygulamasına
   `otpauth://` adresiyle okutulur ve yalnız `sessionStorage`'da tutulur (izleme kimliğiyle aynı
   kural — panel paketi CloudFront'tan kimlik doğrulamasız indirilebiliyor).

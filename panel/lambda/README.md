@@ -21,7 +21,7 @@ Tarayıcı ──POST /giris {şifre}──► Lambda ──► Set-Cookie: yk_o
 |---|---|
 | `handler.py` | Tüm uç noktalar: `/giris`, `/oturum`, `/cikis`, `/imzala` |
 | `sifre_ozetle.py` | Yönetici şifresinden `PANEL_SIFRE_OZETI` üretir (şifre düz metin saklanmaz) |
-| `tests/test_handler.py` | 23 test: şifre özeti, cookie imzası/süresi/kurcalanması, beyaz liste, boyut sınırı, CORS/CSRF, hız sınırı |
+| `tests/test_handler.py` | şifre özeti, cookie imzası/süresi/kurcalanması, beyaz liste, boyut sınırı, CORS/CSRF, hız sınırı |
 | `requirements.txt` | `boto3` (Lambda çalışma zamanında zaten vardır) |
 
 ## Dayatılan kurallar (testlerle kilitli)
@@ -117,7 +117,7 @@ yönlendirmek de mümkündür.
 ```bash
 cd panel/lambda
 python3 -m venv .venv && .venv/bin/pip install pytest boto3
-.venv/bin/python -m pytest tests -q          # 23 test
+.venv/bin/python -m pytest tests -q          # handler testleri
 aws lambda update-function-code --function-name yourkiosk-panel --zip-file fileb://fonksiyon.zip
 ```
 

@@ -31,8 +31,11 @@ Anlık güncelleme **MQTT push** (Qt) ve **`/degisiklik` uzun yoklaması** (tara
 | 600 · tarihsel (300 sn, eski) | 300 sn | 5,2 M | $3,89 | $2,07 | **$5,96** |
 | 1000 · push bağlı | 120 sn | 21,6 M | $16,20 | $8,64 | **$24,84** |
 
-(**1 istek/cihaz/tur**: cihaz `durum.json`u tek istekte okur — damga + tetikleyici + komut işareti
-aynı belgede. CloudFront $0,0075/10k · S3 GET $0,0004/1k · tur = 2.592.000 sn/ay.
+(**1 istek/cihaz/tur** — **Qt modu**: cihaz `durum.json`u tek istekte okur — damga + tetikleyici +
+komut işareti aynı belgede. **Tarayıcı modu tur başına en çok 2 istek** yapar: `lastupdate.json`
+(+ değiştiyse `durum.json`) ve `tetikle.json`; o modda CloudFront maliyetini 2 ile çarpın
+(`web/src/veri/kaynak.ts`). Tablodaki değerler Qt modunun tabanıdır.
+CloudFront $0,0075/10k · S3 GET $0,0004/1k · tur = 2.592.000 sn/ay.
 Eski tablo "3 küçük istek/tur" varsayıyordu; 26 Ekim i5 ölçümü bu yüzden 3 kat şişikti.)
 
 > **Varsayılan bugün 30 sn** çünkü `config.TETIK_PUSH_AKTIF = False` (MQTT push kurulu değil).

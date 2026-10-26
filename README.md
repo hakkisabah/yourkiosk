@@ -58,9 +58,9 @@ Kurulumun ayrıntısı ve sorun giderme: [`kiosk/README.md`](kiosk/README.md),
 ## Testler
 
 ```bash
-cd kiosk && bash tools/test.sh          # 319 test (Qt + veri + güvenlik + tarayıcı + tetikleyici)
-cd web   && npm run test                # 106 test (durum makinesi, zamanlama, önbellek, render)
-cd panel && npm run test                # 104 test (veri, temizlik, şema, S3/Lambda)
+cd kiosk && bash tools/test.sh          # Qt + veri + güvenlik + tarayıcı + tetikleyici
+cd web   && npm run test                # durum makinesi, zamanlama, önbellek, render
+cd panel && npm run test                # veri, temizlik, şema, S3/Lambda
 ```
 
 Bu üçlü, "ekranda görünen davranış" iddialarının çoğunu (kaydırma hedefleri, geçiş süreleri, nöbet
@@ -74,10 +74,10 @@ yourkiosk/
 │  ├─ core/          # veri akışı, önbellek, tetikleyici, yerel web sunucusu, zamanlayıcılar
 │  ├─ ui/            # nöbet paneli, yayın görseli, kuşak
 │  ├─ tools/         # veri çekme, önbellek durumu, bellek ölçümü, tarayıcı başlatıcı, tetikleyici
-│  └─ tests/         # 319 test
+│  └─ tests/         # kiosk testleri (Qt + veri + güvenlik)
 ├─ web/              # Qt görünümünün birebir web portu (Chromium kiosk)
 │  ├─ src/veri/      # veri kaynağı, önbellek (Cache Storage), yayın/kuşak kuralları
-│  └─ tests/         # 106 test (jsdom + sahte zamanlayıcı)
+│  └─ tests/         # arayüz testleri (jsdom + sahte zamanlayıcı)
 └─ panel/            # yönetim paneli (S3/Cognito ya da Lambda modu)
    └─ lambda/        # Lambda modu (Cognito'suz alternatif)
 ```

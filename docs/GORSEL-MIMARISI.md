@@ -268,7 +268,7 @@ Değerler **koddan** gelir (`kiosk/config.py` + `pharmacy_app.yoklama_araligi()`
 ### 8.4 WebP hattı
 
 - `panel/src/domain/gorselYukleme.ts`: doğrula → küçült (≤1920 px) → WebP q82 → `sha256[:16]` →
-  `kiosk/yayin-gorselleri/<hash>.webp` → `Cache-Control: immutable`. 14 test.
+  `kiosk/yayin-gorselleri/<hash>.webp` → `Cache-Control: immutable`.
 - `kiosk/tools/gorsel_webp.py`: mevcut görselleri toplu çevirir (`--s3` ile yükler).
   **Gerçek ölçüm (Qt kodlayıcısı):** `a.png 2473 KB → 221 KB (%91)`, `b.png 366 KB → 31 KB (%92)`.
 
