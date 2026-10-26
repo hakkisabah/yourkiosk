@@ -121,7 +121,14 @@ echo "== 4/5 API_SERVER_HOST =="
 "$HERMES" config set API_SERVER_HOST "$DINLE" >/dev/null 2>&1 \
   && echo "  API_SERVER_HOST=$DINLE" \
   || echo "  ✗ ayarlanamadı (elle: hermes config set API_SERVER_HOST $DINLE)"
-[ "$DINLE" = "0.0.0.0" ] && echo "  ⚠ 0.0.0.0 = tüm ağlara açık (--kabul-et-lan verildi). Konteyner için 172.17.0.1 kullanın."
+# LAN onay kaydı: geri alırken `0.0.0.0` dışına dönüldüğü için kayıt SİLİNİR (sertlestir.sh yazar).
+LAN_ONAY_DOSYA="$HOME/.config/hermes-secrets/api-server.lan-onay"
+if [ "$DINLE" = "0.0.0.0" ]; then
+  echo "  ⚠ 0.0.0.0 = tüm ağlara açık (--kabul-et-lan verildi). Konteyner için 172.17.0.1 kullanın."
+  echo "    Onay kaydını sertlestir.sh yazar: ./api-sunucu-sertlestir.sh --dinle 0.0.0.0 --kabul-et-lan"
+else
+  rm -f "$LAN_ONAY_DOSYA" && echo "  LAN onay kaydı silindi (varsa): $LAN_ONAY_DOSYA"
+fi
 
 echo "== 5/5 son durum =="
 durum

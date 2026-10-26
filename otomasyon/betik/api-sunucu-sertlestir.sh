@@ -26,6 +26,11 @@ HERMES="$(command -v hermes || true)"
 [ -n "$HERMES" ] || HERMES="$HOME/.local/bin/hermes"
 SIR_DIR="$HOME/.config/hermes-secrets"
 ANAHTAR_DOSYA="$SIR_DIR/api-server.key"
+#: Operatörün "LAN'a aç" kararının izi. Bu dosya yoksa `0.0.0.0` bir SORUN sayılır; varsa
+#: "operatör onaylı" olarak ✓ gösterilir. Gerekçe: bu makinede sunucuya ağdan (LAN) erişilmesi
+#: gerekiyor; kararın kendisi görünür ve geri alınabilir olmalı — sessizce 0.0.0.0'da bırakmak
+#: ile her kontrolde kırmızı yanıp kimsenin bakmadığı bir uyarıya dönüşmek arasındaki fark.
+LAN_ONAY_DOSYA="$SIR_DIR/api-server.lan-onay"
 ENV_DOSYA="$("$HERMES" config env-path 2>/dev/null | tail -1)"
 [ -n "$ENV_DOSYA" ] || ENV_DOSYA="$HOME/.hermes/.env"
 
@@ -174,6 +179,20 @@ if [ "$KIP" = "kontrol" ]; then
     satir 0 "sır dizini" "yok ($SIR_DIR)"
   fi
 
+  # 26 Ekim i5 bulgusu: anahtarın KOPYASI .env'de duruyor; --kontrol yalnız anahtar dosyasının
+  # iznine bakıyordu. .env 0644 kalmışsa anahtar aynı makinedeki her kullanıcıya okunur ve
+  # kontrol yine "temiz" derdi. Artık .env de 0600 olmalı.
+  if [ -f "$ENV_DOSYA" ]; then
+    izin="$(stat -c '%a' "$ENV_DOSYA" 2>/dev/null || echo '?')"
+    if [ "$izin" = "600" ]; then
+      satir 1 ".env izni (anahtar kopyası)" "$izin ($ENV_DOSYA)"
+    else
+      satir 0 ".env izni (anahtar kopyası)" "$izin → 0600 olmalı: chmod 600 $ENV_DOSYA"
+    fi
+  else
+    satir 0 ".env" "yok ($ENV_DOSYA) — anahtar kopyası yazılmamış"
+  fi
+
   # 26 Ekim i5 bulgusu: burada yalnız `0.0.0.0` kırmızıydı; geri kalan HER adres "LAN'a kapalı"
   # sayılıyordu (`192.168.1.50` yeşil görünüyordu). Artık iki ayrı kaynak beyaz listeye karşı
   # denetlenir: (a) yapılandırılmış API_SERVER_HOST, (b) `ss -tlnH` ile GERÇEKTEN dinlenen adres.
@@ -186,9 +205,15 @@ if [ "$KIP" = "kontrol" ]; then
   }
 
   host="$(cfg_get API_SERVER_HOST)"; host="${host:-127.0.0.1}"
+  #: Operatör "LAN'a aç" kararını verdi mi? (izin dosyası — `--kabul-et-lan` yazar)
+  lan_onayli() { [ -f "$LAN_ONAY_DOSYA" ]; }
   case "$host" in
     0.0.0.0)
-      satir 0 "LAN'a kapalı (yapılandırılmış host)" "$host → tüm ağlara açık" ;;
+      if lan_onayli; then
+        satir 1 "LAN'a açık (operatör onaylı)" "0.0.0.0 · onay: $(head -1 "$LAN_ONAY_DOSYA" 2>/dev/null)"
+      else
+        satir 0 "LAN'a kapalı (yapılandırılmış host)" "$host → tüm ağlara açık (onay dosyası yok)"
+      fi ;;
     *)
       if beyaz_listede "$host"; then
         satir 1 "LAN'a kapalı (yapılandırılmış host)" "$host"
@@ -211,15 +236,20 @@ if [ "$KIP" = "kontrol" ]; then
     esac
     if beyaz_listede "$adres_host"; then
       satir 1 "LAN'a kapalı (dinlenen adres)" "$adres_host"
+    elif [ "$adres_host" = "0.0.0.0" ] && [ -f "$LAN_ONAY_DOSYA" ]; then
+      satir 1 "LAN'a açık (operatör onaylı, dinlenen adres)" "0.0.0.0"
     else
       satir 0 "LAN'a kapalı (dinlenen adres)" "$adres_host → beyaz liste dışı (LAN'a açık)"
     fi
   fi
 
   if [ -n "$adres" ]; then
-    kod="$(kod_al "http://$DINLE:$PORT/v1/models" "$ANAHTAR")"
+    # `0.0.0.0` bağlaması loopback'i de kabul eder; köprü adresi (172.17.0.1) olmayan makinelerde
+    # yoklama boşa düşmesin diye 0.0.0.0'da 127.0.0.1 denenir.
+    yokla_host="$DINLE"; [ "$DINLE" = "0.0.0.0" ] && yokla_host="127.0.0.1"
+    kod="$(kod_al "http://$yokla_host:$PORT/v1/models" "$ANAHTAR")"
     [ "$kod" = "200" ] && satir 1 "anahtarlı istek" "HTTP 200" || satir 0 "anahtarlı istek" "HTTP $kod"
-    kod="$(kod_al "http://$DINLE:$PORT/v1/models")"
+    kod="$(kod_al "http://$yokla_host:$PORT/v1/models")"
     [ "$kod" = "401" ] && satir 1 "anahtarsız istek reddediliyor" "HTTP 401" || satir 0 "anahtarsız istek reddediliyor" "HTTP $kod"
   fi
 
@@ -286,10 +316,30 @@ cfg_set API_SERVER_HOST "$DINLE"
 cfg_set API_SERVER_PORT "$PORT"
 echo "  ENABLED=true · HOST=$DINLE · PORT=$PORT"
 case "$DINLE" in
-  172.17.0.1|172.18.0.1) echo "  → yalnız Docker köprüsünden erişilebilir; LAN'dan görünmez, güvenlik duvarı gerekmez." ;;
-  127.0.0.1)             echo "  → yalnız bu makineden (konteynerden erişilemez)." ;;
-  0.0.0.0)               echo "  ⚠ 0.0.0.0 = tüm ağlara açık. Bu uç terminal yetkili ajandır; konteyner için 172.17.0.1 kullanın." ;;
-  *)                     echo "  → yalnız $DINLE adresinden erişilebilir." ;;
+  172.17.0.1|172.18.0.1)
+    rm -f "$LAN_ONAY_DOSYA"
+    echo "  → yalnız Docker köprüsünden erişilebilir; LAN'dan görünmez, güvenlik duvarı gerekmez." ;;
+  127.0.0.1)
+    rm -f "$LAN_ONAY_DOSYA"
+    echo "  → yalnız bu makineden (konteynerden erişilemez)." ;;
+  0.0.0.0)
+    # Operatör kararı KAYDA geçer: `--kontrol` bu dosyayı görürse 0.0.0.0'ı "onaylı" sayar,
+    # görmezse sorun. Böylece "her kontrolde kırmızı" ile "sessizce açık" arasındaki iki kötü
+    # uç yerine görünür ve geri alınabilir bir karar kalır (geri al: --dinle 172.17.0.1).
+    if [ "$KURU" -eq 1 ]; then
+      echo "  [KURU] onay dosyası yazılacak: $LAN_ONAY_DOSYA"
+    else
+      mkdir -p "$SIR_DIR"; chmod 700 "$SIR_DIR" 2>/dev/null || true
+      printf '%s — operatör: API sunucusu LAN'"'"'a açık (Hermes istemcileri başka makineden bağlanıyor)\n' \
+        "$(date -Iseconds)" >"$LAN_ONAY_DOSYA"
+      chmod 600 "$LAN_ONAY_DOSYA"
+      echo "  onay kaydı: $LAN_ONAY_DOSYA"
+    fi
+    echo "  ⚠ 0.0.0.0 = tüm ağlara açık. Bu uç terminal yetkili ajandır; yalnız anahtar (API_SERVER_KEY)"
+    echo "    ile erişilir. Ağ değişirse anahtarı döndür: $0 --anahtar-yenile" ;;
+  *)
+    rm -f "$LAN_ONAY_DOSYA"
+    echo "  → yalnız $DINLE adresinden erişilebilir." ;;
 esac
 
 echo "== 3/3 doğrulama =="

@@ -27,6 +27,8 @@ from pathlib import Path
 VARSAYILAN_TOKEN = Path.home() / ".config" / "hermes-secrets" / "github-yourkiosk.token"
 VARSAYILAN_DEPO_ADI = "hakkisabah/yourkiosk"
 DENETIM = {"satir": [], "sorun": 0}
+#: `yaz.py` modülü (tembel yüklenir; testler bu özniteliği enjekte eder).
+YAZ_MODUL = None
 
 
 def satir(durum: bool, ad: str, ayrinti: str = "", cozum: str = "") -> None:
@@ -46,6 +48,52 @@ def _calistir(komut: list[str], zaman: int = 25) -> tuple[int, str]:
         return sonuc.returncode, (sonuc.stdout or sonuc.stderr).strip()
     except (OSError, subprocess.SubprocessError) as hata:
         return 127, str(hata)
+
+
+def yaz_modulu(depo: Path | None = None):
+    """`yaz.py`'yi yol üzerinden yükler — kimlik kuralı TEK yerde kalsın diye.
+
+    Neden: makine kimliği kuralı (root sahipli dosya, `i5`/`i3`, sanal FS yasağı) `yaz.py` içinde
+    uygulanıyor. Denetim betiği kendi kopyasını yazsaydı iki kural zamanla ayrışır ve "denetim ✓
+    dedi ama yazım reddedildi" durumu doğardı. Bu yüzden burada da AYNI fonksiyon çağrılır.
+    """
+    global YAZ_MODUL
+    if YAZ_MODUL is not None:
+        return YAZ_MODUL
+    import importlib.util
+
+    adaylar = []
+    if depo:
+        adaylar.append(depo / "otomasyon" / "betik" / "yaz.py")
+    adaylar.append(Path(__file__).resolve().parent / "yaz.py")
+    for aday in adaylar:
+        if aday.is_file():
+            spec = importlib.util.spec_from_file_location("yourkiosk_yaz", aday)
+            if spec is None or spec.loader is None:
+                continue
+            modul = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(modul)
+            YAZ_MODUL = modul
+            return modul
+    return None
+
+
+def makine_kimligi_kontrolu(rol: str, depo: Path | None) -> None:
+    """Bu makinenin kimliği operatörün kurduğu dosyayla uyuşuyor mu? (yaz.py ile AYNI kural)"""
+    modul = yaz_modulu(depo)
+    if modul is None:
+        satir(False, "makine kimliği", "yaz.py bulunamadı — kural denetlenemedi",
+              "depo eksik/bozuk: git -C <depo> fetch origin && git -C <depo> reset --hard origin/main")
+        return
+    kimlik, neden = modul.makine_kimligi_denetle()
+    if not kimlik:
+        satir(False, "makine kimliği", neden,
+              f"sudo sh -c 'printf {rol} > {modul.KIMLIK_VARSAYILAN}' && "
+              f"sudo chmod 0644 {modul.KIMLIK_VARSAYILAN}   (yalnız operatör; ajan kendi rolünü seçemez)")
+        return
+    satir(kimlik == rol, "makine kimliği", f"{kimlik} ({modul.KIMLIK_VARSAYILAN})",
+          f"bu makine {kimlik!r} olarak kurulu ama --rol {rol!r} istendi; doğru makinede çalıştırın "
+          f"ya da kimliği operatör değiştirsin")
 
 
 def depo_bul(verilen: str) -> Path | None:
@@ -179,6 +227,10 @@ def main() -> int:
         hermes = shutil.which("hermes")
         satir(bool(hermes), "hermes CLI", hermes or "PATH'te yok",
               "Hermes kurulumunu/PATH'i kontrol edin (cron görevi bununla kurulur)")
+        # 26 Ekim i5 bulgusu: makine kimliği karar dosyasının kendi beyanıydı; i5 oturumu "i3"
+        # yazıp iki kapıyı da geçirebiliyordu. Kimlik artık operatörün kurduğu ROOT sahipli
+        # dosyadan okunur → kurulumda bu dosyanın varlığı da denetlenir (kural yaz.py'de).
+        makine_kimligi_kontrolu(a.rol, depo)
 
     # 5) durum klasörü
     durum = Path.home() / ".local" / "state" / "yourkiosk-otomasyon"

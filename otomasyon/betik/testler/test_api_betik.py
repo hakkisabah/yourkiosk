@@ -253,6 +253,10 @@ class KontrolLanDenetimiTesti(unittest.TestCase):
         # senaryoların 0600 olması gerekir (izin testleri ayrı sınıfta).
         (self.ev / ".config" / "hermes-secrets" / "api-server.key").chmod(0o600)
         (self.ev / ".config" / "hermes-secrets").chmod(0o700)
+        # 26 Ekim i5 bulgusu: --kontrol .env iznine de bakar → "temiz" senaryoda 0600.
+        (self.ev / ".hermes").mkdir(parents=True, exist_ok=True)
+        (self.ev / ".hermes" / ".env").write_text("API_SERVER_KEY=" + "k" * 64 + "\n", encoding="utf-8")
+        (self.ev / ".hermes" / ".env").chmod(0o600)
         self.host_dosya = self.kok / "host"
         self.dinlenen_dosya = self.kok / "dinlenen"
         self.sayac = self.kok / "sayac"
@@ -342,6 +346,11 @@ class AnahtarIzinDenetimiTesti(unittest.TestCase):
             anahtar.write_text("k" * 64 + "\n", encoding="utf-8")
             anahtar.chmod(dosya_mod)
             (ev / ".config" / "hermes-secrets").chmod(dizin_mod)
+            # 26 Ekim i5 bulgusu: --kontrol artık anahtarın KOPYASINI taşıyan .env'in iznine de
+            # bakar; "temiz" senaryoda .env 0600 olmalı (.env izin testi ayrı sınıfta).
+            (ev / ".hermes").mkdir(parents=True, exist_ok=True)
+            (ev / ".hermes" / ".env").write_text("API_SERVER_KEY=" + "k" * 64 + "\n", encoding="utf-8")
+            (ev / ".hermes" / ".env").chmod(0o600)
 
             def sahte(ad: str, govde: str) -> None:
                 yol = bin / ad
@@ -461,3 +470,87 @@ class AnahtarUretimHatasiTesti(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class KontrolNoktalariTesti(unittest.TestCase):
+    """`--kontrol` iki yeni sınıfı da yakalamalı (26 Ekim i5 bulguları).
+
+    1. `.env` izni: anahtarın KOPYASI .env'de; 0644 ise aynı makinedeki her kullanıcı okur.
+    2. `0.0.0.0` kararı: onay kaydı (operatör) varsa ✓ "operatör onaylı", yoksa ✗.
+    """
+
+    def _ortam(self, kok: Path, *, host: str, env_mod: int, onay: bool) -> dict:
+        import os
+        sir = kok / ".config" / "hermes-secrets"
+        sir.mkdir(parents=True, exist_ok=True)
+        (sir / "api-server.key").write_text("k" * 64, encoding="utf-8")
+        os.chmod(sir / "api-server.key", 0o600)
+        os.chmod(sir, 0o700)
+        env = kok / ".hermes.env"
+        env.write_text(f"API_SERVER_HOST={host}\n", encoding="utf-8")
+        os.chmod(env, env_mod)
+        if onay:
+            (sir / "api-server.lan-onay").write_text("test onayı\n", encoding="utf-8")
+        # Sahte `hermes`: `config env-path` → yolu, `config get K` → değeri yazar.
+        sahte = kok / "bin"
+        sahte.mkdir(exist_ok=True)
+        betik = sahte / "hermes"
+        betik.write_text(
+            "#!/usr/bin/env bash\n"
+            "case \"$1 $2\" in\n"
+            "  \"config env-path\") echo " + str(env) + " ;;\n"
+            f"  \"config get\") case \"$3\" in API_SERVER_HOST) echo {host} ;; "
+            "API_SERVER_ENABLED) echo true ;; *) echo '' ;; esac ;;\n"
+            "  *) exit 0 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        os.chmod(betik, 0o755)
+        return {**os.environ, "HOME": str(kok), "PATH": f"{sahte}:{os.environ['PATH']}"}
+
+    def _kontrol(self, kok: Path, ortam: dict):
+        return subprocess.run(["bash", str(BETIK), "--kontrol"],
+                              capture_output=True, text=True, timeout=90, env=ortam)
+
+    def test_env_0644_ise_kontrol_kirmizi(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            kok = Path(d)
+            s = self._kontrol(kok, self._ortam(kok, host="172.17.0.1", env_mod=0o644, onay=False))
+            self.assertIn(".env izni", s.stdout)
+            self.assertRegex(s.stdout, r"✗ \.env izni \(anahtar kopyası\)")
+            self.assertIn("chmod 600", s.stdout)
+
+    def test_env_0600_ise_kontrol_temiz_dal(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            kok = Path(d)
+            s = self._kontrol(kok, self._ortam(kok, host="172.17.0.1", env_mod=0o600, onay=False))
+            self.assertRegex(s.stdout, r"✓ \.env izni \(anahtar kopyası\)")
+
+    def test_lan_onayi_yoksa_0000_kirmizi(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            kok = Path(d)
+            s = self._kontrol(kok, self._ortam(kok, host="0.0.0.0", env_mod=0o600, onay=False))
+            self.assertRegex(s.stdout, r"✗ LAN'a kapalı \(yapılandırılmış host\)")
+            self.assertIn("onay dosyası yok", s.stdout)
+
+    def test_lan_onayi_varsa_0000_onayli(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            kok = Path(d)
+            s = self._kontrol(kok, self._ortam(kok, host="0.0.0.0", env_mod=0o600, onay=True))
+            self.assertRegex(s.stdout, r"✓ LAN'a açık \(operatör onaylı\)")
+
+    def test_uygula_lan_onayi_yazar_kuru_modda_soyler(self):
+        s = subprocess.run(["bash", str(BETIK), "--dinle", "0.0.0.0", "--kabul-et-lan", "--kuru"],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertIn("onay dosyası yazılacak", s.stdout)
+        self.assertIn("api-server.lan-onay", s.stdout)
+
+    def test_geri_alma_lan_onay_kaydini_siler(self):
+        ham = GERI_AL.read_text(encoding="utf-8")
+        self.assertIn("api-server.lan-onay", ham)
+        self.assertIn('rm -f "$LAN_ONAY_DOSYA"', ham)

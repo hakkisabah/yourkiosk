@@ -110,19 +110,44 @@ class _BiletDestekli(unittest.TestCase):
             _os.utime(yol, (eski, eski))
         return yol
 
+    def kimlik_olustur(self, icerik: str = "i5", *, mod: int = 0o644) -> Path:
+        """Makine kimliği dosyası (üretimde /etc altında ROOT sahipli; testte geçici dizinde)."""
+        import os as _os
+        yol = self.kok / "makine-kimligi"
+        yol.write_text(icerik, encoding="utf-8")
+        _os.chmod(yol, mod)
+        return yol
+
     def calistir(self, *ek: str, env_anahtar: bool = False, bilet=None, uid_taklit: bool = False,
-                 dizin_gercek: bool = False):
+                 dizin_gercek: bool = False, kimlik: str | None = "i5",
+                 kimlik_dosyasi=None, kimlik_sahip_taklit: bool = True,
+                 kapi_log_env=None):
         import os
         import subprocess
-        ortam = {**os.environ, "YAZ_KAPI_LOG": str(self.log), "HOME": str(self.kok)}
-        for ad in ("YAZ_KAPI_ATLA_ONAY", "YAZ_KAPI_ATLA_BILET"):
+        ortam = {**os.environ, "HOME": str(self.kok)}
+        for ad in ("YAZ_KAPI_ATLA_ONAY", "YAZ_KAPI_ATLA_BILET", "YAZ_KAPI_LOG"):
             ortam.pop(ad, None)
         if env_anahtar:
             ortam["YAZ_KAPI_ATLA_ONAY"] = "1"
         # 26 Ekim i5 bulgusu: bilet YOLU artık ortam değişkeniyle verilemez (ajan `/proc/1/stat`
         # gösterip iki faktörlü korumayı tek faktöre düşürüyordu). Test yolu MODÜL özniteliğiyle
         # enjekte eder; üretim CLI'ında böyle bir anahtar yoktur.
-        onsoz = []
+        #
+        # 26 Ekim i5 bulgusu (2): kapı günlüğü yolu da `YAZ_KAPI_LOG` ile taşınabiliyordu →
+        # ajan `/dev/null` verip izi siliyordu. Bu yüzden günlük yolu da MODÜL özniteliğiyle
+        # enjekte edilir; `kapi_log_env` yalnız "ortam değişkeni YOK SAYILIR" testi içindir.
+        onsoz = [f"import pathlib; yaz.KAPI_LOG = pathlib.Path({str(self.log)!r})"]
+        if kapi_log_env:
+            ortam["YAZ_KAPI_LOG"] = str(kapi_log_env)
+        # 26 Ekim i5 bulgusu (3): makine kimliği karar dosyasından değil ROOT sahipli dosyadan
+        # okunur. Test kendi geçici kimlik dosyasını enjekte eder ve root sahiplik denetimini
+        # yalnız bu koşum için "root say" yapar (bilet denetiminden AYRI fonksiyon).
+        if kimlik is not None:
+            yol = Path(kimlik_dosyasi) if kimlik_dosyasi is not None else self.kimlik_olustur(kimlik)
+            onsoz.append(f"yaz.KIMLIK_VARSAYILAN = pathlib.Path({str(yol)!r})")
+            if kimlik_sahip_taklit:
+                onsoz.append("yaz.kimlik_sahibi_denetimi = lambda st: True")
+                onsoz.append("yaz.kimlik_dizini_denetimi = lambda st: True")
         if bilet is not None:
             onsoz.append(f"import pathlib; yaz.BILET_VARSAYILAN = pathlib.Path({str(bilet)!r})")
         if uid_taklit:
@@ -434,6 +459,8 @@ class HeadOkunamazsaKapiTesti(unittest.TestCase):
             token = kok / "t.token"
             token.write_text("x" * 40, encoding="utf-8")
             log = kok / "kapi-red.log"
+            kimlik = kok / "makine-kimligi"
+            kimlik.write_text("i5", encoding="utf-8")
 
             def api(yol, _token, _depo):
                 if "/files" in yol:
@@ -446,6 +473,9 @@ class HeadOkunamazsaKapiTesti(unittest.TestCase):
                     "--token-dosya", str(token)]
             with mock.patch.object(kd, "_api", api), \
                  mock.patch.object(yaz, "KAPI_LOG", log), \
+                 mock.patch.object(yaz, "KIMLIK_VARSAYILAN", kimlik), \
+                 mock.patch.object(yaz, "kimlik_sahibi_denetimi", lambda st: True), \
+                 mock.patch.object(yaz, "kimlik_dizini_denetimi", lambda st: True), \
                  mock.patch.object(sys, "argv", argv), \
                  mock.patch.dict(os.environ, {"YAZ_KAPI_LOG": str(log)}):
                 kod = yaz.main()
@@ -523,3 +553,90 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class MakineKimligiTesti(_BiletDestekli):
+    """26 Ekim i5 bulgusu: kimlik karar dosyasının KENDİ `makine` alanından geliyordu.
+
+    i5 oturumu karar dosyasına "makine": "i3" yazıp `guvenlik/inceleme` + `guvenlik/karar`
+    kontrollerini tek başına geçirebiliyordu. Artık kimlik operatörün kurduğu ROOT sahipli
+    dosyadan okunur; beyan uyuşmazsa yazım reddedilir (çıkış 5).
+    """
+
+    def setUp(self):
+        import json as _json
+        import tempfile
+        self.dizin = tempfile.TemporaryDirectory()
+        self.kok = Path(self.dizin.name)
+        self.karar_yolu = self.kok / "karar.json"
+        self.karar_yolu.write_text(_json.dumps(dogru_karar(), ensure_ascii=False), encoding="utf-8")
+        self.log = self.kok / "kapi-red.log"
+        self.yaz = Path(__file__).resolve().parents[1] / "yaz.py"
+        self.yaz_py = self.yaz
+        self.token = self.kok / "yok.token"
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def test_kimlik_dosyasi_yoksa_yazim_reddedilir(self):
+        s = self.calistir(kimlik=None)
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("MAKİNE KİMLİĞİ REDDEDİLDİ", s.stderr)
+        self.assertIn("/etc/yourkiosk-makine-kimligi", s.stderr)
+        self.assertIn("makine kimliği geçersiz", self.log.read_text(encoding="utf-8"))
+
+    def test_beyan_ile_kimlik_uyusmazsa_reddedilir(self):
+        """i5 oturumu 'i3' yazarsa: karar dosyası ile makine kimliği çelişir → çıkış 5."""
+        import json as _json
+        k = dogru_karar()
+        k["makine"] = "i3"
+        k["eksikler"] = k.pop("bulgular")
+        self.karar_yolu.write_text(_json.dumps(k, ensure_ascii=False), encoding="utf-8")
+        s = self.calistir(kimlik="i5")
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("KİMLİK UYUŞMAZLIĞI", s.stderr)
+        self.assertIn("kimlik uyuşmazlığı", self.log.read_text(encoding="utf-8"))
+
+    def test_i5_kimligiyle_birlestirme_reddedilir(self):
+        """Birleştirme karar makinesine (i3) aittir; i5 kimliği --birlestir kullanamaz."""
+        s = self.calistir("--birlestir", kimlik="i5")
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("--birlestir REDDEDİLDİ", s.stderr)
+        self.assertIn("--birlestir reddedildi: kimlik 'i5'", self.log.read_text(encoding="utf-8"))
+
+    def test_root_sahipli_olmayan_kimlik_reddedilir(self):
+        """Ajanın kendi yazdığı kimlik dosyası (uid ≠ 0) kabul edilmez."""
+        s = self.calistir(kimlik="i5", kimlik_sahip_taklit=False)
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("root sahipli değil", s.stderr)
+
+    def test_kimlik_dosyasi_ortam_degiskeniyle_tasinamaz(self):
+        """Üretimde kimlik yolunu taşıyan bir ortam anahtarı YOKTUR (bilet dersi)."""
+        import os
+        import subprocess
+        ortam = {**os.environ, "HOME": str(self.kok),
+                 "YAZ_MAKINE_KIMLIGI": str(self.kimlik_olustur("i3")),
+                 "YAZ_KIMLIK_DOSYASI": str(self.kimlik_olustur("i3"))}
+        s = subprocess.run([sys.executable, str(self.yaz), str(self.karar_yolu), "--kuru",
+                            "--token-dosya", str(self.token)],
+                           capture_output=True, text=True, timeout=120, env=ortam)
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("MAKİNE KİMLİĞİ REDDEDİLDİ", s.stderr)
+
+    def test_kapi_log_yolu_ortam_degiskeniyle_tasinamaz(self):
+        """`YAZ_KAPI_LOG=/dev/null` kapı izini silememeli: kayıt VARSAYILAN dosyaya yazılır."""
+        s = self.calistir(kimlik=None, kapi_log_env="/dev/null")
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("makine kimliği geçersiz", self.log.read_text(encoding="utf-8"))
+
+    def test_kimlik_cozucu_islevi_dogru_icerik_okur(self):
+        yol = self.kimlik_olustur("I3\n")
+        kimlik, neden = yaz.makine_kimligi_denetle(yol, sahip_denetimi=lambda st: True,
+                                                   dizin_denetimi=lambda st: True)
+        self.assertEqual((kimlik, neden), ("i3", ""))
+        bozuk = self.kok / "bozuk-kimlik"
+        bozuk.write_text("i9", encoding="utf-8")
+        kimlik, neden = yaz.makine_kimligi_denetle(bozuk, sahip_denetimi=lambda st: True,
+                                                   dizin_denetimi=lambda st: True)
+        self.assertEqual(kimlik, "")
+        self.assertIn("tanınmıyor", neden)
