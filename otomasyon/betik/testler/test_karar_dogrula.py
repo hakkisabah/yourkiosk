@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -150,6 +151,93 @@ class YardimciTesti(unittest.TestCase):
         self.assertEqual(kd.alan_normal("TLS"), "ağ/tls")
         self.assertEqual(kd.alan_normal("IAM en az yetki"), "kimlik/yetki")
         self.assertEqual(kd.alan_normal("  Test  "), "test kanıtı")
+
+
+class KanitKatmaniTesti(unittest.TestCase):
+    """`kanit_denetle` — 26 Ekim i5 bulgusu: bu katman hiç test edilmiyordu (hepsi kanit=False).
+
+    Testler ağı taklit eder (`kd._api`), yani gerçek GitHub'a istek gitmez.
+    """
+
+    def _karar(self, **degisiklik):
+        k = kopya()
+        k.update(degisiklik)
+        return k
+
+    @staticmethod
+    def _icerik(metin: str) -> dict:
+        import base64
+        return {"content": base64.b64encode(metin.encode()).decode(), "encoding": "base64"}
+
+    def _api_taklit(self, dosyalar: dict[str, str], head: str, degisen=None):
+        """`dosyalar`: yol → içerik. Dönüş: (kod, veri) üreten fonksiyon."""
+        def api(yol, token, depo):
+            if yol.startswith("/pulls/") and "/files" in yol:
+                return 200, [{"filename": d} for d in (degisen if degisen is not None else dosyalar)]
+            if yol.startswith("/pulls/"):
+                return 200, {"head": {"sha": head}}
+            if yol.startswith("/contents/"):
+                import urllib.parse
+                ad = urllib.parse.unquote(yol.split("/contents/")[1].split("?")[0])
+                if ad in dosyalar:
+                    return 200, self._icerik(dosyalar[ad])
+                return 404, None
+            return 404, None
+        return api
+
+    def test_satir_sayisi_son_yeni_satirda_bir_fazla_saymaz(self):
+        # "a\nb\nc\n" = 3 satır. Eski kod 4 diyordu → olmayan 4. satır "kanıt" sayılıyordu.
+        sha = "b" * 40
+        karar = self._karar(sha=sha, bulgular=[{"dosya": "x.py", "satir": 4, "onem": "dusuk",
+                                               "aciklama": "olmayan satır", "kabul": "x"}])
+        sonuc = kd.Sonuc()
+        with unittest.mock.patch.object(kd, "_api", self._api_taklit({"x.py": "a\nb\nc\n"}, sha)):
+            kd.kanit_denetle(karar, sonuc, "t", "depo")
+        self.assertFalse(sonuc.gecti)
+        self.assertTrue(any("yalnız 3 satır" in h for h in sonuc.hatalar), sonuc.hatalar)
+
+    def test_bayat_sha_reddedilir(self):
+        karar = self._karar(sha="a" * 40)
+        sonuc = kd.Sonuc()
+        with unittest.mock.patch.object(kd, "_api",
+                                        self._api_taklit({"kiosk/core/push.py": "x\n" * 60}, "c" * 40)):
+            kd.kanit_denetle(karar, sonuc, "t", "depo")
+        self.assertFalse(sonuc.gecti)
+        self.assertTrue(any("BAYAT" in h for h in sonuc.hatalar), sonuc.hatalar)
+
+    def test_bulunamayan_dosya_hata(self):
+        sha = "d" * 40
+        karar = self._karar(sha=sha, bulgular=[{"dosya": "yok.py", "satir": 1, "onem": "orta",
+                                               "aciklama": "yok", "kabul": "y"}])
+        sonuc = kd.Sonuc()
+        with unittest.mock.patch.object(kd, "_api", self._api_taklit({}, sha)):
+            kd.kanit_denetle(karar, sonuc, "t", "depo")
+        self.assertTrue(any("bulunamadı" in h for h in sonuc.hatalar), sonuc.hatalar)
+
+    def test_degismeyen_dosya_uyari(self):
+        sha = "e" * 40
+        karar = self._karar(sha=sha, bulgular=[{"dosya": "baglam.py", "satir": 1, "onem": "dusuk",
+                                               "aciklama": "bağlam", "kabul": "z"}])
+        sonuc = kd.Sonuc()
+        with unittest.mock.patch.object(kd, "_api",
+                                        self._api_taklit({"baglam.py": "a\n"}, sha, degisen=["baska.py"])):
+            kd.kanit_denetle(karar, sonuc, "t", "depo")
+        self.assertTrue(sonuc.gecti, sonuc.hatalar)
+        self.assertTrue(any("değişen dosyalar arasında değil" in u for u in sonuc.uyarilar), sonuc.uyarilar)
+
+    def test_token_yoksa_kapi_fail_closed(self):
+        # Kanıt katmanı çalışamıyorsa karar GEÇMEZ (eskiden yalnız uyarıyordu).
+        sonuc = kd.dogrula_karar(kopya(), None, token=None, kanit=True)
+        self.assertFalse(sonuc.gecti)
+        self.assertTrue(any("fail-closed" in h for h in sonuc.hatalar), sonuc.hatalar)
+
+    def test_token_varken_kanit_katmani_calisir(self):
+        sha = "f" * 40
+        karar = self._karar(sha=sha)
+        with unittest.mock.patch.object(kd, "_api",
+                                        self._api_taklit({"kiosk/core/push.py": "x\n" * 60}, sha)):
+            sonuc = kd.dogrula_karar(karar, None, token="t", kanit=True)
+        self.assertTrue(sonuc.gecti, sonuc.hatalar)
 
 
 if __name__ == "__main__":

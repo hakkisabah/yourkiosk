@@ -45,6 +45,12 @@ TOKEN_VARSAYILAN = Path.home() / ".config" / "hermes-secrets" / "github-yourkios
 
 ZORUNLU = ("guvenlik/inceleme", "guvenlik/karar")
 ONAY_ETIKETI = "guvenlik/onay"
+
+# "Bu sha için karar YAZILDI" sayılan durumlar. Yalnız `success`/`failure` terminaldir:
+# `pending` (yarım yazım / ağ kesintisi) ve `error` (yaz.py çöktü) KARAR DEĞİLDİR. 26 Ekim i5
+# bulgusu: eski kod "inceleme != success" olan her şeyi "karara bağlı" sayıp atlıyordu →
+# yarım kalmış bir durum PR'ı yeni commit gelmeden sonsuza kadar kuyruktan düşürüyordu.
+YAZILMIS_DURUMLAR = {"success", "failure"}
 UNIT_ADI = "yourkiosk-nobetci.service"
 SORUN_ETIKETI = "guvenlik/sorun"
 
@@ -99,6 +105,14 @@ def butce_hesapla(zaman_asimi: int) -> dict[str, int]:
 # günlüğe `AÇLIK:` satırı yazmak için (görünürlük); sıralamayı yapan şey sıralamanın kendisi.
 ACLIK_ESIGI_DK = 120
 
+# ── AYRI HERMES PROFİLİ (i5 mimarisi, 26 Ekim) ────────────────────────────────────────────────
+# Aynı gateway süreci hem Open WebUI sohbetlerini hem nöbetçi oturumunu çalıştırırsa: aynı CPU,
+# aynı `max_concurrent_runs`, aynı model kotası ve aynı günlük oturum tavanı paylaşılır. 25 Ekim
+# kanıtı: 3 PR tek oturuma verildi, oturum `çıkış 124` ile öldü ve PR'lar saatlerce bekledi.
+# Çözüm: nöbetçi AYRI bir profilde (`hermes -p <ad>`) çalışır → kendi config/oturum sayacı/model
+# anahtarı. Boşsa davranış eskisi gibi (varsayılan profil).
+NOBETCI_PROFIL = os.environ.get("NOBETCI_PROFIL", "").strip()
+
 
 def simdi() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -120,10 +134,14 @@ class Github:
         self.token = token
         self.depo = depo
         self.durum_yolu = durum_yolu
-        self.gunluk = gunluk_yolu
+        # DİKKAT (i5 bulgusu 26.10): `gunluk` adı İKİ farklı şeye verilmişti — önce günlük DOSYA
+        # YOLU, sonra günlük OTURUM SAYACI sözlüğü. Sözlük kazandığı için `gunluk(self.gunluk, ...)`
+        # çağrıları Path bekleyen fonksiyona dict veriyordu → isler() içindeki yeni "karara bağlı"
+        # satırı her turda AttributeError ile nöbetçiyi düşürüyordu. Artık iki ad ayrı:
+        self.gunluk_yolu: Path | None = gunluk_yolu   # teşhis günlüğü (dosya yolu)
+        self.gunluk: dict[str, int] = {}              # günlük OTURUM sayacı (durum dosyasında)
         self.onbellek: dict[str, dict] = {}
         self.denemeler: dict[str, dict] = {}
-        self.gunluk: dict[str, int] = {}
         self._onceki_veri: dict = {}
         if durum_yolu.exists():
             try:
@@ -167,12 +185,12 @@ class Github:
                 return 304, eski.get("veri") if eski else None
             if hata.code in (403, 429):
                 kalan = hata.headers.get("X-RateLimit-Remaining")
-                gunluk(self.gunluk, f"UYARI: GitHub {hata.code} (kalan {kalan}) — bekleniyor")
+                gunluk(self.gunluk_yolu, f"UYARI: GitHub {hata.code} (kalan {kalan}) — bekleniyor")
             else:
-                gunluk(self.gunluk, f"UYARI: {yol} → HTTP {hata.code} {hata.read()[:160]!r}")
+                gunluk(self.gunluk_yolu, f"UYARI: {yol} → HTTP {hata.code} {hata.read()[:160]!r}")
             return hata.code, None
         except (urllib.error.URLError, TimeoutError) as hata:
-            gunluk(self.gunluk, f"UYARI: ağ hatası ({hata}) — bekleniyor")
+            gunluk(self.gunluk_yolu, f"UYARI: ağ hatası ({hata}) — bekleniyor")
             return 0, None
 
 
@@ -270,23 +288,23 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
         # ve nöbetçi her turda boşuna oturum açtı; i5 de kendi "sorun" verdiği sha'yı sonsuz
         # yeniden inceliyordu. Geliştirici yeni commit atınca sha değişir → iş kendiliğinden döner.
         if rol == "i5":
-            if inceleme is None:
+            if inceleme not in YAZILMIS_DURUMLAR:
                 cikti.append(kayit)
-            elif inceleme != "success":
-                atlanan += 1  # sorun yazılmış, düzeltme geliştiricide
+            else:
+                atlanan += 1  # karar yazılmış, düzeltme geliştiricide
         else:  # i3 — yalnız i5 onay verdikten sonra çalışır
             if inceleme != "success":
                 continue
             etiketsiz_onay = karar == "success" and ONAY_ETIKETI not in etiketler  # yarım yazım: etiket eksik
-            if karar is None or etiketsiz_onay:
+            if karar not in YAZILMIS_DURUMLAR or etiketsiz_onay:
                 cikti.append(kayit)
-            elif karar != "success":
+            else:
                 atlanan += 1  # karar verilmiş (düzeltme/red), geliştiricide
 
     # yaş büyük = daha eski → başa. Eşitlikte PR numarası küçük olan (daha eski) önce.
     cikti.sort(key=lambda i: (-i["yas_dk"], i["pr"]))
     if atlanan:
-        gunluk(getattr(gh, "gunluk", None), f"{rol}: {atlanan} PR bu commit için zaten karara bağlı "
+        gunluk(getattr(gh, "gunluk_yolu", None), f"{rol}: {atlanan} PR bu commit için zaten karara bağlı "
                                             f"→ yeni commit bekleniyor (yeniden karar yazılmaz)")
     return cikti[:limit]
 
@@ -323,9 +341,13 @@ def gorev_metni(rol: str, depo: Path, is_listesi: list[dict]) -> str:
 def hermes_komutu(depo: Path, gorev: Path, zaman_asimi: int) -> list[str]:
     """Nöbetçi oturumunun komut satırı (test edilebilir tek nokta)."""
     b = butce_hesapla(zaman_asimi)
-    return ["hermes", "chat", "--query-file", str(gorev), "--oneshot",
-            "--max-turns", str(b["tur"]), "--run-budget", str(b["butce"]),
-            "--in", str(depo), "--source", "nobetci"]
+    komut = ["hermes"]
+    if NOBETCI_PROFIL:                      # ayrı profil: Open WebUI yükü nöbetçiyi aç bırakmasın
+        komut += ["-p", NOBETCI_PROFIL]
+    komut += ["chat", "--query-file", str(gorev), "--oneshot",
+              "--max-turns", str(b["tur"]), "--run-budget", str(b["butce"]),
+              "--in", str(depo), "--source", "nobetci"]
+    return komut
 
 
 def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bool) -> tuple[int, str]:
@@ -578,8 +600,14 @@ def main() -> int:
     ayar.add_argument("--depo", type=Path, default=DEPO_VARSAYILAN)
     ayar.add_argument("--token", type=Path, default=TOKEN_VARSAYILAN)
     ayar.add_argument("--log", type=Path, default=None)
+    ayar.add_argument("--profil", default=None,
+                      help="nöbetçi oturumunun Hermes profili (varsayılan: NOBETCI_PROFIL env; "
+                           "boşsa varsayılan profil). Open WebUI yükünü ayırmak için 'guvenlik'.")
 
     secim = ayar.parse_args()
+    global NOBETCI_PROFIL
+    if secim.profil is not None:
+        NOBETCI_PROFIL = secim.profil.strip()
     if secim.kendini_denetle:  # kilit gerekmez, hiçbir şeyi değiştirmez
         return kendini_denetle(secim.rol, secim.token, secim.limit)
     durum_yolu = DURUM_KLASORU / f"nobetci-{secim.rol}.json"
@@ -605,6 +633,7 @@ def main() -> int:
         an = time.time()
         bugun = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         print(f"nöbetçi tanı · rol={secim.rol}")
+        print(f"  hermes profili      : {NOBETCI_PROFIL or '(varsayılan — Open WebUI ile paylaşılır)'}")
         print(f"  bugün açılan oturum : {gh.gunluk.get(bugun, 0)} (tavan {GUNLUK_OTURUM_TAVANI})")
         b = butce_hesapla(secim.zaman_asimi)
         print(f"  oturum bütçesi      : {b['butce']} sn · {b['tur']} tur × {b['tur_basi_sn']} sn"

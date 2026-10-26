@@ -22,7 +22,8 @@ açık PR'ların head sha + durum kontrolleri   iş listesi dolu → TEK `hermes
                                                   → yaz.py ile durum/yorum/etiket
 ```
 
-- **i5** işi: `guvenlik/inceleme` durumu **olmayan** (ya da `guvenlik/sorun` etiketli) PR'ları inceler.
+- **i5** işi: `guvenlik/inceleme` kararı **yazılmamış** (`success`/`failure` dışında: hiç yok,
+  `pending`, `error`) PR'ları inceler.
 - **i3** işi: i5 onayı (`guvenlik/inceleme=success`) olup **kararı yazılmamış** PR'lara karar verir,
   `--birlestir --cift-onay` ile birleştirir.
 - **Sıra: EN ESKİ PR ÖNCE.** GitHub listesi yeniden-eskiye döner; bunu olduğu gibi almak 25 Ekim'de
@@ -35,6 +36,11 @@ açık PR'ların head sha + durum kontrolleri   iş listesi dolu → TEK `hermes
   geri gelir. Bu kural 25 Ekim'deki iki arızayı kapatır: i3 aynı head'e (cc4e4b81) üç tur üst üste
   "düzeltme" yazdı; i5 kendi "sorun" verdiği sha'yı sonsuz yeniden inceledi (boş oturum = token).
   Atlanan her PR için günlüğe tek satır yazılır: `N PR bu commit için zaten karara bağlı`.
+  **Yalnız `success`/`failure` "karar yazıldı" sayılır:** `pending` (ağ kesintisi) ve `error`
+  (yaz.py çöktü) karar değildir — yarım kalmış durum PR'ı yeni commit gelmeden kuyruktan
+  düşürmemeli (26 Ekim i5 bulgusu).
+- **Kapıyı atlamak serbest değil:** `--kapi-atla` yalnız `--gerekce "…"` (≥20 karakter) ile çalışır,
+  `yüksek` önemde bulgu varken **reddedilir** ve atlama PR yorumunda görünür.
 - **Karar kapısı:** ajan `yaz.py` ile yazmadan önce `karar_dogrula.py` şemayı, 12 denetim alanını,
   karar tutarlılığını, `dosya:satır` kanıtını ve **kapanış ölçütünü** (`kabul`: "neyi yapınca bu
   bulgu kapanır") denetler. Geçmezse GitHub'a **hiçbir şey** yazılmaz; reddin izi
@@ -78,6 +84,21 @@ bash otomasyon/nobetci-kur.sh i5 --durum          # servis + nöbetçi durumu
 tail -f ~/.local/state/yourkiosk-otomasyon/nobetci-i5.log
 journalctl --user -u yourkiosk-nobetci -f
 ```
+
+## Ayrı profil (i5 mimarisi — Open WebUI yükünü ayır)
+
+i5 makinesi hem Open WebUI sohbetlerini hem nöbetçiyi çalıştırıyorsa aynı gateway süreci paylaşılır:
+aynı CPU, `max_concurrent_runs`, model kotası ve günlük oturum tavanı. Sonuç 25 Ekim'de görüldü
+(3 PR tek oturuma, `çıkış 124`, PR'lar saatlerce bekledi). Ayrım:
+
+```bash
+hermes profile create guvenlik
+hermes -p guvenlik config set platforms.api_server.enabled false   # bu profilde API sunucusu YOK
+bash otomasyon/nobetci-kur.sh i5 --profil guvenlik                 # unit: NOBETCI_PROFIL + Nice=10
+python3 otomasyon/betik/nobetci.py --rol i5 --tani                 # "hermes profili: guvenlik"
+```
+
+Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce varsayılan profile düşmez.
 
 ## Ayarlar
 

@@ -163,10 +163,25 @@ def kanit_denetle(karar: dict, sonuc: Sonuc, token: str, depo: str) -> None:
         kod, dosyalar = _api(f"/pulls/{pr_no}/files?per_page=100", token, depo)
         if kod == 200 and isinstance(dosyalar, list):
             degisen = {d.get("filename", "") for d in dosyalar if isinstance(d, dict)}
-    if sha == "":
-        kod, pr_veri = _api(f"/pulls/{pr_no}", token, depo) if pr_no else (0, None)
+    # ── SHA ↔ PR HEAD ──────────────────────────────────────────────────────────────
+    # 26 Ekim i5 bulgusu: kapı, karar dosyasındaki sha'yı olduğu gibi kullanıyordu. Bayat/yanlış
+    # sha ile "kanıt var" denebiliyordu (bulgu başka commit'te doğrulanır, karar başka commit'e
+    # yazılır). Artık sha PR'ın GERÇEK head'i ile karşılaştırılır; farklıysa karar reddedilir.
+    head_sha = ""
+    if pr_no:
+        kod, pr_veri = _api(f"/pulls/{pr_no}", token, depo)
         if kod == 200 and isinstance(pr_veri, dict):
-            sha = str((pr_veri.get("head") or {}).get("sha", ""))
+            head_sha = str((pr_veri.get("head") or {}).get("sha", "")).strip()
+        elif kod in (0, 403, 429):
+            sonuc.uyarilar.append(f"PR head doğrulanamadı (HTTP {kod}) — sha karşılaştırması yapılmadı")
+    if head_sha:
+        if not sha:
+            sha = head_sha
+        elif sha != head_sha:
+            sonuc.hatalar.append(
+                f"kanıt BAYAT: karar sha'sı {sha[:12]} ama PR #{pr_no} head {head_sha[:12]} "
+                f"— karar güncel commit'e yazılmalı")
+            return
     if not sha:
         sonuc.uyarilar.append("kanıt denetimi atlandı: sha yok (ayrıntı doğrulanamadı)")
         return
@@ -181,7 +196,9 @@ def kanit_denetle(karar: dict, sonuc: Sonuc, token: str, depo: str) -> None:
             kod, icerik = _api(f"/contents/{urllib.parse.quote(dosya)}?ref={sha}", token, depo)
             if kod == 200 and isinstance(icerik, dict) and icerik.get("content"):
                 metin = base64.b64decode(icerik["content"]).decode("utf-8", "replace")
-                onbellek[dosya] = metin.count("\n") + 1
+                # `count("\n") + 1` sonu yeni satırla biten dosyada bir FAZLA veriyordu:
+                # dosyanın son satırı + 1 numaralı satır "var" görünüyordu (26 Ekim i5 bulgusu).
+                onbellek[dosya] = len(metin.splitlines()) or (1 if metin else 0)
             else:
                 onbellek[dosya] = None
         satir_sayisi = onbellek[dosya]
@@ -311,7 +328,12 @@ def dogrula_karar(karar: dict, makine: str | None = None, *, token: str | None =
     if kanit and token:
         kanit_denetle(karar, sonuc, token, depo)
     elif kanit and not token:
-        sonuc.uyarilar.append("kanıt denetimi atlandı: token yok")
+        # FAIL-CLOSED: "token yok" bir mazeret değil, kanıt katmanının çalışmadığı anlamına gelir.
+        # Eski davranış yalnız uyarı üretip kararı geçiriyordu → sır/izin sorunu olan bir makinede
+        # dosya:satır kanıtı hiç denetlenmeden "onay" yazılabiliyordu (26 Ekim i5 bulgusu).
+        sonuc.hatalar.append(
+            "kanıt denetimi YAPILAMADI: token okunamadı (fail-closed). "
+            "Token dosyasını düzeltin (0600) ya da bilinçli olarak '--kanit-yok' kullanın")
     return sonuc
 
 

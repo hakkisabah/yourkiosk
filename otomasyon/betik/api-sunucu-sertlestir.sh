@@ -14,6 +14,10 @@
 #   ./api-sunucu-sertlestir.sh --dinle 127.0.0.1  # yalnız yerel (konteyner kullanmıyorsan)
 #   ./api-sunucu-sertlestir.sh --anahtar-yenile   # anahtarı değiştir (istemciler 401 alır)
 #
+# Dinleme adresi BEYAZ LİSTE ile sınırlıdır (127.0.0.1 · 172.17.0.1 · 172.18.0.1).
+# `0.0.0.0` yalnız açık `--kabul-et-lan` ile yazılır: bu uç, gelen isteği terminal yetkisiyle
+# çalıştıran bir ajandır; yanlışlıkla tüm ağlara açmak makineyi ele verir.
+#
 # Bu betik gateway'i YENİDEN BAŞLATMAZ (ajan süreci içinden güvenli değil); komutu yazdırır.
 
 set -uo pipefail
@@ -22,12 +26,15 @@ HERMES="$(command -v hermes || true)"
 [ -n "$HERMES" ] || HERMES="$HOME/.local/bin/hermes"
 SIR_DIR="$HOME/.config/hermes-secrets"
 ANAHTAR_DOSYA="$SIR_DIR/api-server.key"
+ENV_DOSYA="$("$HERMES" config env-path 2>/dev/null | tail -1)"
+[ -n "$ENV_DOSYA" ] || ENV_DOSYA="$HOME/.hermes/.env"
 
 PORT=8642
 DINLE="172.17.0.1"          # docker0 köprüsü — LAN'dan görünmez
 KIP="uygula"
 YENILE=0
 KURU=0
+KABUL_LAN=0
 ANAHTAR=""
 
 kullanim() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
@@ -38,24 +45,76 @@ while [ $# -gt 0 ]; do
     --kuru)    KURU=1; shift ;;
     --dinle)   DINLE="${2:?--dinle bir IP ister}"; shift 2 ;;
     --anahtar-yenile) YENILE=1; shift ;;
+    --kabul-et-lan) KABUL_LAN=1; shift ;;
     -h|--help) kullanim 0 ;;
     *) echo "bilinmeyen argüman: $1" >&2; kullanim 2 ;;
   esac
 done
 
+# ── dinleme adresi doğrulaması ───────────────────────────────────────────────────────────────
+# 26 Ekim i5 bulgusu: --dinle değeri hiç denetlenmiyordu (yazım hatası ya da 0.0.0.0 sessizce
+# kabul ediliyordu). Beyaz liste: yalnız yerel/konteyner köprüsü adresleri.
+case "$DINLE" in
+  127.0.0.1|172.17.0.1|172.18.0.1) ;;
+  0.0.0.0)
+    if [ "$KABUL_LAN" -ne 1 ]; then
+      echo "✗ --dinle 0.0.0.0 verildi ama --kabul-et-lan yok." >&2
+      echo "  Bu uç terminal yetkili bir ajandır. Konteyner için 172.17.0.1 kullanın;" >&2
+      echo "  gerçekten LAN'a açacaksanız açıkça: --dinle 0.0.0.0 --kabul-et-lan" >&2
+      exit 2
+    fi ;;
+  *)
+    echo "✗ geçersiz --dinle değeri: '$DINLE'" >&2
+    echo "  İzinli: 127.0.0.1 · 172.17.0.1 · 172.18.0.1 (0.0.0.0 yalnız --kabul-et-lan ile)" >&2
+    exit 2 ;;
+esac
+
 cfg_get() { "$HERMES" config get "$1" 2>/dev/null | tail -1 || true; }
 cfg_set() {
   if [ "$KURU" -eq 1 ]; then
-    if [ "$1" = "API_SERVER_KEY" ]; then echo "  [KURU] config set API_SERVER_KEY <gizli>"
-    else echo "  [KURU] config set $1 $2"; fi
+    echo "  [KURU] config set $1 $2"
     return 0
   fi
   "$HERMES" config set "$1" "$2" >/dev/null
 }
 
-# Dosya içeriği bash yerleşik yönlendirmesiyle okunur: anahtar hiçbir zaman bir komut
-# satırında görünmez (süreç listesi / günlük sızıntısı olmasın).
+# Dosya içeriği bash yerleşik yönlendirmesiyle okunur.
+# DİKKAT (26 Ekim i5 bulgusu): eski sürüm "anahtar hiçbir zaman bir komut satırında görünmez"
+# diyordu ama `hermes config set API_SERVER_KEY "$yeni"` anahtarı argv'ye koyuyordu; /proc/<pid>/cmdline
+# aynı makinedeki herkese okunur. Artık anahtar yalnız DOSYADAN okunur ve .env'e python ile
+# yazılır — komut satırında hiç görünmez (argüman olarak yalnız dosya YOLLARI geçer).
 anahtar_oku() { if [ -s "$ANAHTAR_DOSYA" ]; then ANAHTAR="$(<"$ANAHTAR_DOSYA")"; else ANAHTAR=""; fi; }
+
+anahtari_env_yaz() {  # anahtar dosyası → .env (değer argv'de DEĞİL)
+  python3 - "$ENV_DOSYA" "$ANAHTAR_DOSYA" <<'PY'
+import os
+import pathlib
+import sys
+
+env_yolu, anahtar_yolu = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+anahtar = anahtar_yolu.read_text(encoding="utf-8").strip()
+if not anahtar:
+    sys.exit("anahtar dosyası boş")
+satirlar = env_yolu.read_text(encoding="utf-8").splitlines() if env_yolu.exists() else []
+cikti, bulundu = [], False
+for satir in satirlar:
+    if satir.startswith("API_SERVER_KEY="):
+        cikti.append(f"API_SERVER_KEY={anahtar}")
+        bulundu = True
+    else:
+        cikti.append(satir)
+if not bulundu:
+    cikti.append(f"API_SERVER_KEY={anahtar}")
+env_yolu.parent.mkdir(parents=True, exist_ok=True)
+gecici = env_yolu.with_suffix(env_yolu.suffix + ".tmp")
+fd = os.open(gecici, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w", encoding="utf-8") as f:
+    f.write("\n".join(cikti) + "\n")
+os.replace(gecici, env_yolu)
+os.chmod(env_yolu, 0o600)
+print(f"  API_SERVER_KEY .env'e yazıldı (0600): {env_yolu}")
+PY
+}
 
 kod_al() {  # kod_al <url> [anahtar]
   if [ -n "${2:-}" ]; then
@@ -121,8 +180,9 @@ if [ "$YENILE" -eq 1 ] || [ "${#ANAHTAR}" -lt 32 ]; then
   else
     yeni="$(openssl rand -hex 32)"
     (umask 077; printf '%s\n' "$yeni" > "$ANAHTAR_DOSYA"); chmod 600 "$ANAHTAR_DOSYA"
-    cfg_set API_SERVER_KEY "$yeni"
-    ANAHTAR="$yeni"
+    unset yeni
+    anahtari_env_yaz
+    anahtar_oku
     echo "  yeni anahtar üretildi → $ANAHTAR_DOSYA (0600) ve .env"
   fi
 else
@@ -164,8 +224,16 @@ cat <<NOT
 1) Ayarın etkinleşmesi için AYRI bir kabukta:
      $GW restart
 
-2) Open WebUI'yi konteynerde çalıştır (köprüden 172.17.0.1'e erişir) — tek satır:
-     docker run -d --name open-webui --restart unless-stopped -p 3000:8080 -v open-webui:/app/backend/data -e ENABLE_SIGNUP=false ghcr.io/open-webui/open-webui:main
+2) Open WebUI'yi konteynerde çalıştır (köprüden 172.17.0.1'e erişir).
+   İmaj etiketini SABİTLE: ':main' her yeniden başlatmada denetlenmemiş upstream kod çekebilir.
+     docker pull ghcr.io/open-webui/open-webui:<SABIT-ETIKET>
+     docker run -d --name open-webui --restart unless-stopped \\
+       -p 127.0.0.1:3000:8080 \\
+       -v open-webui:/app/backend/data -e ENABLE_SIGNUP=false \\
+       ghcr.io/open-webui/open-webui:<SABIT-ETIKET>
+
+   ('-p 127.0.0.1:3000:8080' → arayüz LAN'a kapalı; tarayıcıdan http://localhost:3000)
+   Sabit etiketi seçmek için: docker images | grep open-webui   (ya da ghcr.io sürüm listesi)
 
 3) Open WebUI → Ayarlar → Bağlantılar → OpenAI API:
      Base URL : http://172.17.0.1:$PORT/v1
