@@ -129,6 +129,82 @@ describe('gorselUrlHatalari', () => {
     }
   })
 
+  it('192.0.0.9/.10 geçer (cihazda GENEL — i5 bulgusu)', () => {
+    // Ölçüm (Python 3.14 ipaddress): 192.0.0.9 ve 192.0.0.10 anycast adresleri is_global=True,
+    // yani cihazın `_host_herkese_acik` kapısı KABUL eder. Panel tüm 192.0.0/24'ü reddettiği için
+    // cihazın gösterdiği adres panelde engelleniyordu. Bu iki adres geçmeli, komşuları geçmemeli.
+    for (const adres of ['https://192.0.0.9/a.png', 'https://192.0.0.10/a.png']) {
+      expect(gorselUrlHatalari(adres), adres).toEqual([])
+    }
+    for (const adres of [
+      'https://192.0.0.0/a.png',
+      'https://192.0.0.8/a.png',
+      'https://192.0.0.11/a.png',
+      'https://192.0.0.170/a.png',
+      'https://192.0.0.255/a.png',
+    ]) {
+      expect(gorselUrlHatalari(adres)[0], adres).toContain('herkese açık')
+    }
+  })
+
+  it('100.64/10 panelde reddedilir — cihazdan DAHA KATI (bilinçli sapma)', () => {
+    // Ölçüm: `ipaddress` 100.64.0.1'i ne private ne reserved sayar → CİHAZ KABUL EDER.
+    // Panel güvenli tarafta kalıp reddeder; davranış kasıtlı, yorumda "DAHA KATI" yazılı.
+    for (const adres of ['https://100.64.0.1/a.png', 'https://100.127.255.254/a.png']) {
+      expect(gorselUrlHatalari(adres)[0], adres).toContain('herkese açık')
+    }
+    // Sınırlar: 100.63/100.128 cihazda da panelde de genel.
+    expect(gorselUrlHatalari('https://100.63.255.255/a.png')).toEqual([])
+    expect(gorselUrlHatalari('https://100.128.0.1/a.png')).toEqual([])
+  })
+
+  it('multicast ve ayrılmış sınıflar reddedilir (cihaz da reddeder)', () => {
+    for (const adres of [
+      'https://224.0.0.1/a.png',
+      'https://239.255.255.255/a.png',
+      'https://240.0.0.1/a.png',
+      'https://255.255.255.255/a.png',
+      'https://0.0.0.0/a.png',
+      'https://192.0.2.5/a.png',
+    ]) {
+      expect(gorselUrlHatalari(adres)[0], adres).toContain('herkese açık')
+    }
+  })
+
+  it('IPv6 ayrılmış/belge/multicast blokları reddedilir', () => {
+    // Ölçüm: bu bloklar `ipaddress`te private/reserved/multicast → cihaz reddeder.
+    for (const adres of [
+      'https://[2001:db8::1]/a.png',
+      'https://[2001:2::1]/a.png',
+      'https://[3fff::1]/a.png',
+      'https://[100::1]/a.png',
+      'https://[5f00::1]/a.png',
+      'https://[ff02::1]/a.png',
+      'https://[fe80::1]/a.png',
+      'https://[fdff::1]/a.png',
+    ]) {
+      expect(gorselUrlHatalari(adres)[0], adres).toContain('herkese açık')
+    }
+    for (const adres of ['https://[2001:4860:4860::8888]/a.png', 'https://[2a00:1450:4001::1]/a.png']) {
+      expect(gorselUrlHatalari(adres), adres).toEqual([])
+    }
+  })
+
+  it('boşluk/denetim karakteri kendi mesajıyla reddedilir (i5 bulgusu)', () => {
+    // Eskiden bu adres "https ile başlamalı" diyordu; adres https olduğu hâlde operatör
+    // sorunu göremiyordu. Ret davranışı aynı, GEREKÇE artık doğru (cihaz da ayrı söyler).
+    for (const adres of [
+      'https://ornek.test/a b.png',
+      'https://ornek.test/a\tb.png',
+      'https://ornek.test/a\u0001b.png',
+    ]) {
+      const hatalar = gorselUrlHatalari(adres)
+      expect(hatalar.length, JSON.stringify(adres)).toBe(1)
+      expect(hatalar[0], JSON.stringify(adres)).toContain('boşluk veya denetim karakteri')
+      expect(hatalar[0], JSON.stringify(adres)).not.toContain('https ile başlamalı')
+    }
+  })
+
   it('boş ve aşırı uzun adres reddedilir', () => {
     expect(gorselUrlHatalari('')[0]).toContain('boş')
     expect(gorselUrlHatalari('   ')[0]).toContain('boş')
@@ -208,6 +284,30 @@ describe('docstring ↔ tüketici paritesi (i3 bulgusu)', () => {
       expect(belge).toContain('en geç **30 sn**')
       expect(belge).toContain("120 sn'lik emniyet ağı")
       expect(belge).not.toContain('30–120 sn')
+    }
+  })
+
+  it('host paritesi iddiası cihazın ÖLÇÜLEN ölçütüne bağlı (i5 bulgusu)', () => {
+    // i5: yorum "Python `ipaddress.is_global` ile AYNI sonucu verir" diyordu — ölçüm bunu
+    // çürüttü (224/4 is_global=True ama cihaz reddeder; 100.64/10 is_global=False ama cihaz kabul
+    // eder) ve panel 192.0.0.9'u yanlışlıkla reddediyordu. Bu test iki şeyi kilitler:
+    //   1) cihaz kapısı hâlâ aynı altı ölçütü kullanıyor (iddianın dayanağı kaymasın),
+    //   2) panel yorumu eşitlik değil, ÖLÇÜLMÜŞ ret kümesi + bilinçli "daha katı" sapması anlatıyor.
+    const panel = oku('./model.ts')
+    expect(panel).not.toMatch(/is_global`?\s*ile aynı sonucu verir/)
+    expect(panel).toContain('DAHA KATI')
+    expect(panel).toContain('192.0.0.9')
+
+    const cihaz = oku('../../../kiosk/security/network.py')
+    for (const olcut of [
+      'is_private',
+      'is_loopback',
+      'is_link_local',
+      'is_reserved',
+      'is_multicast',
+      'is_unspecified',
+    ]) {
+      expect(cihaz, olcut).toContain(olcut)
     }
   })
 })
