@@ -104,6 +104,9 @@ def yorum_govdesi(karar: dict, durum: str) -> str:
         str(karar.get("ozet", "")).strip(),
         "",
     ]
+    if karar.get("kanit_yok"):
+        # Kanıt katmanı kapatıldıysa bu yorumda GÖRÜNÜR olmalı (denetlenebilirlik).
+        satirlar += [f"⚠️ **KANIT KATMANI ATLANDI** (--kanit-yok) — gerekçe: {karar['kanit_yok']}", ""]
     if karar.get("kapi_atlandi"):
         satirlar += [f"⚠️ **KARAR KAPISI ATLANDI** — gerekçe: {karar['kapi_atlandi']}", ""]
     bulgular = karar.get("bulgular") or []
@@ -220,16 +223,20 @@ def etiket_ekle(depo: str, token: str, no: int, eklenecek: list[str], cikarilaca
         istek(f"/repos/{depo}/issues/{no}/labels/{urllib.parse.quote(etiket, safe='')}", token, "DELETE")
 
 
-def _yabanci_commitler(depo: str, token: str, pr_no: int) -> list[str]:
-    """Dalın taşıdığı, BAŞKA bir açık PR'a ait commit'ler.
+def _yabanci_commitler(depo: str, token: str, pr_no: int) -> tuple[list[str], str]:
+    """Dalın taşıdığı, BAŞKA bir açık PR'a ait commit'ler → (liste, hata).
 
     Neden: 25 Ekim'de #89 dalı, birleşmemiş #88'in commit'ini (11a5a89) taşıyordu. Squash-merge
     olsa bile "onaylanmamış iş main'e girer" riski doğar ya da PR sonsuza kadar bekler. Kapı bunu
     birleştirme anında makineyle denetler; dal temizlenince (rebase) kendiliğinden geçer.
+
+    FAIL-CLOSED (26 Ekim i5 bulgusu): API 200 dışı kod dönerse (429 kota, 403, 0 ağ hatası) eski
+    sürüm BOŞ liste dönüyordu → denetim sessizce atlanıyordu. Artık her başarısız çağrı hata
+    döndürür; `birlestir()` bu durumda birleştirmez ve gerekçeyi PR yorumuna yazar.
     """
     kod, digerleri = istek(f"/repos/{depo}/pulls?state=open&per_page=100", token)
     if kod != 200 or not isinstance(digerleri, list):
-        return []
+        return [], f"açık PR listesi denetlenemedi (HTTP {kod})"
     baska: dict[str, int] = {}
     for p in digerleri:
         if not isinstance(p, dict) or p.get("number") == pr_no:
@@ -238,12 +245,12 @@ def _yabanci_commitler(depo: str, token: str, pr_no: int) -> list[str]:
         if sha:
             baska[sha] = p.get("number", 0)
     if not baska:
-        return []
+        return [], ""
     kod, commitler = istek(f"/repos/{depo}/pulls/{pr_no}/commits?per_page=100", token)
     if kod != 200 or not isinstance(commitler, list):
-        return []
+        return [], f"PR commit listesi denetlenemedi (HTTP {kod})"
     return [f"#{baska[c['sha']]} ({c['sha'][:7]})" for c in commitler
-            if isinstance(c, dict) and c.get("sha") in baska]
+            if isinstance(c, dict) and c.get("sha") in baska], ""
 
 
 def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay: bool = False) -> tuple[bool, str]:
@@ -265,7 +272,10 @@ def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay
     if (pr.get("head") or {}).get("sha") != sha:
         return False, "PR'ın head sha'sı değişmiş (yeni commit var) — yeniden inceleme gerekir"
     etiketler = [e.get("name") for e in pr.get("labels", [])]
-    yabanci = _yabanci_commitler(depo, token, pr_no)
+    yabanci, denetim_hatasi = _yabanci_commitler(depo, token, pr_no)
+    if denetim_hatasi:
+        # FAIL-CLOSED: denetim yapılamadıysa "yabancı commit yok" sayılmaz (26 Ekim i5 bulgusu).
+        return False, f"yabancı commit denetimi yapılamadı — {denetim_hatasi}"
     if yabanci:
         return False, ("dal başka AÇIK PR'ın commit'ini taşıyor: " + ", ".join(yabanci)
                        + " — rebase edin, sonra yeniden karar")
@@ -307,6 +317,12 @@ def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay
     return False, f"birleştirme başarısız (HTTP {kod}): {mesaj}"
 
 
+def _yuksek_bulgular(karar: dict) -> list[dict]:
+    """'yüksek'/'kritik' önemdeki bulgular — kapı atlama yolları bunlar varken kapalıdır."""
+    return [b for b in (karar.get("bulgular") or []) if isinstance(b, dict)
+            and str(b.get("onem", "")).lower() in {"yuksek", "yüksek", "kritik"}]
+
+
 def _kapi_red_yaz(karar: dict, makine: str, hatalar: list[str], atlandi: bool) -> None:
     """Kapı reddi/atlaması kalıcı iz bıraksın.
 
@@ -340,12 +356,14 @@ def main() -> int:
         help="birleştirme için 'guvenlik/inceleme' VE 'guvenlik/karar' success olmalı (D modu)",
     )
     ap.add_argument("--kanit-yok", action="store_true",
-                    help="karar kapısında dosya:satır kanıtını ağdan denetleme (yalnız çevrimdışı acil durum)")
+                    help="karar kapısında dosya:satır kanıtını ağdan denetleme — --kapi-atla ile AYNI "
+                         "korumalar: YAZ_KAPI_ATLA_ONAY=1 (operatör), --gerekce ≥20 karakter, 'yüksek' "
+                         "bulgu yokluğu; her kullanım kapi-red.log'a ATLANDI satırı yazar")
     ap.add_argument("--kapi-atla", action="store_true",
                     help="karar kapısı hatalarına RAĞMEN yayınla — AYRICA YAZ_KAPI_ATLA_ONAY=1 "
                          "ortam anahtarı ister (operatör), --gerekce zorunlu, 'yüksek' bulgu varsa imkânsız")
     ap.add_argument("--gerekce", default="",
-                    help="--kapi-atla için gerekçe (≥20 karakter); PR yorumuna ve kapi-red.log'a yazılır")
+                    help="--kapi-atla / --kanit-yok için gerekçe (≥20 karakter); PR yorumuna ve kapi-red.log'a yazılır")
     ap.add_argument(
         "--birlestir", action="store_true",
         help="karar 'onay' ise PR'ı otomatik birleştir (koruma: etiketler/çakışma/kontrol durumu)",
@@ -399,6 +417,36 @@ def main() -> int:
     makine = str(karar.get("makine", "i5")).lower()
     baglam, onay_etiketi, sorun_etiketi = MAKINE_AYARI.get(makine, MAKINE_AYARI["i5"])
 
+    # ---- KANIT KATMANI (--kanit-yok) — ajanın tek başına kapatabileceği bir anahtar DEĞİL ---------
+    # 26 Ekim i5 bulgusu: bayrak `kanit=not a.kanit_yok` ile dosya:satır kanıtı denetimini tamamen
+    # kapatıyordu ve ajanın kendi elindeydi (terminal yetkisi olan ajan kanıtsız karar yayınlayabilir).
+    # Artık --kapi-atla ile AYNI üç koruma geçerli:
+    #   (1) operatörün ortam anahtarı `YAZ_KAPI_ATLA_ONAY=1` (nöbetçi biriminde tanımlı DEĞİL),
+    #   (2) yazılı gerekçe ≥20 karakter, (3) 'yüksek'/'kritik' bulgu varken hiç kullanılamaz.
+    # Her kullanım (kabul de ret de) kapi-red.log'a iz bırakır; kabulde olay=ATLANDI.
+    if a.kanit_yok:
+        gerekce = a.gerekce.strip()
+        if os.environ.get("YAZ_KAPI_ATLA_ONAY", "") != "1":
+            print("[yaz] KANIT KATMANI: --kanit-yok REDDEDİLDİ — operatör ortam anahtarı yok "
+                  "(YAZ_KAPI_ATLA_ONAY=1). Kanıt denetimini kapatmak ajanın tek başına verebileceği "
+                  "bir karar değil.", file=sys.stderr)
+            _kapi_red_yaz(karar, makine, ["--kanit-yok reddedildi: operatör anahtarı yok"], atlandi=False)
+            return 5
+        if _yuksek_bulgular(karar):
+            print(f"[yaz] KANIT KATMANI: --kanit-yok REDDEDİLDİ — {len(_yuksek_bulgular(karar))} "
+                  "'yüksek' bulgusu varken kanıt denetimi kapatılamaz.", file=sys.stderr)
+            _kapi_red_yaz(karar, makine, ["--kanit-yok reddedildi: yüksek bulgu"], atlandi=False)
+            return 5
+        if len(gerekce) < 20:
+            print("[yaz] KANIT KATMANI: --kanit-yok için --gerekce \"…\" (≥20 karakter) zorunlu.",
+                  file=sys.stderr)
+            _kapi_red_yaz(karar, makine, ["--kanit-yok reddedildi: gerekçe yok"], atlandi=False)
+            return 5
+        karar["kanit_yok"] = gerekce
+        _kapi_red_yaz(karar, makine, [f"--kanit-yok: kanıt katmanı ATLANDI; gerekçe: {gerekce}"], atlandi=True)
+        print(f"[yaz] KANIT KATMANI: ATLANDI (--kanit-yok) → dosya:satır kanıtı ağdan denetlenmiyor; "
+              f"gerekçe günlüğe ve yoruma yazıldı")
+
     # ---- KARAR KAPISI (fail-closed) -------------------------------------------------------
     # Şema + kapsam (12 alan) + tutarlılık + dosya:satır kanıtı. Geçmezse GitHub'a HİÇBİR şey
     # yazılmaz: kararsızlık sessizce "onay"a dönüşmesin (25 Ekim kararı).
@@ -413,8 +461,7 @@ def main() -> int:
         # Kapıyı atlamak serbest bir anahtar DEĞİL: (a) yazılı gerekçe zorunlu, (b) 'yüksek' önemde
         # bulgu varken hiç atlanamaz, (c) atlama PR yorumunda görünür. 26 Ekim i5 bulgusu: bayrak
         # ajanın kendi elindeydi ve hiçbir makine itiraz etmiyordu.
-        yuksek = [b for b in (karar.get("bulgular") or []) if isinstance(b, dict)
-                  and str(b.get("onem", "")).lower() in {"yuksek", "yüksek", "kritik"}]
+        yuksek = _yuksek_bulgular(karar)
         gerekce = a.gerekce.strip()
         # 26 Ekim i5 bulgusu: bayrak ajanın KENDİ elindeydi (terminal yetkisi olan ajan --kapi-atla
         # yazıp şemayı/kanıtı devre dışı bırakabiliyordu). Kapı atlama artık iki anahtar ister:

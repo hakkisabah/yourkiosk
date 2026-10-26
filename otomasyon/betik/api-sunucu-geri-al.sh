@@ -12,6 +12,12 @@
 #   ./otomasyon/betik/api-sunucu-geri-al.sh --kontrol     # hiçbir şeyi değiştirme, durumu göster
 #   ./otomasyon/betik/api-sunucu-geri-al.sh               # geri al (sudo parolası ister)
 #   ./otomasyon/betik/api-sunucu-geri-al.sh --dinle 172.17.0.1   # geri al + docker köprüsüne bağla
+#   ./otomasyon/betik/api-sunucu-geri-al.sh --dinle 0.0.0.0 --kabul-et-lan   # LAN'a aç (açık onay)
+#
+# `--dinle` değeri sertlestir.sh ile AYNI beyaz listeden geçer: 127.0.0.1 · 172.17.0.1 · 172.18.0.1.
+# `0.0.0.0` yalnız açık `--kabul-et-lan` bayrağıyla yazılır; liste dışı değer çıkış 2 ile reddedilir.
+# NEDEN: 26 Ekim i5 bulgusu — bu betik değeri doğrulamadan `hermes config set API_SERVER_HOST`
+# komutuna yazıyordu, yani yazım hatası ya da kazara `0.0.0.0` terminal yetkili ucu tüm ağlara açardı.
 #
 # NEDEN: nftables kuralı yanlış kaynak IP ile uygulandığında erişim tamamen kesilebiliyor ve
 # uzaktan teşhis imkânsız hâle geliyor. Docker köprüsü (172.17.0.1) yöntemi güvenlik duvarı
@@ -25,15 +31,35 @@ TABLO="inet hermes_api"
 KURAL_DOSYA="/etc/nftables.d/60-hermes-api.nft"
 KIP="geri-al"
 DINLE="127.0.0.1"
+KABUL_LAN=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --kontrol) KIP="kontrol"; shift ;;
     --dinle)   DINLE="${2:?--dinle IP ister}"; shift 2 ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --kabul-et-lan) KABUL_LAN=1; shift ;;
+    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "bilinmeyen argüman: $1" >&2; exit 2 ;;
   esac
 done
+
+# ── dinleme adresi doğrulaması (sertlestir.sh ile AYNI beyaz liste) ──────────────────────────
+# 26 Ekim i5 bulgusu: --dinle değeri hiçbir doğrulamadan geçmiyordu ve doğrudan config'e yazılıyordu.
+# Doğrulama HİÇBİR şey yazılmadan ÖNCE yapılır (--kontrol dâhil erken çıkışlar da denetimden geçer).
+case "$DINLE" in
+  127.0.0.1|172.17.0.1|172.18.0.1) ;;
+  0.0.0.0)
+    if [ "$KABUL_LAN" -ne 1 ]; then
+      echo "✗ --dinle 0.0.0.0 verildi ama --kabul-et-lan yok." >&2
+      echo "  Bu uç terminal yetkili bir ajandır. Konteyner için 172.17.0.1 kullanın;" >&2
+      echo "  gerçekten LAN'a açacaksanız açıkça: --dinle 0.0.0.0 --kabul-et-lan" >&2
+      exit 2
+    fi ;;
+  *)
+    echo "✗ geçersiz --dinle değeri: '$DINLE'" >&2
+    echo "  İzinli: 127.0.0.1 · 172.17.0.1 · 172.18.0.1 (0.0.0.0 yalnız --kabul-et-lan ile)" >&2
+    exit 2 ;;
+esac
 
 # sudo: yalnız gerektiğinde ve kullanıcıdan parola isteyerek
 SUDO=""
@@ -95,6 +121,7 @@ echo "== 4/5 API_SERVER_HOST =="
 "$HERMES" config set API_SERVER_HOST "$DINLE" >/dev/null 2>&1 \
   && echo "  API_SERVER_HOST=$DINLE" \
   || echo "  ✗ ayarlanamadı (elle: hermes config set API_SERVER_HOST $DINLE)"
+[ "$DINLE" = "0.0.0.0" ] && echo "  ⚠ 0.0.0.0 = tüm ağlara açık (--kabul-et-lan verildi). Konteyner için 172.17.0.1 kullanın."
 
 echo "== 5/5 son durum =="
 durum
