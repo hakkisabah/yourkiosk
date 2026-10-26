@@ -89,6 +89,8 @@ Depo kuralları: `kiosk/GUVENLIK.md`, `kiosk/KOMUTLAR.md`, `docs/AWS-KURULUM.md`
    python3 otomasyon/betik/karar_dogrula.py /tmp/karar-<NO>.json
    ```
    ✗ varsa karar dosyasını düzelt (yeni bulgu uydurma; eksik alanı gerçekten doldur) ve tekrar çalıştır.
+   Her bulguda `satir` **zorunludur** (`satir: 0` → kapı reddeder; istisna yalnız bulgusuz
+   `onay`/`kabul` kararı). Alan adları Türkçe ya da ASCII yazılabilir (`ag/tls`, `test kaniti`…).
 
 7. Yayınla (**`--birlestir` KULLANMA**):
    ```bash

@@ -7,7 +7,10 @@ bunun yorumda görünmemesi.
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -136,7 +139,14 @@ class _BiletDestekli(unittest.TestCase):
         # 26 Ekim i5 bulgusu (2): kapı günlüğü yolu da `YAZ_KAPI_LOG` ile taşınabiliyordu →
         # ajan `/dev/null` verip izi siliyordu. Bu yüzden günlük yolu da MODÜL özniteliğiyle
         # enjekte edilir; `kapi_log_env` yalnız "ortam değişkeni YOK SAYILIR" testi içindir.
-        onsoz = [f"import pathlib; yaz.KAPI_LOG = pathlib.Path({str(self.log)!r})"]
+        onsoz = [
+            # 26 Ekim i5 bulgusu (7): alt süreçle koşan testler kanıt katmanını da KAPATIR.
+            # Önceki hâlde alt süreç gerçek api.github.com'a çıkıyordu (ağ yoksa yavaş/yanıltıcı
+            # "head okunamadı (HTTP …)" satırları üretiyordu). `_api` sahte ile değiştirilir:
+            # ağa hiç çıkılmaz, kanıt katmanı fail-closed davranışını AYNEN korur (HTTP 0).
+            "import karar_dogrula as _kd; _kd._api = lambda *a, **k: (0, None)",
+            f"import pathlib; yaz.KAPI_LOG = pathlib.Path({str(self.log)!r})",
+        ]
         if kapi_log_env:
             ortam["YAZ_KAPI_LOG"] = str(kapi_log_env)
         # 26 Ekim i5 bulgusu (3): makine kimliği karar dosyasından değil ROOT sahipli dosyadan
@@ -499,7 +509,8 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
         self._gercek = yaz.istek
         self.addCleanup(lambda: setattr(yaz, "istek", self._gercek))
 
-    def _sahte_istek(self, acik_kod: int = 200, commit_kod: int = 200, yabanci: bool = False):
+    def _sahte_istek(self, acik_kod: int = 200, commit_kod: int = 200, yabanci: bool = False,
+                     kontroller=None):
         def sahte(yol, token, yontem="GET", govde=None):
             if "/pulls?state=open" in yol:
                 if acik_kod != 200:
@@ -513,7 +524,10 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
                 return 200, {"number": 90, "state": "open", "draft": False, "title": "t",
                              "head": {"sha": self.SHA}, "labels": [], "mergeable_state": "clean"}
             if yol.endswith("/status"):
-                return 200, {"statuses": [{"context": "guvenlik/inceleme", "state": "success"}]}
+                return 200, {"statuses": kontroller if kontroller is not None else [
+                    {"context": "guvenlik/inceleme", "state": "success"},
+                    {"context": "guvenlik/karar", "state": "success"},
+                ]}
             raise AssertionError(f"beklenmeyen istek: {yol}")
         yaz.istek = sahte
 
@@ -549,6 +563,39 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
         uygun, mesaj = self._birlestir()
         self.assertFalse(uygun, mesaj)
         self.assertIn("#88", mesaj)
+
+    # ── çift onay VARSAYILAN (26 Ekim i5 bulgusu) ──────────────────────────────────────────
+    def test_kontroller_yalniz_karar_iceriyorken_birlestirme_yok(self):
+        """İkinci kapı varsayılan olarak ARANIR: yalnız `guvenlik/karar` varsa birleştirme yok."""
+        self._sahte_istek(kontroller=[{"context": "guvenlik/karar", "state": "success"}])
+        uygun, mesaj = self._birlestir()
+        self.assertFalse(uygun, mesaj)
+        self.assertIn("çift onay tamam değil", mesaj)
+        self.assertIn("guvenlik/inceleme", mesaj)
+
+    def test_kontroller_yalniz_inceleme_iceriyorken_birlestirme_yok(self):
+        self._sahte_istek(kontroller=[{"context": "guvenlik/inceleme", "state": "success"}])
+        uygun, mesaj = self._birlestir()
+        self.assertFalse(uygun, mesaj)
+        self.assertIn("guvenlik/karar", mesaj)
+
+    def test_cift_onay_varsayilan_acik(self):
+        """İmza: cift_onay parametresinin VARSAYILANI True (çağıran unutsa da ikinci kapı aranır)."""
+        import inspect
+        self.assertIs(inspect.signature(yaz.birlestir).parameters["cift_onay"].default, True)
+
+    def test_tek_onay_gerekcesiz_reddedilir(self):
+        """--tek-onay açık bir istisnadır: yazılı gerekçe olmadan çalışmaz (ağa hiç çıkılmaz)."""
+        with tempfile.TemporaryDirectory() as d:
+            kok = Path(d)
+            karar_yolu = kok / "karar.json"
+            karar_yolu.write_text(json.dumps(karar(), ensure_ascii=False), encoding="utf-8")
+            s = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve().parents[1] / "yaz.py"),
+                 str(karar_yolu), "--kuru", "--birlestir", "--tek-onay"],
+                capture_output=True, text=True, timeout=120)
+            self.assertEqual(s.returncode, 2, s.stdout + s.stderr)
+            self.assertIn("--tek-onay için --gerekce", s.stderr)
 
 
 if __name__ == "__main__":

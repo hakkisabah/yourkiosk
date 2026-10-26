@@ -10,9 +10,17 @@
 #   sudo ./makine-kimligi-kur.sh i3          # bu makine i3
 #   sudo ./makine-kimligi-kur.sh --kontrol   # yalnız denetle (hiçbir şey yazmaz)
 #
-# Çıkış: 0 kuruldu/uygun · 2 kullanım hatası · 3 root değil · 4 doğrulama başarısız
+# Çıkış: 0 kuruldu/uygun · 2 kullanım hatası · 3 root değil · 4 doğrulama/GÜVEN reddi
+#
+# GÜVEN MODELİ (26 Ekim i5 bulgusu): bu betik ROOT olarak DEPO KODU ÇALIŞTIRMAZ. Önceki sürüm
+# `python3 - yaz.py` ile çalışma ağacındaki yaz.py'yi import ediyordu; yani ajanın yazabildiği bir
+# dosya root ayrıcalığıyla çalışıyordu ve kimlik mekanizmasının dayandığı ayrıcalık sınırı o adımda
+# çöküyordu. Kural artık BETİĞİN İÇİNDE ve betik kendi güvenilirliğini de denetler: betiğin kendisi
+# root sahipli değilse ya da grup/dünya-yazılabilirse "GÜVENİLMEYEN AĞAÇ" diyerek durur — root
+# sahipli kopyaya alma komutu hata metninde yazılıdır.
 set -euo pipefail
 
+#: `yaz.py` içindeki MAKINE_AYARI ile AYNI olmalı — test_makine_kimligi_kur.py karşılaştırır.
 ROLE_IZINLI="i5 i3"
 VARSAYILAN_YOL="/etc/yourkiosk-makine-kimligi"
 
@@ -30,44 +38,71 @@ case "$1" in
   i5|i3)     ROL="$1" ;;
   *)         echo "✗ geçersiz rol: '$1' (beklenen: $ROLE_IZINLI)" >&2; kullanim; exit 2 ;;
 esac
-if [ "$KIP" = "kontrol" ]; then
-  [ "$#" -ge 2 ] && YOL="$2"
-else
-  [ "$#" -ge 2 ] && YOL="$2"
-fi
+[ "$#" -ge 2 ] && YOL="$2"
 
 root_mu() { [ "$(id -u)" -eq 0 ]; }
 
-denetle() {
-  # Kural TEK yerde: yaz.py. Betik kendi kopyasını yazmaz (denetim ile yazım ayrışmasın).
-  local yaz_py
-  yaz_py="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/yaz.py"
-  [ -f "$yaz_py" ] || { echo "✗ yaz.py bulunamadı: $yaz_py" >&2; return 4; }
-  if [ -f "$YOL" ]; then
-    ls -l "$YOL"
-    echo "  içerik: $(tr -d '\n' <"$YOL")"
-  else
-    echo "  dosya yok: $YOL"
+# ── kendi güvenilirliğim ────────────────────────────────────────────────────────────────────
+agac_guvenilir() {
+  local kendi sahip mod
+  kendi="$(readlink -f "${BASH_SOURCE[0]}")"
+  sahip="$(stat -c '%u' "$kendi")"
+  mod="$(stat -c '%a' "$kendi")"
+  if [ "$sahip" != "0" ] || [ $(( 0$mod & 022 )) -ne 0 ]; then
+    {
+      echo "✗ GÜVENİLMEYEN AĞAÇ: betik root sahipli değil ya da grup/dünya-yazılabilir"
+      echo "  betik: $kendi · uid $sahip · mod $mod"
+      echo "  Ajan bu dosyayı değiştirebildiği için root olarak çalıştırılmaz."
+      echo "  Önce root sahipli kopyaya alın, sonra KOPYAYI çalıştırın:"
+      echo "    sudo install -o root -g root -m 0755 \"$kendi\" /usr/local/lib/yourkiosk/makine-kimligi-kur.sh"
+      echo "    sudo /usr/local/lib/yourkiosk/makine-kimligi-kur.sh ${ROL:-i5}"
+    } >&2
+    return 4
   fi
-  python3 - "$yaz_py" "$YOL" <<'PY'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("yourkiosk_yaz", sys.argv[1])
-modul = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(modul)
-kimlik, neden = modul.makine_kimligi_denetle(sys.argv[2])
-if not kimlik:
-    print(f"✗ kimlik geçersiz: {neden}")
-    sys.exit(4)
-print(f"✓ kimlik geçerli: {kimlik} ({sys.argv[2]})")
-PY
+  return 0
+}
+
+# ── kimlik kuralı (betiğin içinde; depo kodu çalıştırılmaz) ─────────────────────────────────
+denetle() {
+  local sahip mod dsahip dmod icerik
+  if [ -L "$YOL" ]; then echo "✗ kimlik sembolik bağ ($YOL) — normal dosya olmalı" >&2; return 4; fi
+  if [ ! -e "$YOL" ]; then echo "  dosya yok: $YOL" >&2; return 4; fi
+  if [ ! -f "$YOL" ]; then echo "✗ kimlik normal dosya değil ($YOL)" >&2; return 4; fi
+  ls -l "$YOL" >&2 || true
+  sahip="$(stat -c '%u' "$YOL")"; mod="$(stat -c '%a' "$YOL")"
+  if [ "$sahip" != "0" ]; then
+    echo "✗ kimlik root sahipli değil (uid $sahip, yol $YOL) — yalnız operatör kurabilir" >&2
+    return 4
+  fi
+  if [ $(( 0$mod & 022 )) -ne 0 ]; then
+    echo "✗ kimlik grup/dünya-yazılabilir (mod $mod, yol $YOL)" >&2
+    return 4
+  fi
+  dsahip="$(stat -c '%u' "$(dirname "$YOL")")"; dmod="$(stat -c '%a' "$(dirname "$YOL")")"
+  if [ "$dsahip" != "0" ] || [ $(( 0$dmod & 022 )) -ne 0 ]; then
+    echo "✗ kimlik dizini güvenli değil (uid $dsahip, mod $dmod, dizin $(dirname "$YOL"))" >&2
+    return 4
+  fi
+  icerik="$(tr -d '\r\n' <"$YOL")"
+  case "$icerik" in
+    i5|i3) ;;
+    *) echo "✗ kimlik içeriği geçersiz: '$icerik' (beklenen: $ROLE_IZINLI)" >&2; return 4 ;;
+  esac
+  echo "  içerik: $icerik" >&2
+  echo "✓ kimlik geçerli: $icerik ($YOL)"
+  return 0
 }
 
 if [ "$KIP" = "kontrol" ]; then
+  # --kontrol SALT OKUR ve ayrıcalık kullanmaz: betiğin hangi ağaçtan çağrıldığı önemli değil.
   denetle
   exit $?
 fi
 
 root_mu || { echo "✗ root gerekli (sudo ile çalıştırın). Ajan bu dosyayı yazamaz." >&2; exit 3; }
+
+# YAZMA yolu root ayrıcalığı kullanır → bu yolda ağaç güvenilirliği ZORUNLU (fail-closed).
+agac_guvenilir || exit 4
 
 # Atomik yazım: aynı dizinde geçici dosya + mv (yarım kalan dosya kimliği bozmasın).
 GECICI="$(mktemp "$(dirname "$YOL")/.kimlik.XXXXXX")"
@@ -78,5 +113,5 @@ chmod 0644 "$GECICI"
 mv -f "$GECICI" "$YOL"
 trap - EXIT
 
-echo "✓ yazıldı: $YOL → $ROL"
+echo "✓ yazıldı: $YOL → $ROL" >&2
 denetle

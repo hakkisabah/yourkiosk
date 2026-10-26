@@ -152,6 +152,26 @@ class YardimciTesti(unittest.TestCase):
         self.assertEqual(kd.alan_normal("IAM en az yetki"), "kimlik/yetki")
         self.assertEqual(kd.alan_normal("  Test  "), "test kanıtı")
 
+    def test_ascii_alan_adlari_kanonik_ada_doner(self):
+        """26 Ekim i5 bulgusu: ASCII yazan dürüst bir karar '12 alan eksik' diye reddediliyordu."""
+        ciftler = {
+            "ag/tls": "ağ/tls", "komut calistirma": "komut çalıştırma",
+            "sir sizintisi": "sır sızıntısı", "bagimlilik": "bağımlılık",
+            "kalicilik/geri donus": "kalıcılık/geri dönüş",
+            "kapsayici/servis": "kapsayıcı/servis", "test kaniti": "test kanıtı",
+            "girdi dogrulama": "girdi doğrulama", "gomulu sir": "gömülü sır",
+        }
+        for ascii_ad, kanonik in ciftler.items():
+            self.assertEqual(kd.alan_normal(ascii_ad), kanonik, ascii_ad)
+
+    def test_ascii_alan_listesi_kapsam_hatasi_vermez(self):
+        """12 alanın hepsi ASCII yazılsa da kapsam denetimi geçer."""
+        ascii_alanlar = ["gomulu sir", "komut calistirma", "dosya/yol", "ag/tls", "kimlik/yetki",
+                         "girdi dogrulama", "sir sizintisi", "bagimlilik", "dos/maliyet",
+                         "kalicilik/geri donus", "kapsayici/servis", "test kaniti"]
+        self.assertEqual(sorted(kd.alan_normal(a) for a in ascii_alanlar),
+                         sorted(kd.DENETIM_ALANLARI))
+
 
 class KanitKatmaniTesti(unittest.TestCase):
     """`kanit_denetle` — 26 Ekim i5 bulgusu: bu katman hiç test edilmiyordu (hepsi kanit=False).
@@ -195,6 +215,30 @@ class KanitKatmaniTesti(unittest.TestCase):
             kd.kanit_denetle(karar, sonuc, "t", "depo")
         self.assertFalse(sonuc.gecti)
         self.assertTrue(any("yalnız 3 satır" in h for h in sonuc.hatalar), sonuc.hatalar)
+
+    def test_satir_sifir_ile_karar_gecmez(self):
+        """26 Ekim i5 bulgusu: satır numarası olmayan bulgu yalnız UYARI alıyordu → kapı geçiyordu.
+
+        Bulgu taşıyan 'sorun' kararında `dosya:satır` ZORUNLU; satir=0 karar geçmez.
+        """
+        sha = "f" * 40
+        karar = self._karar(sha=sha, bulgular=[{"dosya": "x.py", "satir": 0, "onem": "orta",
+                                               "aciklama": "satırsız bulgu", "kabul": "satır ver"}])
+        sonuc = kd.Sonuc()
+        with unittest.mock.patch.object(kd, "_api", self._api_taklit({"x.py": "a\nb\n"}, sha)):
+            kd.kanit_denetle(karar, sonuc, "t", "depo")
+        self.assertFalse(sonuc.gecti)
+        self.assertTrue(any("satır numarası verilmemiş" in h for h in sonuc.hatalar), sonuc.hatalar)
+
+    def test_onay_kararinda_satir_aranmaz(self):
+        """Onayın kanıtı bulgu değil, denetlenen alan listesidir: satir=0 onayı bloklamaz."""
+        sha = "a" * 40
+        karar = self._karar(sha=sha, karar="onay", bulgular=[
+            {"dosya": "x.py", "satir": 0, "onem": "dusuk", "aciklama": "bilgi notu", "kabul": "-"}])
+        sonuc = kd.Sonuc()
+        with unittest.mock.patch.object(kd, "_api", self._api_taklit({"x.py": "a\nb\n"}, sha)):
+            kd.kanit_denetle(karar, sonuc, "t", "depo")
+        self.assertTrue(sonuc.gecti, sonuc.hatalar)
 
     def test_bayat_sha_reddedilir(self):
         karar = self._karar(sha="a" * 40)

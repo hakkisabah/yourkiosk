@@ -30,7 +30,23 @@ ANAHTAR_DOSYA="$SIR_DIR/api-server.key"
 #: "operatör onaylı" olarak ✓ gösterilir. Gerekçe: bu makinede sunucuya ağdan (LAN) erişilmesi
 #: gerekiyor; kararın kendisi görünür ve geri alınabilir olmalı — sessizce 0.0.0.0'da bırakmak
 #: ile her kontrolde kırmızı yanıp kimsenin bakmadığı bir uyarıya dönüşmek arasındaki fark.
-LAN_ONAY_DOSYA="$SIR_DIR/api-server.lan-onay"
+#:
+#: 26 Ekim i5 bulgusu: dosya `~/.config/hermes-secrets/` altındaydı ve `lan_onayli()` yalnız
+#: VARLIĞINA bakıyordu → aynı kullanıcıdaki herhangi bir süreç (ajan dahil) `touch` ile "operatör
+#: onayı" üretebiliyordu. Artık yol ROOT sahipli `/etc` altında; `--kabul-et-lan` dosyayı sudo ile
+#: yazar ve onay yalnız root sahipli + grup/dünya-yazılamaz ise geçerli sayılır.
+LAN_ONAY_DOSYA="/etc/yourkiosk-api-lan-onay"
+#: Onay dosyasını silerken sudo gerekir (dosya root sahipli /etc altında).
+onay_sil() {
+  [ -e "$LAN_ONAY_DOSYA" ] || return 0
+  if [ "${KURU:-0}" -eq 1 ]; then echo "  [KURU] onay dosyası silinecek: $LAN_ONAY_DOSYA"; return 0; fi
+  if sudo rm -f "$LAN_ONAY_DOSYA"; then
+    echo "  onay kaydı silindi: $LAN_ONAY_DOSYA"
+  else
+    echo "  ⚠ onay kaydı SİLİNEMEDİ (sudo başarısız): $LAN_ONAY_DOSYA — 0.0.0.0 açık kalırsa --kontrol onayı geçerli sayar" >&2
+  fi
+}
+
 ENV_DOSYA="$("$HERMES" config env-path 2>/dev/null | tail -1)"
 [ -n "$ENV_DOSYA" ] || ENV_DOSYA="$HOME/.hermes/.env"
 
@@ -55,6 +71,10 @@ while [ $# -gt 0 ]; do
     *) echo "bilinmeyen argüman: $1" >&2; kullanim 2 ;;
   esac
 done
+
+# Onay dosyası /etc altına sudo ile kurulurken kullanılan geçici kopya (sır değil, tarih+not).
+GECICI_ONAY="$(mktemp "${TMPDIR:-/tmp}/yourkiosk-lan-onay.XXXXXX")"
+trap 'rm -f "$GECICI_ONAY"' EXIT
 
 # ── dinleme adresi doğrulaması ───────────────────────────────────────────────────────────────
 # 26 Ekim i5 bulgusu: --dinle değeri hiç denetlenmiyordu (yazım hatası ya da 0.0.0.0 sessizce
@@ -205,15 +225,26 @@ if [ "$KIP" = "kontrol" ]; then
   }
 
   host="$(cfg_get API_SERVER_HOST)"; host="${host:-127.0.0.1}"
-  #: Operatör "LAN'a aç" kararını verdi mi? (izin dosyası — `--kabul-et-lan` yazar)
-  lan_onayli() { [ -f "$LAN_ONAY_DOSYA" ]; }
+  #: Operatör "LAN'a aç" kararını verdi mi? → 0 onaylı · 1 yok · 2 güvenilmez (root sahipli değil
+  #: ya da yazılabilir → ajan tarafından üretilmiş olabilir, onay SAYILMAZ).
+  lan_onay_durumu() {
+    [ -e "$LAN_ONAY_DOSYA" ] || return 1
+    local sahip mod
+    sahip="$(stat -c '%u' "$LAN_ONAY_DOSYA" 2>/dev/null || echo '?')"
+    mod="$(stat -c '%a' "$LAN_ONAY_DOSYA" 2>/dev/null || echo '?')"
+    [ "$sahip" = "0" ] || return 2
+    [ $(( 0$mod & 022 )) -eq 0 ] || return 2
+    return 0
+  }
   case "$host" in
     0.0.0.0)
-      if lan_onayli; then
-        satir 1 "LAN'a açık (operatör onaylı)" "0.0.0.0 · onay: $(head -1 "$LAN_ONAY_DOSYA" 2>/dev/null)"
-      else
-        satir 0 "LAN'a kapalı (yapılandırılmış host)" "$host → tüm ağlara açık (onay dosyası yok)"
-      fi ;;
+      lan_onay_durumu
+      case "$?" in
+        0) satir 1 "LAN'a açık (operatör onaylı)" "0.0.0.0 · onay: $(head -1 "$LAN_ONAY_DOSYA" 2>/dev/null)" ;;
+        2) satir 0 "LAN'a kapalı (yapılandırılmış host)" \
+             "$host → tüm ağlara açık · operatör onayı DOĞRULANAMIYOR (dosya ajan tarafından yazılabilir: $LAN_ONAY_DOSYA)" ;;
+        *) satir 0 "LAN'a kapalı (yapılandırılmış host)" "$host → tüm ağlara açık (onay dosyası yok: $LAN_ONAY_DOSYA)" ;;
+      esac ;;
     *)
       if beyaz_listede "$host"; then
         satir 1 "LAN'a kapalı (yapılandırılmış host)" "$host"
@@ -236,7 +267,7 @@ if [ "$KIP" = "kontrol" ]; then
     esac
     if beyaz_listede "$adres_host"; then
       satir 1 "LAN'a kapalı (dinlenen adres)" "$adres_host"
-    elif [ "$adres_host" = "0.0.0.0" ] && [ -f "$LAN_ONAY_DOSYA" ]; then
+    elif [ "$adres_host" = "0.0.0.0" ] && lan_onay_durumu; then
       satir 1 "LAN'a açık (operatör onaylı, dinlenen adres)" "0.0.0.0"
     else
       satir 0 "LAN'a kapalı (dinlenen adres)" "$adres_host → beyaz liste dışı (LAN'a açık)"
@@ -317,10 +348,10 @@ cfg_set API_SERVER_PORT "$PORT"
 echo "  ENABLED=true · HOST=$DINLE · PORT=$PORT"
 case "$DINLE" in
   172.17.0.1|172.18.0.1)
-    rm -f "$LAN_ONAY_DOSYA"
+    onay_sil
     echo "  → yalnız Docker köprüsünden erişilebilir; LAN'dan görünmez, güvenlik duvarı gerekmez." ;;
   127.0.0.1)
-    rm -f "$LAN_ONAY_DOSYA"
+    onay_sil
     echo "  → yalnız bu makineden (konteynerden erişilemez)." ;;
   0.0.0.0)
     # Operatör kararı KAYDA geçer: `--kontrol` bu dosyayı görürse 0.0.0.0'ı "onaylı" sayar,
@@ -329,16 +360,20 @@ case "$DINLE" in
     if [ "$KURU" -eq 1 ]; then
       echo "  [KURU] onay dosyası yazılacak: $LAN_ONAY_DOSYA"
     else
-      mkdir -p "$SIR_DIR"; chmod 700 "$SIR_DIR" 2>/dev/null || true
       printf '%s — operatör: API sunucusu LAN'"'"'a açık (Hermes istemcileri başka makineden bağlanıyor)\n' \
-        "$(date -Iseconds)" >"$LAN_ONAY_DOSYA"
-      chmod 600 "$LAN_ONAY_DOSYA"
-      echo "  onay kaydı: $LAN_ONAY_DOSYA"
+        "$(date -Iseconds)" >"$GECICI_ONAY"
+      # ROOT sahipli /etc altına sudo ile kur: ajan aynı dosyayı üretemez (26 Ekim i5 bulgusu).
+      if sudo install -o root -g root -m 0644 "$GECICI_ONAY" "$LAN_ONAY_DOSYA"; then
+        echo "  onay kaydı: $LAN_ONAY_DOSYA (root:root 0644)"
+      else
+        echo "  ⚠ onay kaydı YAZILAMADI — sudo başarısız. 0.0.0.0 açık kalırsa --kontrol bunu SORUN sayar." >&2
+      fi
+      rm -f "$GECICI_ONAY"
     fi
     echo "  ⚠ 0.0.0.0 = tüm ağlara açık. Bu uç terminal yetkili ajandır; yalnız anahtar (API_SERVER_KEY)"
     echo "    ile erişilir. Ağ değişirse anahtarı döndür: $0 --anahtar-yenile" ;;
   *)
-    rm -f "$LAN_ONAY_DOSYA"
+    onay_sil
     echo "  → yalnız $DINLE adresinden erişilebilir." ;;
 esac
 
