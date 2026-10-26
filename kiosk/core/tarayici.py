@@ -725,11 +725,16 @@ class _IstekIsleyici(http.server.BaseHTTPRequestHandler):
             return
         # kök dışına çıkma / sembolik bağ denetimi
         izinli_kokler = (web_kok().resolve(), KOK.resolve())
-        if not any(gercek == k or k in gercek.parents for k in izinli_kokler):
+        kok = next((k for k in izinli_kokler if gercek == k or k in gercek.parents), None)
+        if kok is None:
             self._hata(403, "izin yok")
             return
-        # makinebilgileri (cihaz kimliği) ve gizli klasörler asla sunulmaz
-        if gercek.name == "makinebilgileri.json" or any(p.startswith(".") for p in gercek.parts):
+        # makinebilgileri (cihaz kimliği) ve gizli dosya/klasörler asla sunulmaz.
+        # 26 Ekim i5 bulgusu: gizli-parça denetimi MUTLAK yolun tamamına bakıyordu → depo kökü
+        # nokta içeren bir dizin altındaysa (`~/.hermes/…`) sunulabilecek her dosya 403 alıyordu.
+        # Denetim artık köke GÖRELİ parçalara bakar (asıl koruma: servis edilen ağaçta gizli yol).
+        goreli = gercek.relative_to(kok) if gercek != kok else Path()
+        if gercek.name == "makinebilgileri.json" or any(p.startswith(".") for p in goreli.parts):
             self._hata(403, "izin yok")
             return
         if gercek.suffix.lower() not in IZINLI_UZANTILAR:

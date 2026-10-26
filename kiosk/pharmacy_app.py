@@ -290,9 +290,12 @@ class PharmacyApp(QMainWindow):
         # uzaktan komut sessizce ölüydü. Eski sürüm bu kontrolü `otomatik_acik("qt")` kapısının
         # ARKASINA koymuştu: `tetik.aktif=false` olan cihazda uzaktan komut tamamen ölüyordu
         # (i5 bulgusu). Komut ayrı bir özellik; kendi tur sayacıyla çalışır.
+        # 26 Ekim i5 bulgusu (2): kontrol `not isaret` ile kapılıydı → durum.json bir kez komut
+        # işareti taşımaya başlarsa (işaret boş değilse) S3'e doğrudan yazılan komut yine
+        # görülmüyordu. İşaret artık kapı DEĞİL: kontrol her 10 turda bir, işaretten bağımsız.
         # MALİYET: 10 turda BİR (`_komut_tur % 10 == 1`) ve KOŞULLU indirme (ETag → 304).
         self._komut_tur = getattr(self, "_komut_tur", 0) + 1
-        if not isaret and self._komut_tur % 10 == 1:
+        if self._komut_tur % 10 == 1:
             self._komut_capraz_kontrol()
 
         if not tetik_modulu.otomatik_acik("qt"):

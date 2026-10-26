@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -127,23 +128,36 @@ def test_kuru_calisma_bir_sey_baslatmaz(capsys) -> None:
 
 # ------------------------------------------------------------------ yerel sunucu
 @pytest.fixture()
-def sunucu():
+def sunucu(monkeypatch):
     """Geçici portta yerel web sunucusu (test sonunda kapatılır).
 
-    Temiz klonda `web/dist` YOKTUR (derleme çıktısı depoya girmez; 26 Ekim dersi: `web/dist`
-    sembolik bağı depoya sızıp bu testleri yalnız yazarın makinesinde yeşil tutuyordu). Arayüz
-    derlenmemişse sunucu `FileNotFoundError` atar → burada **skip** edilir, böylece `pytest`
-    kırmızı görünmez ama neden atlandığı da yazılır.
+    26 Ekim i5 bulgusu: temiz klonda `web/dist` YOKTUR (derleme çıktısı depoya girmez) ve bu
+    fixture `pytest.skip` yapıyordu → yerel HTTP sunucusunun GÜVENLİK testleri (kök dışına çıkma,
+    beyaz liste, SSRF/görsel köprüsü) hiçbir standart koşuda çalışmıyordu. Artık derlenmiş
+    arayüz beklenmez: geçici bir "dist" kökü üretilir ve `derlenmis_kok()` ona yönlendirilir.
+    Test edilen şey sunucunun yol/whitelist davranışıdır, gerçek paket içeriği değil.
+
+    Dizin depo kökünde açılır (nokta içeren `$TMPDIR` yolları sunucunun "gizli klasör" kuralınca
+    403 alır) ve test sonunda silinir.
     """
-    if not (tarayici.web_kok() / "index.html").is_file():
-        pytest.skip("web/index.html yok")
-    if not tarayici.derlenmis_mi():
-        pytest.skip(f"arayüz derlenmemiş: cd {tarayici.web_kaynak_kok()} && npm install --include=dev && npm run build")
+    import shutil
+    import tempfile
+
+    kok = Path(tempfile.mkdtemp(prefix="test-dist-", dir=str(tarayici.KOK.parent)))
+    (kok / "index.html").write_text(
+        "<!doctype html><meta charset='utf-8'><title>yourkiosk</title>"
+        "<div id='app'>yourkiosk kiosk</div>\n", encoding="utf-8")
+    monkeypatch.setattr(tarayici, "derlenmis_kok", lambda: kok)
     tarayici._IstekIsleyici.gunluk.clear()
-    s, port, _ = tarayici.sunucu_baslat("127.0.0.1", 0)
-    yield port
-    s.shutdown()
-    s.server_close()
+    try:
+        s, port, _ = tarayici.sunucu_baslat("127.0.0.1", 0)
+        try:
+            yield port
+        finally:
+            s.shutdown()
+            s.server_close()
+    finally:
+        shutil.rmtree(kok, ignore_errors=True)
 
 
 def _indir(port: int, yol: str) -> tuple[int, bytes, dict]:
@@ -557,6 +571,11 @@ def test_tetik_oku_bozuk_dosyayi_yok_sayar(monkeypatch) -> None:
 
 
 # ------------------------------------------------------------------ derlenmiş arayüz
+def _gercek_derlenmis() -> bool:
+    """GERÇEK `web/dist` derlenmiş mi? (fixture `derlenmis_kok`'u monkeypatch eder → bakma.)"""
+    return (tarayici.web_kaynak_kok().parent / "dist" / "index.html").is_file()
+
+
 def test_derlenmis_arayuz_sunulur() -> None:
     """Tarayıcıya KAYNAK değil DERLENMİŞ arayüz sunulur (kaynakta `.ts` → beyaz ekran)."""
     if not tarayici.derlenmis_mi():
@@ -566,7 +585,13 @@ def test_derlenmis_arayuz_sunulur() -> None:
 
 
 def test_derlenmis_html_tarayicida_calisir(sunucu: int) -> None:
-    """Sunulan index.html YALNIZCA derlenmiş varlıklara başvurur (`.ts` istemez)."""
+    """Sunulan index.html YALNIZCA derlenmiş varlıklara başvurur (`.ts` istemez).
+
+    GERÇEK paketin içeriğini denetler → derlenmiş arayüz yoksa (temiz klon) atlanır. Diğer
+    sunucu testleri artık atlanmaz: fixture geçici bir kök üretir (26 Ekim i5 bulgusu).
+    """
+    if not _gercek_derlenmis():
+        pytest.skip("web/dist yok (temiz klon): cd web && npm install --include=dev && npm run build")
     kod, govde, _ = _indir(sunucu, "/index.html")
     assert kod == 200
     metin = govde.decode("utf-8")
@@ -584,6 +609,8 @@ def test_derlenmis_html_tarayicida_calisir(sunucu: int) -> None:
 
 def test_derlenmis_arayuzde_hata_guvenlik_agi_var(sunucu: int) -> None:
     """Boş ekran yerine hata kartı çizen bağımsız güvenlik ağı derlemede bulunmalı."""
+    if not _gercek_derlenmis():
+        pytest.skip("web/dist yok (temiz klon): cd web && npm install --include=dev && npm run build")
     kod, govde, _ = _indir(sunucu, "/index.html")
     assert kod == 200
     metin = govde.decode("utf-8")

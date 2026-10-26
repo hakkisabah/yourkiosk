@@ -46,7 +46,11 @@ ESKI_SN = re.compile(r"(?<!\d)300\s*sn\b", re.IGNORECASE)
 #: İkili iddia biçimi: "push bağlı 120 sn / kopuk 30 sn"
 IKILI = re.compile(r"push\s*ba[ğg]l[ıi]\D{0,12}(\d+)\s*sn\D{0,20}kopuk\D{0,12}(\d+)\s*sn", re.IGNORECASE)
 #: Tarihsel/ölçüm bağlamı: bunlar bayat iddia değil, karşılaştırmadır.
-TARIH = re.compile(r"(\bidi\b|\bik[ie]n\b|önce|eski|tarihsel|karşılaştır|demekti|yerine|≈|\$|maliyet)",
+#: 26 Ekim i5 bulgusu: kalıp `≈`, `$` ve `maliyet` de içeriyordu → "Yoklama aralığı ≈ 20 sn
+#: (600 cihazda)." gibi bir cümle "ölçüm bağlamı" sayılıp MUAF kalıyordu. Fiyat/ölçüm işareti
+#: tek başına muafiyet DEĞİLDİR; muafiyet yalnız açık tarihsel/karşılaştırma sözcüğüyle verilir
+#: (maliyet tablosundaki bayat aralık da yanlış iddiadır).
+TARIH = re.compile(r"(\bidi\b|\bik[ie]n\b|önce|eski|tarihsel|karşılaştır|demekti|yerine)",
                    re.IGNORECASE)
 #: KELİMESİZ kadans iddiası: "20 sn'de bir", "her 20 sn". `yoklama`/`damga` sözcüğü geçmese de
 #: bir aralık iddiasıdır (26 Ekim i5 bulgusu: docs/AWS-KURULUM.md:95 bu yüzden yeşil kalıyordu).
@@ -442,3 +446,11 @@ def test_komut_capraz_kontrolu_tetik_kapisindan_once():
     assert cagri != -1, "_komut_capraz_kontrol çağrısı yok — uzaktan komut sessizce ölür"
     assert kapi != -1, "tetikleyici kapısı bulunamadı (kaynak değişti, testi güncelle)"
     assert cagri < kapi, "komut çapraz kontrolü yine tetikleyici kapısının arkasında (i5 bulgusu)"
+    # 26 Ekim i5 bulgusu (2): çağrı `not isaret` ile de kapılanmamalı — durum.json komut işareti
+    # taşıdığında panelden bağımsız S3 yüklemesi yine görülmez oluyordu.
+    cagri_satiri = next((s for s in govde.splitlines() if "self._komut_capraz_kontrol()" in s), "")
+    onceki = govde[:cagri].splitlines()
+    kosul = next((s for s in reversed(onceki) if s.strip().startswith("if ")), "")
+    assert "isaret" not in kosul, f"çapraz kontrol yine isaret kapısının arkasında: {kosul!r}"
+    assert "_komut_tur" in kosul, f"çapraz kontrol tur sayacına bağlı değil: {kosul!r}"
+    assert cagri_satiri.strip() == "self._komut_capraz_kontrol()"
