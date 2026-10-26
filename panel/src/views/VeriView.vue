@@ -31,7 +31,7 @@ import {
   hedefEtiketi,
   ilceSecenekleri as hedefIlceleri,
 } from '@/domain/hedef'
-import { kapsamiYaz, yayinDogrula, type YayinDto } from '@/domain/model'
+import { kapsamiYaz, yayinDogrula, gorselUrlHatalari, gorselUrlYaz, type YayinDto } from '@/domain/model'
 import {
   kaydaHazirla,
   kirliMi,
@@ -129,6 +129,10 @@ const hedefIlceListesi = computed(() => hedefIlceleri(dosyalar.match, dosyalar.s
 const duzenlenen = ref<string>('')
 const duzenlenenKapsam = ref({ ilceId: '', bolgeId: '', cihazId: '' })
 const hedefHata = ref('')
+/** Görsel adresi düzenleme durumu (yayının contentUrl alanı). */
+const gorselDuzenlenen = ref<string>('')
+const gorselUrl = ref('')
+const gorselHata = ref('')
 
 const aktifKayit = computed<YayinDto | null>(() => {
   const bulunan = hedefliYayinlar.value.find((y) => y.id === duzenlenen.value)
@@ -177,6 +181,38 @@ function hedefTemizle(id: string): void {
   const yayinlar = (taslak.value.Yayinlar ?? {}) as Record<string, YayinDto>
   yayinlar[id] = kapsamiYaz(kayit, {})
   taslak.value = { ...taslak.value }
+}
+
+/** Görsel adresi düzenleme: kaydın mevcut adresini forma yükler. */
+function gorselDuzenle(id: string): void {
+  const kayit = hedefliYayinlar.value.find((y) => y.id === id)?.kayit
+  if (!kayit) return
+  gorselHata.value = ''
+  gorselDuzenlenen.value = id
+  gorselUrl.value = String(kayit.contentUrl ?? kayit.contentURL ?? kayit.url ?? '')
+}
+
+/** Girilen adresi taslağa yazar (yayına almak için sayfadaki "Kaydet" gerekir). */
+function gorselUygula(): void {
+  const kayit = hedefliYayinlar.value.find((y) => y.id === gorselDuzenlenen.value)?.kayit
+  if (!kayit) return
+  const hatalar = gorselUrlHatalari(gorselUrl.value)
+  if (hatalar.length) {
+    gorselHata.value = hatalar[0]
+    return
+  }
+  const yeni = gorselUrlYaz(kayit, gorselUrl.value)
+  const modelHatalari = yayinDogrula(yeni)
+  if (modelHatalari.length) {
+    gorselHata.value = modelHatalari[0]
+    return
+  }
+  const yayinlar = (taslak.value.Yayinlar ?? {}) as Record<string, YayinDto>
+  yayinlar[gorselDuzenlenen.value] = yeni
+  taslak.value = { ...taslak.value }
+  gorselDuzenlenen.value = ''
+  gorselUrl.value = ''
+  gorselHata.value = ''
 }
 
 /** YAZ-VE-DOĞRULA: kaydettikten sonra dosyayı geri okuyup gönderdiğimiz içerikle karşılaştırır. */
@@ -425,8 +461,9 @@ async function tetikBildir(): Promise<void> {
         <v-card>
           <v-card-title class="text-subtitle-1">Yayınlar (görsel modu)</v-card-title>
           <v-card-subtitle>
-            Yayınlar cihazın veri kaynağından gelir; panelde görüntülenir. Kayan yazı kuşağı
-            (eczane – telefon) nöbet kayıtlarından üretilir.
+            Yayınlar cihazın veri kaynağından gelir. Görsel adresi (<code>contentUrl</code>) ve hedef
+            (ilçe/bölge/cihaz) panelden düzenlenebilir; değişiklik <strong>Kaydet</strong> ile yayına girer.
+            Kayan yazı kuşağı (eczane – telefon) nöbet kayıtlarından üretilir.
           </v-card-subtitle>
           <v-card-text>
             <!-- HEDEFLEME: ilçe/bölge/cihaz. Boş = tüm cihazlar. -->
@@ -461,6 +498,7 @@ async function tetikBildir(): Promise<void> {
                     </v-chip>
                   </td>
                   <td style="white-space: nowrap">
+                    <v-btn size="x-small" variant="text" prepend-icon="mdi-image" @click="gorselDuzenle(y.id)">Görsel</v-btn>
                     <v-btn size="x-small" variant="text" prepend-icon="mdi-target" @click="hedefDuzenle(y.id)">Hedef</v-btn>
                     <v-btn
                       v-if="y.kayit.ilceId || y.kayit.bolgeId || y.kayit.cihazId"
@@ -498,6 +536,51 @@ async function tetikBildir(): Promise<void> {
                   <v-spacer />
                   <v-btn variant="text" @click="duzenlenen = ''">Vazgeç</v-btn>
                   <v-btn color="primary" variant="flat" @click="hedefUygula">Uygula</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+
+            <!-- GÖRSEL ADRESİ: yayının contentUrl alanını düzenler (asıl ihtiyaç: PNG → WebP geçişi) -->
+            <v-dialog
+              :model-value="!!gorselDuzenlenen"
+              max-width="680"
+              @update:model-value="(v: boolean) => { if (!v) { gorselDuzenlenen = ''; gorselHata = '' } }"
+            >
+              <v-card>
+                <v-card-title class="text-subtitle-1">Yayın görseli · #{{ gorselDuzenlenen }}</v-card-title>
+                <v-card-subtitle class="text-caption">
+                  Cihaz bu adresi indirir. Zorunlu: <strong>https</strong>, port <strong>443</strong>,
+                  herkese açık adres (yerel ağ/loopback değil). Uzantı <em>varsa</em> .png / .jpg /
+                  .jpeg / .webp olmalı; uzantısız adres kabul edilir (cihaz içerik türüne bakar —
+                  .ashx/.jfif gibi uzantılar reddedilir). Görsel değişimi için yeni dosya adı (hash)
+                  kullanın, aksi hâlde cihaz önbellekteki eski görseli göstermeye devam eder.
+                </v-card-subtitle>
+                <v-card-text>
+                  <v-text-field
+                    v-model="gorselUrl"
+                    label="Görsel adresi (contentUrl)"
+                    placeholder="https://.../yayin-gorselleri/1aef5f57384bad53.webp"
+                    variant="outlined"
+                    density="comfortable"
+                    hide-details="auto"
+                    spellcheck="false"
+                    @keyup.enter="gorselUygula"
+                  />
+                  <v-alert v-if="gorselHata" type="error" variant="tonal" density="compact" class="mt-3">
+                    {{ gorselHata }}
+                  </v-alert>
+                  <v-alert v-else-if="gorselUrl.trim()" type="info" variant="tonal" density="compact" class="mt-3">
+                    <span class="text-caption">{{ gorselUrl.trim() }}</span>
+                  </v-alert>
+                  <div class="text-caption text-medium-emphasis mt-3">
+                    <strong>Uygula</strong> yalnız taslağa yazar; yayına almak için sayfadaki
+                    <strong>Kaydet</strong> düğmesine basın (ardından cihazlar tetiklenir).
+                  </div>
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn variant="text" @click="gorselDuzenlenen = ''; gorselHata = ''">Vazgeç</v-btn>
+                  <v-btn color="primary" variant="flat" @click="gorselUygula">Uygula</v-btn>
                 </v-card-actions>
               </v-card>
             </v-dialog>

@@ -816,7 +816,7 @@ class PharmacyApp(QMainWindow):
             self.stop_broadcast_mode()
             return
         y = mgr.active_yayin_list[mgr.current_yayin_idx]
-        url = y.get("contentURL") or y.get("contentUrl") or ""
+        url = y.get("contentUrl") or y.get("contentURL") or ""
         log.info("yayın gösteriliyor: %d/%d · %s", mgr.current_yayin_idx + 1, len(mgr.active_yayin_list), url or "(adres yok)")
         # Süre sınırlanır: bozuk değer (ör. 99999999) ekranı yayında kilitleyemesin
         duration = (
