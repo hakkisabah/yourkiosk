@@ -41,18 +41,19 @@ TETIK_DOSYASI = "tetikle.json"
 #: büyük veri dosyaları damga değişmedikçe indirilmez.
 # Emniyet ağı yoklaması. ANLIK güncelleme MQTT push (tetik.push_*) ve tarayıcıda `/degisiklik`
 # uzun yoklamasıyla gelir; bu süre yalnızca "push kaçtı" durumu içindir.
-# 600 cihaz ölçeğinde maliyet (3 küçük istek × 86400/süre × 600 cihaz × 30 gün):
-#   120 sn (bu değer, push BAĞLI) → ~38,9 M istek/ay (~$29/ay)
-#    30 sn (push KOPUK)          → ~155,5 M istek/ay (~$116/ay)
-# Ölçü: 20 sn iken ~233 M istek/ay (~$175/ay) idi — 120 sn'ye çekilmesinin nedeni bu.
+# 600 cihaz ölçeğinde maliyet (1 istek/tur — cihaz `durum.json`u tek istekte okur):
+#   30 sn (push KAPALI, bugünkü varsayılan) → ~51,8 M istek/ay ≈ $59,62/ay
+#  120 sn (push BAĞLI)                     → ~13,0 M istek/ay ≈ $14,90/ay
+# Tarihsel: 20 sn iken ~77,8 M istek/ay ≈ $89,42 idi — 120 sn'ye çekilmesinin nedeni bu.
 # Aralığı `pharmacy_app.yoklama_araligi` bağlantı durumuna göre seçer; bu sabit yalnız
 # "push kaçtı" emniyet ağının üst sınırıdır, anlıklık MQTT push / `/degisiklik` ucundan gelir.
 DAMGA_KONTROL_MS = 120 * 1000
 #: MQTT push BAĞLIYKEN yoklama (anlıklık zaten push'tan gelir; bu yalnız emniyet ağı).
-#  600 cihaz × (86400/120) × 1 istek × 30 gün ≈ 13,0 M istek/ay ≈ $10/ay
-#  (damga+tetik+komut işareti tek dosyada olduğu için 1 istek; eski 3 dosyalı yol ~$29).
+#  600 cihaz × (86400/120) × 1 istek × 30 gün ≈ 13,0 M istek/ay ≈ $14,90/ay
+#  (damga+tetik+komut işareti tek dosyada olduğu için 1 istek; eski 3 dosyalı yol ≈ $44,71).
 DAMGA_KONTROL_MS_PUSH = 120 * 1000
-#: MQTT KOPTUYSA yoklama (tek yol yoklama kalır).
+#: MQTT KOPTUYSA yoklama (tek yol yoklama kalır). BUGÜNKÜ VARSAYILAN: push kapalı
+#  (`TETIK_PUSH_AKTIF=False`) → 600 cihaz ≈ 51,8 M istek/ay ≈ $59,62/ay.
 DAMGA_KONTROL_MS_PUSH_YOK = 30 * 1000
 #: YEREL tetik izleyici: MQTT push `tetikle.json`u yazar; bu izleyici dosya değişimini görüp
 #  ANINDA yeniler. Ağa ÇIKMAZ (yalnız stat) → maliyeti sıfır, 600 cihazda da bedava.
@@ -176,7 +177,8 @@ TETIK_PUSH_ANAHTAR = ""                  # cihaz özel anahtarı (private.pem.ke
 TETIK_KONTROL_MS = 20000                 # TARAYICI modunda uzun yoklama (`/degisiklik`) sırasında
                                          # `tetikle.json`u çekme aralığı. `DAMGA_KONTROL_MS` ile
                                          # TAVANLANIR (tarayici.py: min(TETIK_KONTROL_MS, DAMGA_KONTROL_MS)),
-                                         # yani "anlıklık" en kötü 20 sn'de bir tetik çekimiyle gelir.
+                                         # yani "anlıklık" en kötü TETIK_KONTROL_MS (20 sn) arayla
+                                         # tetik çekimiyle gelir.
                                          # Qt modunda kullanılmaz (orada QTimer + yerel izleyici var).
                                          # İndirme KOŞULLU (ETag/Last-Modified → 304): dosya değişmediyse
                                          # gövde inmez, istek başına maliyet birkaç yüz bayt.

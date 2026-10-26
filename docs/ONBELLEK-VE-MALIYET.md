@@ -21,18 +21,27 @@ kayıt bayat + ETag varsa   → kosullu_indir()     → 304 ise GÖVDE İNMEZ, d
 ## Yoklama aralığı (emniyet ağı)
 
 Anlık güncelleme **MQTT push** (Qt) ve **`/degisiklik` uzun yoklaması** (tarayıcı) ile gelir.
-`DAMGA_KONTROL_MS` yalnız "push kaçtı" durumu içindir → **push bağlı 120 sn, kopuk 30 sn**.
+`DAMGA_KONTROL_MS` yalnız "push kaçtı" durumu içindir.
 
-| Cihaz | Aralık | İstek/ay | CloudFront | S3 GET | Toplam |
+| Kurulum | Aralık | İstek/ay | CloudFront | S3 GET | Toplam |
 |---|---|---|---|---|---|
-| 600 | 20 sn (eski, tarihsel) | 233 M | $174,96 | $93,31 | **$268,27** |
-| 600 | **120 sn (push bağlı, bugün)** | 38,9 M | $29,16 | $15,55 | **$44,71** |
-| 600 | 300 sn (eski, tarihsel) | 15,6 M | $11,66 | $6,22 | **$17,88** |
-| 1000 | 120 sn | 64,8 M | $48,60 | $25,92 | **$74,52** |
+| 600 · push **kapalı (bugünkü varsayılan)** | **30 sn** | 51,8 M | $38,88 | $20,74 | **$59,62** |
+| 600 · push **bağlı** | 120 sn | 13,0 M | $9,72 | $5,18 | **$14,90** |
+| 600 · tarihsel (20 sn, eski) | 20 sn | 77,8 M | $58,32 | $31,10 | **$89,42** |
+| 600 · tarihsel (300 sn, eski) | 300 sn | 5,2 M | $3,89 | $2,07 | **$5,96** |
+| 1000 · push bağlı | 120 sn | 21,6 M | $16,20 | $8,64 | **$24,84** |
 
-(3 küçük istek/cihaz/tur · CloudFront $0,0075/10k · S3 GET $0,0004/1k. Tur = 2.592.000 sn/ay.)
+(**1 istek/cihaz/tur**: cihaz `durum.json`u tek istekte okur — damga + tetikleyici + komut işareti
+aynı belgede. CloudFront $0,0075/10k · S3 GET $0,0004/1k · tur = 2.592.000 sn/ay.
+Eski tablo "3 küçük istek/tur" varsayıyordu; 26 Ekim i5 ölçümü bu yüzden 3 kat şişikti.)
 
-Ayarlamak için `ayarlar.json` → `calistirma.degisiklik_kontrol_ms` (5000–3600000).
+> **Varsayılan bugün 30 sn** çünkü `config.TETIK_PUSH_AKTIF = False` (MQTT push kurulu değil).
+> Push açıldığında `yoklama_araligi()` 120 sn'ye geçer. 600 cihazda fark: **$59,62 → $14,90/ay**.
+
+Ayarlamak için `ayarlar.json` → `calistirma.degisiklik_kontrol_ms` (5000–3600000). Bu anahtar
+`config.DAMGA_KONTROL_MS`u yazar; Qt **çalışma anında** `DAMGA_KONTROL_MS_PUSH` /
+`DAMGA_KONTROL_MS_PUSH_YOK` kullanır (`pharmacy_app.yoklama_araligi`), yani tek başına Qt'yi
+bağlantıya göre seçimden çıkarmaz.
 
 ## AWS tarafı
 

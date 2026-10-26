@@ -88,7 +88,7 @@ python3 tools/nobet_tetikle.py --sil                      # tetikleyiciyi kaldı
 
 | Anahtar | Varsayılan | Açıklama |
 |---|---|---|
-| `degisiklik_kontrol_ms` | `120000` (push kopukken `30000`) | Damga + tetikleyici yoklama aralığı (5 sn – 1 saat); bağlantı durumuna göre seçilir |
+| `degisiklik_kontrol_ms` | `120000` | `config.DAMGA_KONTROL_MS`u yazar (5 sn – 1 saat). Qt yoklaması çalışma anında `DAMGA_KONTROL_MS_PUSH` (120 sn) / `DAMGA_KONTROL_MS_PUSH_YOK` (30 sn) arasından **bağlantıya göre** seçer (`pharmacy_app.yoklama_araligi`); tarayıcı modu sabit `DAMGA_KONTROL_MS` kullanır |
 | `degisiklik_bekleme_s` | `30` | Uzun yoklamada tek isteğin en fazla açık kalma süresi |
 | `tetik_dosyasi` | `tetikle.json` | Tetikleyici dosyasının adı |
 

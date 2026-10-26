@@ -145,8 +145,12 @@ def test_hicbir_metinde_bayat_yoklama_iddiasi_yok():
                              f"{PUSH_SN}/{PUSH_YOK_SN} — {_kisa(satir)}")
                 continue
             kucuk = satir.lower()
-            if "TETIK_KONTROL_MS" in satir or "tetik" in kucuk:
-                continue  # 20 sn TETİK için DOĞRU (ayrı sabit); "tetik" bağlamı karışmasın
+            # 20 sn TARAYICI tetik yoklaması için DOĞRU (`config.TETIK_KONTROL_MS`), DAMGA için
+            # değil. Eski sürüm satırda yalnız "tetik" geçmesini TAM MUAFİYET sayıyordu → 26 Ekim
+            # i5 bulgusu: SIRADAKI-ISLER.md'deki üç bayat "20 sn" satırı bu kaçış yüzünden yeşil
+            # kalıyordu. Artık muafiyet AÇIK kanıt ister: sabitin adı ya da uzun yoklama ucu.
+            if "TETIK_KONTROL_MS" in satir or "/degisiklik" in kucuk:
+                continue
             if yol.suffix not in {".md", ".txt"}:
                 if not yoklama_zinciri:
                     continue
