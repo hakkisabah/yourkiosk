@@ -54,12 +54,14 @@ panel yayınını ben yaparım; sonunda anahtarı kaldırmanızı hatırlatırı
 
 ## 4. Kurulumdan sonra (ben yaparım / siz yaparsınız)
 
-1. **Panel** `panel/.env.local`:
+1. **Panel** `panel/.env.local` (yalnız SIR OLMAYAN alanlar):
    ```bash
    VITE_MQTT_URL=wss://broker.<IP>.nip.io:8084/mqtt
    VITE_MQTT_KONU=yourkiosk/yayin
    VITE_MQTT_KULLANICI=panel
-   VITE_MQTT_PAROLA=<panel parolası>
+   # VITE_MQTT_PAROLA YOKTUR — parola derleme anında pakete gömülür ve panel paketi
+   # CloudFront'tan kimlik doğrulaması olmadan indirilebilir. Parolayı panel, yayın
+   # düğmesine ilk basışta oturum için sorar (sessionStorage; sayfa yenilenince tekrar sorar).
    ```
    → `./panel/infra/yayinla.sh`
 2. **Cihazlarda**: `pip install paho-mqtt`
