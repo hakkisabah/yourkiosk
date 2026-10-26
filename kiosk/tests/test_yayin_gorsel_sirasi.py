@@ -38,13 +38,51 @@ def test_gorsel_adresi_ayni_sirada_okunur():
     assert not eksik, "görsel okuma sırası tutarsız:\n" + "\n".join(eksik)
 
 
-def test_gorsel_aliaslari_cihazda_okunmuyor_iddiasi_dogru():
-    """Belge/kod yorumu 'cihaz url alanını okur' derse yanlış olur: cihaz `url`/`gorsel` okumaz.
+def test_qt_url_okumaz_tarayici_okur_iddiasi_dogru() -> None:
+    """26 Ekim i5 bulgusu: "cihaz `url` alanını HİÇ okumaz" iddiası YANLIŞTI.
 
-    i3 bulgusu: `docs/GORSEL-MIMARISI.md` ve panel yorumu `contentUrl ?? contentURL ?? url`
-    diyordu; cihazda `url` hiç okunmuyor (model.py:46'daki alias listesi yalnız normalleştirme).
+    Qt tüketicileri `contentUrl → contentURL` okur (`url` okumaz). Tarayıcı modu ise ÜÇ alanı
+    okur: `web/src/veri/yayin.ts` → `ADRES_ALANLARI = ['contentUrl', 'contentURL', 'url']`.
+    Belge/kod yorumu bu gerçeği yazmak zorunda; `gorsel` alanı hiçbir tüketicide okunmaz.
     """
     for ad in TUKETICILER:
         for no, satir in enumerate(_satirlar(ad), 1):
             if 'get("url")' in satir or "get('url')" in satir:
-                raise AssertionError(f"{ad}:{no}: cihaz `url` alanını okumamalı — {satir.strip()[:120]}")
+                raise AssertionError(f"{ad}:{no}: Qt `url` alanını okumamalı — {satir.strip()[:120]}")
+
+    web = (KIOSK.parent / "web" / "src" / "veri" / "yayin.ts").read_text(encoding="utf-8")
+    assert "const ADRES_ALANLARI = ['contentUrl', 'contentURL', 'url'] as const" in web, (
+        "tarayıcı modu adres alanları/sırası değişmiş — belge ve panel buna göre güncellenmeli"
+    )
+
+    belge = (KIOSK.parent / "docs" / "GORSEL-MIMARISI.md").read_text(encoding="utf-8")
+    assert "url` ve `gorsel`\n  alanlarını HİÇ okumaz" not in belge, (
+        "belge hâlâ 'cihaz url okumaz' diyor (yanlış: tarayıcı modu okur)"
+    )
+    assert "Tarayıcı modu" in belge and "contentURL → url" in belge, (
+        "belge tarayıcı modunun üç alanı okuduğunu yazmıyor"
+    )
+
+
+def test_repoda_yeni_bir_gorsel_tuketicisi_sessizce_eklenemez() -> None:
+    """Tüketici listesi elle tutuluyor; `contentUrl` okuyan YENİ bir dosya sessizce eklenemez.
+
+    Tarama `url` sözcüğüne değil `contentUrl` alanına bakar: önbellek kodundaki `kayit["url"]`
+    önbellek anahtarıdır, yayın görseli tüketicisi değildir (yanlış kırmızı üretmemeli).
+    """
+    izinli = set(TUKETICILER) | {
+        "core/model.py",          # alias normalizasyonu (değer okumaz)
+        "core/yayin_kapsam.py",   # kapsam/hedefleme, adres okumaz
+        "tools/ornek_veri.py",    # örnek veri üretici
+    }
+    bulunan: list[str] = []
+    for yol in KIOSK.rglob("*.py"):
+        goreli = str(yol.relative_to(KIOSK))
+        if "tests/" in goreli or goreli in izinli:
+            continue
+        if "contentUrl" in yol.read_text(encoding="utf-8"):
+            bulunan.append(goreli)
+    assert not bulunan, (
+        "yeni görsel tüketicisi(leri): " + ", ".join(sorted(bulunan))
+        + " — TUKETICILER listesine ekleyin ve `contentUrl ?? contentURL` sırasını uygulayın"
+    )

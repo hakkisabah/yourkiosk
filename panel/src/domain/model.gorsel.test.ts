@@ -84,6 +84,38 @@ describe('gorselUrlHatalari', () => {
     expect(hatalar.join(' ')).not.toContain('kullanici:')
   })
 
+  it('yerel/özel host reddedilir (cihaz herkese açık host ister — 26 Ekim i5 bulgusu)', () => {
+    for (const adres of [
+      'https://127.0.0.1/a.png',
+      'https://localhost/a.png',
+      'https://10.0.0.5/a.png',
+      'https://172.16.0.9/a.png',
+      'https://192.168.1.20/a.png',
+      'https://169.254.1.1/a.png',
+      'https://[::1]/a.png',
+      'https://[fd00::1]/a.png',
+      'https://kiosk.local/a.png',
+      'https://sunucu/a.png',          // nokta yok → yerel ad
+      'https://nas.internal/a.png',
+    ]) {
+      const hatalar = gorselUrlHatalari(adres)
+      expect(hatalar.length, adres).toBeGreaterThan(0)
+      expect(hatalar[0], adres).toContain('herkese açık')
+    }
+  })
+
+  it('genel adresler ve genel IP host denetiminden geçer', () => {
+    for (const adres of [
+      GECERLI,
+      'https://ornek.test/a.png',
+      'https://8.8.8.8/a.png',
+      'https://172.32.0.1/a.png',      // 172.16/12 DIŞINDA → genel
+      'https://[2a00:1450:4001::1]/a.png',
+    ]) {
+      expect(gorselUrlHatalari(adres), adres).toEqual([])
+    }
+  })
+
   it('boş ve aşırı uzun adres reddedilir', () => {
     expect(gorselUrlHatalari('')[0]).toContain('boş')
     expect(gorselUrlHatalari('   ')[0]).toContain('boş')

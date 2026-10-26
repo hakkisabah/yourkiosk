@@ -133,13 +133,44 @@ export function kapsamiYaz(kayit: YayinDto, kapsam: YayinKapsamiDto): YayinDto {
  * Cihaz adresi indirirken şunları dayatır: https, kullanıcı bilgisi yok, port 443, herkese açık host,
  * içerik türü `image/png|jpeg|webp`. UZANTIYA BAKMAZ — uzantısız bir adres (ör. /api/gorsel?id=3)
  * içerik türü doğruysa gösterilir. Panel bu yüzden:
- *   · kimlik bilgisi ve 443 dışı portu REDDEDER (cihaz da reddeder → "kaydettim ama çıkmıyor"),
+ *   · kimlik bilgisi, 443 dışı port ve **özel/loopback/link-local host**u REDDEDER
+ *     (cihaz da reddeder → "kaydettim ama çıkmıyor"; 26 Ekim i5 bulgusu: host denetimi eksikti),
  *   · uzantısız adresi KABUL eder (cihaz kabul ediyor; panel reddederse doğru adres engellenir),
  *   · bilinen yanlış biçimleri (.svg/.gif/.pdf/.html) erkenden REDDEDER (cihaz içerik türünden reddeder).
  *
  * Hata metinleri adresi GERİ BASTIRMAZ: operatör adrese kimlik bilgisi gömmüşse
  * (…://kullanici:parola@…) mesaj ekranda/ekran görüntüsünde o parolayı yayınlamamalı.
+ *
+ * Alan sırası (cihaz tüketicileri): Qt `contentUrl → contentURL`; tarayıcı modu
+ * `contentUrl → contentURL → url` (`web/src/veri/yayin.ts` ADRES_ALANLARI). `gorsel` HİÇ okunmaz.
  */
+/**
+ * Özel/loopback/link-local host denetimi (26 Ekim i5 bulgusu: panelde geçen adres cihazda
+ * sessizce reddediliyordu). Panel DNS ÇÖZEMEZ (tarayıcı), bu yüzden yalnız **literal** adresler ve
+ * açıkça yerel adlar reddedilir: localhost, *.local, *.internal, nokta içermeyen ad, 127/8, 10/8,
+ * 172.16/12, 192.168/16, 169.254/16, 0/8, 224/4 ve IPv6 ::1 / fc00::/7 / fe80::/10.
+ */
+const YEREL_AD = /^(localhost|\.local|.*\.local|.*\.internal|.*\.localhost)$/i
+
+function ozelHostMu(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/^\[|\]$/g, '')
+  if (!h) return true
+  // IPv6 literal ÖNCE: "2a00:1450::1" nokta içermez; nokta kuralı onu yanlışlıkla yerel sayardı.
+  if (h.includes(':')) {
+    return h === '::1' || h === '::' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h)
+  }
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
+  if (ipv4) {
+    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])]
+    if (a === 0 || a === 10 || a === 127 || a >= 224) return true
+    if (a === 169 && b === 254) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+    return false
+  }
+  return !h.includes('.') || YEREL_AD.test(h)
+}
+
 /** Görsel adresi üst sınırı (kiosk tarafındaki ağ sınırlarıyla uyumlu, bol pay bırakır). */
 export const GORSEL_URL_AZAMI = 512
 
@@ -160,6 +191,9 @@ export function gorselUrlHatalari(url: string, izinliPortlar: readonly number[] 
   }
   if (ayrisan.username || ayrisan.password) {
     return ['Görsel adresi: kullanıcı adı/parola içeremez (cihaz bu adresi reddeder)']
+  }
+  if (ozelHostMu(ayrisan.hostname)) {
+    return ['Görsel adresi: herkese açık bir adres olmalı (yerel/özel ağ adreslerini cihaz reddeder)']
   }
   const port = ayrisan.port ? Number(ayrisan.port) : 443
   if (!izinliPortlar.includes(port)) {

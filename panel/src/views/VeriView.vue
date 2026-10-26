@@ -549,9 +549,11 @@ async function tetikBildir(): Promise<void> {
               <v-card>
                 <v-card-title class="text-subtitle-1">Yayın görseli · #{{ gorselDuzenlenen }}</v-card-title>
                 <v-card-subtitle class="text-caption">
-                  Cihaz bu adresi indirir. Yalnız <strong>https</strong> ve <strong>.png / .jpg / .jpeg /
-                  .webp</strong> kabul edilir; görsel değişimi için yeni dosya adı (hash) kullanın, aksi
-                  hâlde cihaz önbellekteki eski görseli göstermeye devam eder.
+                  Cihaz bu adresi indirir. Zorunlu: <strong>https</strong>, port <strong>443</strong>,
+                  herkese açık adres (yerel ağ/loopback değil). Uzantı <em>varsa</em> .png / .jpg /
+                  .jpeg / .webp olmalı; uzantısız adres kabul edilir (cihaz içerik türüne bakar —
+                  .ashx/.jfif gibi uzantılar reddedilir). Görsel değişimi için yeni dosya adı (hash)
+                  kullanın, aksi hâlde cihaz önbellekteki eski görseli göstermeye devam eder.
                 </v-card-subtitle>
                 <v-card-text>
                   <v-text-field

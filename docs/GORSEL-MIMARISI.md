@@ -161,13 +161,17 @@ Kurallar:
 - **Aynı dosya adını (hash) yeniden kullanmayın.** Cihaz görseli `yayin-gorselleri/<hash>.webp`
   yolundaki önbellekten gösterir; içerik değişip ad aynı kalırsa eski görsel görünmeye devam eder.
   Yeni sürüm → yeni hash → yeni ad.
-- Eski `contentURL`/`url`/`gorsel` alias'ları yazarken **temizlenir**. Cihaz `contentUrl ?? contentURL`
-  sırasıyla okur (`data_handler.py:80`, `tarayici.py:705`, `pharmacy_app.py:819`); `url` ve `gorsel`
-  alanlarını HİÇ okumaz — iki alan çelişmesin diye yazarken silinir.
+- Eski `contentURL`/`url`/`gorsel` alias'ları yazarken **temizlenir** (tek alan, tek gerçek).
+  Okuma sırası tüketiciye göre:
+  - **Qt**: `contentUrl → contentURL` (`core/data_handler.py:80`, `pharmacy_app.py:819`) — `url`/`gorsel` okunmaz.
+  - **Tarayıcı modu**: `contentUrl → contentURL → url` (`web/src/veri/yayin.ts` `ADRES_ALANLARI`).
+  (`gorsel` alanı hiçbir tüketicide okunmaz; yalnız eski kayıtları normalleştirmek için bilinir.)
 - Kural kaynağı cihaz tarafıdır: `kiosk/security/network.py` (`gorsel_icin_ayarlar`: şema, kullanıcı
   bilgisi, port, herkese açık host) + `kiosk/security/image_policy.py` (içerik türü beyaz listesi
-  `image/png|jpeg|webp`). Panel aynı kuralları uygular; tek fark: port ve kimlik bilgisi denetimi
-  panelde erkenden yapılır ki operatör "kaydettim ama görsel çıkmıyor" durumuna düşmesin.
+  `image/png|jpeg|webp`). Panel aynı kuralları uygular; tek fark: port, kimlik bilgisi ve host
+  denetimi panelde erkenden yapılır ki operatör "kaydettim ama görsel çıkmıyor" durumuna düşmesin.
+  (Panel DNS çözemediği için host denetimi literal/yazılı yerel adlarla sınırlıdır — `localhost`,
+  `*.local`, `*.internal`, nokta içermeyen ad, 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, ::1.)
 
 ---
 
