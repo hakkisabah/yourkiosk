@@ -150,6 +150,30 @@ if [ "$KIP" = "kontrol" ]; then
   [ "${#ANAHTAR}" -ge 32 ] && satir 1 "anahtar ≥ 32 karakter" "${#ANAHTAR}" \
     || satir 0 "anahtar ≥ 32 karakter" "${#ANAHTAR} (16'dan kısa anahtarla Hermes sunucuyu BAŞLATMAZ)"
 
+  # 26 Ekim i5 bulgusu: --kontrol anahtar DOSYASININ İZNİNE hiç bakmıyordu; 0644 (dünya-okur)
+  # bir anahtar dosyası "temiz" görünüyordu. Sır dosyası 0600, sır dizini 700 olmalı.
+  if [ -f "$ANAHTAR_DOSYA" ]; then
+    izin="$(stat -c '%a' "$ANAHTAR_DOSYA" 2>/dev/null || echo '?')"
+    sahip="$(stat -c '%U' "$ANAHTAR_DOSYA" 2>/dev/null || echo '?')"
+    if [ "$izin" = "600" ]; then
+      satir 1 "anahtar dosyası izni" "$izin ($sahip)"
+    else
+      satir 0 "anahtar dosyası izni" "$izin → 0600 olmalı: chmod 600 $ANAHTAR_DOSYA"
+    fi
+  else
+    satir 0 "anahtar dosyası" "yok ($ANAHTAR_DOSYA)"
+  fi
+  if [ -d "$SIR_DIR" ]; then
+    izin="$(stat -c '%a' "$SIR_DIR" 2>/dev/null || echo '?')"
+    if [ "$izin" = "700" ]; then
+      satir 1 "sır dizini izni" "$izin"
+    else
+      satir 0 "sır dizini izni" "$izin → 0700 olmalı: chmod 700 $SIR_DIR"
+    fi
+  else
+    satir 0 "sır dizini" "yok ($SIR_DIR)"
+  fi
+
   # 26 Ekim i5 bulgusu: burada yalnız `0.0.0.0` kırmızıydı; geri kalan HER adres "LAN'a kapalı"
   # sayılıyordu (`192.168.1.50` yeşil görünüyordu). Artık iki ayrı kaynak beyaz listeye karşı
   # denetlenir: (a) yapılandırılmış API_SERVER_HOST, (b) `ss -tlnH` ile GERÇEKTEN dinlenen adres.
@@ -223,8 +247,30 @@ if [ "$YENILE" -eq 1 ] || [ "${#ANAHTAR}" -lt 32 ]; then
   if [ "$KURU" -eq 1 ]; then
     echo "  [KURU] 64 karakterlik yeni anahtar üretilecek → $ANAHTAR_DOSYA (+ .env)"
   else
-    yeni="$(openssl rand -hex 32)"
-    (umask 077; printf '%s\n' "$yeni" > "$ANAHTAR_DOSYA"); chmod 600 "$ANAHTAR_DOSYA"
+    # 26 Ekim i5 bulgusu: `openssl rand` başarısız olursa (PATH'te yok, kaynak tükenmesi) `yeni`
+    # BOŞ kalıyor ve `printf > $ANAHTAR_DOSYA` MEVCUT anahtarı boş dosyayla eziyordu — üstelik
+    # betik "yeni anahtar üretildi" diye başarı bildiriyordu. Artık: üret → doğrula (64 hex) →
+    # geçici dosyaya yaz → atomik taşı. Üretim başarısızsa hiçbir dosyaya DOKUNULMAZ.
+    if ! command -v openssl >/dev/null 2>&1; then
+      echo "✗ openssl bulunamadı — anahtar ÜRETİLMEDİ, mevcut anahtar ve .env korunuyor." >&2
+      exit 3
+    fi
+    yeni="$(openssl rand -hex 32 2>/dev/null || true)"
+    if [ "${#yeni}" -ne 64 ]; then
+      echo "✗ anahtar üretilemedi (openssl hatası, ${#yeni} karakter) — mevcut anahtar KORUNUYOR; hiçbir dosya değişmedi." >&2
+      unset yeni
+      exit 3
+    fi
+    gecici="$(mktemp "$SIR_DIR/.api-server.key.XXXXXX" 2>/dev/null)" || {
+      echo "✗ geçici dosya açılamadı ($SIR_DIR) — mevcut anahtar KORUNUYOR." >&2
+      unset yeni; exit 3
+    }
+    (umask 077; printf '%s\n' "$yeni" > "$gecici") && chmod 600 "$gecici" || {
+      rm -f "$gecici"; echo "✗ anahtar yazılamadı — mevcut anahtar KORUNUYOR." >&2; unset yeni; exit 3
+    }
+    mv -f "$gecici" "$ANAHTAR_DOSYA" || {
+      rm -f "$gecici"; echo "✗ anahtar taşınamadı — mevcut anahtar KORUNUYOR." >&2; unset yeni; exit 3
+    }
     unset yeni
     anahtari_env_yaz
     anahtar_oku

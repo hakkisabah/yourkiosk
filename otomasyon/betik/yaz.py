@@ -332,28 +332,46 @@ def _yuksek_bulgular(karar: dict) -> list[dict]:
 
 
 def bilet_yolu() -> Path:
-    """Bilet yolu: varsayılan `/run/...`; `YAZ_KAPI_ATLA_BILET` yalnız test/özel kurulum için."""
-    ham = os.environ.get("YAZ_KAPI_ATLA_BILET", "").strip()
-    return Path(ham) if ham else BILET_VARSAYILAN
+    """Bilet yolu SABİTTİR — hiçbir ortam değişkeniyle değiştirilemez (26 Ekim i5 bulgusu).
 
-
-def bilet_sahibi_denetimi(st: "os.stat_result") -> bool:
-    """Bilet root sahipli mi? (ajan root olmadığı için kendi bileti üretemez).
-
-    Testler bu FONKSİYONU enjekte eder (`bilet_denetle(..., sahip_denetimi=...)` ya da modül
-    özniteliği). Ortam değişkeniyle gevşetilebilen bir anahtar YOKTUR: aksi hâlde aynı boşluk
-    (ajanın kendi kabuğundan anahtar vermesi) yeni bir adla geri gelirdi.
+    Önceki sürüm yolu `YAZ_KAPI_ATLA_BILET` ile değiştiriyordu; ajan terminal yetkisiyle bu
+    değişkeni kendi kabuğundan verip `/proc/1/stat` gibi root sahipli, dünya-okur,
+    grup/dünya-yazılamaz bir sanal dosyayı bilet gibi gösterebiliyordu → iki faktörlü koruma
+    tek faktöre (ortam anahtarı) düşüyordu.
+    Testler yolu `bilet_denetle(yol=...)` parametresiyle enjekte eder; üretim CLI'ında yol
+    anahtarı YOKTUR.
     """
-    return st.st_uid == 0
+    return BILET_VARSAYILAN
+
+
+def bilet_dizini_denetimi(st: "os.stat_result") -> bool:
+    """Biletin ÜST DİZİNİ root sahipli ve grup/dünya-yazılamaz mı?
+
+    Biletin kendisi sağlam görünse de yazılabilir bir dizinde duruyorsa aynı kullanıcı onu
+    silip yeniden koyabilir. Testler bu FONKSİYONU enjekte eder (ortam anahtarı yoktur).
+    """
+    return st.st_uid == 0 and not (st.st_mode & 0o022)
+
+
+#: Biletin kabul edilmediği sanal dosya sistemleri — /proc/1/stat gibi "root sahipli, dünya-okur"
+#: görünen dosyalar gerçek bir operatör izni değildir.
+SANAL_ONEKLER = ("/proc", "/sys", "/dev")
 
 
 def bilet_denetle(yol: Path | None = None, *, sahip_denetimi=None,
+                  dizin_denetimi=None,
                   simdi: float | None = None) -> tuple[bool, str]:
     """Operatör bileti geçerli mi? → (kabul, ret gerekçesi).
 
-    Bilet: normal dosya, ROOT sahipli (uid 0), dünya-okur, grup/dünya-yazılamaz, mtime ≤ 10 dk.
+    Bilet: normal dosya, ROOT sahipli (uid 0), dünya-okur, grup/dünya-yazılamaz, mtime ≤ 10 dk;
+    üst dizini root sahipli ve grup/dünya-yazılamaz; sanal dosya sisteminde (/proc · /sys · /dev)
+    olamaz.
     """
     hedef = Path(yol) if yol is not None else bilet_yolu()
+    hedef_str = str(hedef)
+    if any(hedef_str == onek or hedef_str.startswith(onek + "/") for onek in SANAL_ONEKLER):
+        return False, (f"bilet sanal dosya sisteminde ({hedef_str}) — "
+                       f"{' · '.join(SANAL_ONEKLER)} altındaki yollar kabul edilmez")
     try:
         st = hedef.lstat()          # sembolik bağı İZLEME: bağ üzerinden root dosyası gösterilemesin
     except OSError as hata:
@@ -368,10 +386,30 @@ def bilet_denetle(yol: Path | None = None, *, sahip_denetimi=None,
         return False, f"bilet dünya-okur değil (mod {mod:04o}, yol {hedef})"
     if mod & 0o022:
         return False, f"bilet grup/dünya-yazılabilir (mod {mod:04o}, yol {hedef})"
+    ust = hedef.parent
+    try:
+        st_ust = ust.stat()
+    except OSError as hata:
+        return False, f"bilet dizini okunamıyor ({ust}): {hata.strerror or hata}"
+    d_denetim = dizin_denetimi if dizin_denetimi is not None else bilet_dizini_denetimi
+    if not d_denetim(st_ust):
+        return False, (f"bilet dizini güvenli değil (uid {st_ust.st_uid}, "
+                       f"mod {st_ust.st_mode & 0o777:04o}, dizin {ust}) — root sahipli ve "
+                       f"grup/dünya-yazılamaz olmalı")
     yas = (simdi if simdi is not None else time.time()) - st.st_mtime
     if yas > BILET_TTL_SN:
         return False, f"bilet bayat ({int(yas)} sn > {BILET_TTL_SN} sn TTL, yol {hedef})"
     return True, ""
+
+
+def bilet_sahibi_denetimi(st: "os.stat_result") -> bool:
+    """Bilet root sahipli mi? (ajan root olmadığı için kendi bileti üretemez).
+
+    Testler bu FONKSİYONU enjekte eder (`bilet_denetle(..., sahip_denetimi=...)` ya da modül
+    özniteliği). Ortam değişkeniyle gevşetilebilen bir anahtar YOKTUR: aksi hâlde aynı boşluk
+    (ajanın kendi kabuğundan anahtar vermesi) yeni bir adla geri gelirdi.
+    """
+    return st.st_uid == 0
 
 
 def operator_izi_denetle() -> tuple[bool, str, str]:

@@ -39,10 +39,15 @@ açık PR'ların head sha + durum kontrolleri   iş listesi dolu → TEK `hermes
   **Yalnız `success`/`failure` "karar yazıldı" sayılır:** `pending` (ağ kesintisi) ve `error`
   (yaz.py çöktü) karar değildir — yarım kalmış durum PR'ı yeni commit gelmeden kuyruktan
   düşürmemeli (26 Ekim i5 bulgusu).
-- **Kapıyı atlamak serbest değil:** `--kapi-atla` üç kapı ister: (1) **operatör ortam anahtarı**
+- **Kapıyı atlamak serbest değil:** `--kapi-atla` dört kapı ister: (1) **operatör ortam anahtarı**
   `YAZ_KAPI_ATLA_ONAY=1` (nöbetçi biriminde tanımlı **değil** → otomatik oturum kendi kendine
-  atlayamaz), (2) `--gerekce "…"` (≥20 karakter), (3) `yüksek` önemde bulgu **yokluğu**.
-  Atlama PR yorumunda ve `kapi-red.log`da görünür.
+  atlayamaz), (2) **operatör bileti** `/run/yourkiosk-kapi-atla.bilet` — root sahipli, dünya-okur,
+  grup/dünya-yazılamaz, ≤10 dk, üst dizini root sahipli; (3) `--gerekce "…"` (≥20 karakter),
+  (4) `yüksek` önemde bulgu **yokluğu**. Bilet **yolu sabittir**: ne ortam değişkeniyle ne argv ile
+  taşınabilir; `/proc`, `/sys`, `/dev` altındaki yollar reddedilir (26 Ekim i5 bulgusu: ajan
+  `YAZ_KAPI_ATLA_BILET=/proc/1/stat` verip root sahipli sanal dosyayı bilet gibi gösterebiliyordu).
+  Atlama PR yorumunda ve `kapi-red.log`da görünür. Operatör bileti üretir:
+  `sudo install -m 0644 /dev/null /run/yourkiosk-kapi-atla.bilet`.
 - **Karar kapısı:** ajan `yaz.py` ile yazmadan önce `karar_dogrula.py` şemayı, 12 denetim alanını,
   karar tutarlılığını, `dosya:satır` kanıtını ve **kapanış ölçütünü** (`kabul`: "neyi yapınca bu
   bulgu kapanır") denetler. Geçmezse GitHub'a **hiçbir şey** yazılmaz; reddin izi
