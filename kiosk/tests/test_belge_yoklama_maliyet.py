@@ -1,7 +1,8 @@
 """Yoklama süresi belgesi KODLA aynı olmalı (26 Ekim i5 bulgusunun kilidi).
 
-NEDEN: `docs/GORSEL-MIMARISI.md` §8.3 uzun süre "MQTT bağlı → 1800 sn, koptu → 60→300 sn"
-diyordu; kod ise `DAMGA_KONTROL_MS_PUSH`=120 sn ve `DAMGA_KONTROL_MS_PUSH_YOK`=30 sn.
+NEDEN: `docs/GORSEL-MIMARISI.md` §8.3 uzun süre yoklama sürelerini koddan kopuk yazıyordu
+(MQTT bağlıyken kodun katları mertebesinde büyük, kopukken onlarca kat büyük değerler); kod ise
+`DAMGA_KONTROL_MS_PUSH`=120 sn ve `DAMGA_KONTROL_MS_PUSH_YOK`=30 sn.
 Belge 600 cihaz maliyetini ~$1/ay gösterirken gerçek tablo ~$15-60/ay'dı. Bu sınıf hata
 (elle yazılmış süre/maliyet tablosu koddan kopuyor) yalnız metin düzeltmeyle kapanmaz:
 aşağıdaki test değerleri KODDAN okur, belgedeki tabloyla karşılaştırır.

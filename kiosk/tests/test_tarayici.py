@@ -80,15 +80,25 @@ def test_tani_bayraklari_konsolu_terminale_doker() -> None:
 
 
 def test_tani_raporu_eksikleri_soyler() -> None:
-    """`tani_raporu` arayüz/veri/kimlik durumunu tek tek bildirir (tarayıcı açmadan)."""
+    """`tani_raporu` arayüz/veri/kimlik durumunu tek tek bildirir (tarayıcı açmadan).
+
+    Derlenmiş arayüz YOKSA rapor dosya listesi yerine **çözüm yolunu** yazar (temiz klon);
+    iki durum da doğru davranış olduğu için iddia duruma göre kurulur.
+    """
     satirlar = tarayici.tani_raporu("CIHAZ-YOK", 0)
     metin = "\n".join(satirlar)
     assert "arayüz kökü" in metin
     assert "derlenmiş mi" in metin
-    assert "/index.html" in metin and "/lastSystemData.json" in metin
-    assert "match.json eşleşme" in metin
-    assert "YOK" in metin  # olmayan kimlik bildirilir (hata değil, uyarı)
-    assert "veri içeriği" in metin
+    assert "cihaz verisi" in metin
+    assert "CIHAZ-YOK" in metin  # kimlik rapora yansır (hata değil, bilgi)
+    if tarayici.derlenmis_mi():
+        assert "/index.html" in metin and "/lastSystemData.json" in metin
+        assert "match.json eşleşme" in metin
+        assert "veri içeriği" in metin
+    else:
+        # 26 Ekim: `web/dist` depoya girmiyor → temiz klonda teşhis ne yapılacağını söylemeli
+        assert "npm run build" in metin, "derlenmemiş arayüzde çözüm yolu gösterilmiyor"
+        assert "sunucu" in metin and "BAŞLATILAMADI" in metin, "sunucu hatası sessizce yutulmuş"
 
 
 def test_ek_bayraklar_komuta_eklenir() -> None:
@@ -118,9 +128,17 @@ def test_kuru_calisma_bir_sey_baslatmaz(capsys) -> None:
 # ------------------------------------------------------------------ yerel sunucu
 @pytest.fixture()
 def sunucu():
-    """Geçici portta yerel web sunucusu (test sonunda kapatılır)."""
+    """Geçici portta yerel web sunucusu (test sonunda kapatılır).
+
+    Temiz klonda `web/dist` YOKTUR (derleme çıktısı depoya girmez; 26 Ekim dersi: `web/dist`
+    sembolik bağı depoya sızıp bu testleri yalnız yazarın makinesinde yeşil tutuyordu). Arayüz
+    derlenmemişse sunucu `FileNotFoundError` atar → burada **skip** edilir, böylece `pytest`
+    kırmızı görünmez ama neden atlandığı da yazılır.
+    """
     if not (tarayici.web_kok() / "index.html").is_file():
         pytest.skip("web/index.html yok")
+    if not tarayici.derlenmis_mi():
+        pytest.skip(f"arayüz derlenmemiş: cd {tarayici.web_kaynak_kok()} && npm install --include=dev && npm run build")
     tarayici._IstekIsleyici.gunluk.clear()
     s, port, _ = tarayici.sunucu_baslat("127.0.0.1", 0)
     yield port
@@ -541,7 +559,8 @@ def test_tetik_oku_bozuk_dosyayi_yok_sayar(monkeypatch) -> None:
 # ------------------------------------------------------------------ derlenmiş arayüz
 def test_derlenmis_arayuz_sunulur() -> None:
     """Tarayıcıya KAYNAK değil DERLENMİŞ arayüz sunulur (kaynakta `.ts` → beyaz ekran)."""
-    assert tarayici.derlenmis_mi(), "web/dist yok: cd web && npm run build"
+    if not tarayici.derlenmis_mi():
+        pytest.skip("web/dist yok (temiz klon): cd web && npm install --include=dev && npm run build")
     assert tarayici.web_kok() == tarayici.derlenmis_kok()
     assert tarayici.web_kok() != tarayici.web_kaynak_kok()
 
@@ -602,6 +621,9 @@ def test_sunucu_derlenmemis_kokte_hata_verir(tmp_path, monkeypatch) -> None:
 # ------------------------------------------------------------------ süpervizör
 def test_tarayici_kapaninca_yeniden_baslatma_ve_sinir(monkeypatch, capsys) -> None:
     """`/bin/true` hemen kapanır: yeniden başlatma sınırı aşılırsa vazgeçilir (sonsuz döngü yok)."""
+    if not tarayici.derlenmis_mi():
+        # `baslat()` sunucuyu ayağa kaldırır; derlenmemiş arayüzde çıkış 4 döner (doğru davranış).
+        pytest.skip("web/dist yok (temiz klon): önce cd web && npm run build")
     monkeypatch.setattr(config, "TARAYICI_PROFIL_KLASORU", ".tarayici-profil-test")
     try:
         kod = tarayici.baslat("C1", tarayici="/bin/true", port=0, yeniden_baslat_s=0)
