@@ -154,7 +154,8 @@ yapılır. Adımlar (menüdeki adlar görünür; `VeriView` yalnız dosya adıd�
    **443**, uzantı varsa `png/jpg/jpeg/webp` (uzantısız adres kabul — cihaz `image/png|jpeg|webp`
    içerik türüne bakar). Hata metni adresi geri basmaz (kimlik bilgisi ekrana sızmasın).
 4. **Uygula** (yalnız taslağa yazar) → sayfadaki **Kaydet** (yayına alır) → **Bildir** (cihazları
-   hemen tetikler; MQTT yoksa cihaz en geç 30–120 sn içinde damgadan alır).
+   hemen tetikler; MQTT yoksa cihaz en geç **30 sn** içinde damgadan alır, MQTT bağlıyken yoklama
+   120 sn'lik emniyet ağıdır — anlıklık push'tan gelir).
 5. Cihazda doğrulayın: yeni adres önbellekte olmadığı için ilk turda iner.
 
 Kurallar:

@@ -235,6 +235,14 @@ export function gorselUrlHatalari(url: string, izinliPortlar: readonly number[] 
   if (uzanti && !['png', 'jpg', 'jpeg', 'webp'].includes(uzanti[1].toLowerCase())) {
     // Uzantı VARSA desteklenen listeden olmalı (.svg/.gif/.pdf/.exe… erkenden reddedilir).
     // Uzantı YOKSA kural yok: cihaz `image/png|jpeg|webp` içerik türüne bakar.
+    //
+    // SINIR (26 Ekim i5 bilgi bulgusu): uzantı kapısı cihazla BİREBİR aynı değil, yalnız hızlı
+    // eleme. Cihaz uzantıya hiç bakmaz; kararı içerik türü + gövde imzası verir
+    // (`kiosk/security/network.py`, `image_policy.py`). Bu yüzden:
+    //   · doğru uzantı GARANTİ DEĞİL — `/a.png` adresi `image/avif` dönerse panelde geçer,
+    //     cihazda gösterilmez (panel içerik türünü göremez, indirme yapmaz);
+    //   · `.avif/.bmp/.tiff` gibi uzantılar burada reddedilir; cihaz da içerik türü yüzünden
+    //     reddederdi → sonuç aynı, gerekçe farklı.
     return ['Görsel adresi: .svg/.gif/.pdf gibi biçimleri cihaz göstermez (png/jpeg/webp)']
   }
   return []

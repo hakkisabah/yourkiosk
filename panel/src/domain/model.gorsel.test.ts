@@ -200,4 +200,14 @@ describe('docstring ↔ tüketici paritesi (i3 bulgusu)', () => {
       expect(kaynak).toContain('contentUrl → contentURL → url')
     }
   })
+
+  it('belgedeki MQTT↔yoklama süre eşlemesi ters değil (i5 bulgusu)', () => {
+    const belge = oku('../../../docs/GORSEL-MIMARISI.md')
+    // Doğru eşleme: MQTT YOK → 30 sn yoklama; MQTT BAĞLI → 120 sn emniyet ağı (anlıklık push'tan).
+    if (belge.includes('MQTT yoksa')) {
+      expect(belge).toContain('en geç **30 sn**')
+      expect(belge).toContain("120 sn'lik emniyet ağı")
+      expect(belge).not.toContain('30–120 sn')
+    }
+  })
 })
