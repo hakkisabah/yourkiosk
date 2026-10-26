@@ -128,41 +128,65 @@ export function kapsamiYaz(kayit: YayinDto, kapsam: YayinKapsamiDto): YayinDto {
 
 // ---------------------------------------------------------------- yayın görseli (contentUrl)
 /**
- * KIOSK'UN KABUL ETTİĞİ GÖRSEL UZANTILARI.
+ * CİHAZIN GÖRSEL KURALLARI (tek kaynak: `kiosk/security/network.py` + `kiosk/security/image_policy.py`).
  *
- * Cihaz görseli diske indirirken uzantıya bakıyor (`core/guvenlik.py`): png/jpeg/webp kabul,
- * diğerleri reddedilir. Panelde serbest metin bırakılırsa kullanıcı `.gif`/`.svg` yazıp
- * "kaydettim ama görsel çıkmıyor" durumuna düşüyordu — bu yüzden aynı liste panelde de var.
+ * Cihaz adresi indirirken şunları dayatır: https, kullanıcı bilgisi yok, port 443, herkese açık host,
+ * içerik türü `image/png|jpeg|webp`. UZANTIYA BAKMAZ — uzantısız bir adres (ör. /api/gorsel?id=3)
+ * içerik türü doğruysa gösterilir. Panel bu yüzden:
+ *   · kimlik bilgisi ve 443 dışı portu REDDEDER (cihaz da reddeder → "kaydettim ama çıkmıyor"),
+ *   · uzantısız adresi KABUL eder (cihaz kabul ediyor; panel reddederse doğru adres engellenir),
+ *   · bilinen yanlış biçimleri (.svg/.gif/.pdf/.html) erkenden REDDEDER (cihaz içerik türünden reddeder).
+ *
+ * Hata metinleri adresi GERİ BASTIRMAZ: operatör adrese kimlik bilgisi gömmüşse
+ * (…://kullanici:parola@…) mesaj ekranda/ekran görüntüsünde o parolayı yayınlamamalı.
  */
-const GORSEL_UZANTI = /\.(png|jpe?g|webp)(?:[?#].*)?$/i
 /** Görsel adresi üst sınırı (kiosk tarafındaki ağ sınırlarıyla uyumlu, bol pay bırakır). */
 export const GORSEL_URL_AZAMI = 512
 
 /** Görsel adresini doğrular. Boş liste = geçerli. */
-export function gorselUrlHatalari(url: string): string[] {
+export function gorselUrlHatalari(url: string, izinliPortlar: readonly number[] = [443]): string[] {
   const metin = String(url ?? '').trim()
   if (!metin) return ['Görsel adresi: boş olamaz']
   if (metin.length > GORSEL_URL_AZAMI) {
     return [`Görsel adresi: çok uzun (${metin.length} > ${GORSEL_URL_AZAMI})`]
   }
   // Yalnız https: kiosk indirmeleri https ile yapılır; javascript:/data:/file: sessizce ölür.
-  if (!HTTPS.test(metin)) return [`Görsel adresi: https ile başlamalı (${metin})`]
-  if (!GORSEL_UZANTI.test(metin)) {
-    return [`Görsel adresi: .png, .jpg, .jpeg ya da .webp ile bitmeli (${metin})`]
+  if (!HTTPS.test(metin)) return ['Görsel adresi: https ile başlamalı']
+  let ayrisan: URL
+  try {
+    ayrisan = new URL(metin)
+  } catch {
+    return ['Görsel adresi: geçersiz adres']
+  }
+  if (ayrisan.username || ayrisan.password) {
+    return ['Görsel adresi: kullanıcı adı/parola içeremez (cihaz bu adresi reddeder)']
+  }
+  const port = ayrisan.port ? Number(ayrisan.port) : 443
+  if (!izinliPortlar.includes(port)) {
+    return [`Görsel adresi: izin verilmeyen port (${port}) — yalnız ${izinliPortlar.join(', ')}`]
+  }
+  const uzanti = /\.([a-z0-9]{1,5})$/i.exec(ayrisan.pathname)
+  if (uzanti && !['png', 'jpg', 'jpeg', 'webp'].includes(uzanti[1].toLowerCase())) {
+    // Uzantı VARSA desteklenen listeden olmalı (.svg/.gif/.pdf/.exe… erkenden reddedilir).
+    // Uzantı YOKSA kural yok: cihaz `image/png|jpeg|webp` içerik türüne bakar.
+    return ['Görsel adresi: .svg/.gif/.pdf gibi biçimleri cihaz göstermez (png/jpeg/webp)']
   }
   return []
 }
 
 /**
- * Görsel adresini kayda yazar ve eski ALIAS'ları (contentURL/url) temizler.
+ * Görsel adresini kayda yazar ve eski ALIAS'ları temizler.
  *
- * NEDEN TEMİZLEME: cihaz `contentUrl ?? contentURL ?? url` sırasıyla okur. Alias silinmezse
- * eski adres veride kalır ve iki alan çeliştiğinde hangisinin kazandığı anlaşılmaz.
+ * NEDEN TEMİZLEME: cihazın gösterim yolu `contentUrl ?? contentURL` okur (data_handler.py:80,
+ * tarayici.py:705, pharmacy_app.py:819 — üçü de aynı sıra). `url` ve `gorsel` alanlarını cihaz
+ * HİÇ okumaz (model.py:46'daki alias listesi yalnız eski kayıtları normalleştirmek içindir).
+ * Alias silinmezse eski adres veride kalır ve iki alan çeliştiğinde hangisinin kazandığı anlaşılmaz.
  */
 export function gorselUrlYaz(kayit: YayinDto, url: string): YayinDto {
   const kopya: YayinDto = { ...kayit }
   kopya.contentUrl = String(url ?? '').trim()
   delete kopya.contentURL
   delete kopya.url
+  delete (kopya as Record<string, unknown>)['gorsel']
   return kopya
 }

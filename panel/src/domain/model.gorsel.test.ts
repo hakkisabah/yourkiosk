@@ -3,7 +3,8 @@
  *
  * NEDEN: kullanıcı "Yayınlar sekmesinde değiştirebileceğim alan yok" dedi; alan yalnız
  * görüntüleniyordu. Görsel adresi panelden düzenlenebilir hâle geldi; bu test hem biçim
- * kurallarını (kiosk ile aynı uzantı listesi) hem de yazma davranışını kilitler.
+ * kurallarını (cihazın GERÇEK kuralları: https + kimlik bilgisi yok + 443 + içerik türü) hem de
+ * yazma davranışını kilitler.
  */
 import { describe, expect, it } from 'vitest'
 
@@ -45,18 +46,42 @@ describe('gorselUrlHatalari', () => {
     }
   })
 
-  it('kiosk desteklemeyen uzantılar reddedilir (gif/svg/pdf/uzantısız)', () => {
+  it('cihazın gösteremeyeceği biçimler reddedilir (gif/svg/pdf)', () => {
     for (const adres of [
       'https://ornek.test/a.gif',
       'https://ornek.test/a.svg',
       'https://ornek.test/a.pdf',
-      'https://ornek.test/a',
       'https://ornek.test/gorsel.png.exe',
     ]) {
       const hatalar = gorselUrlHatalari(adres)
       expect(hatalar.length, adres).toBeGreaterThan(0)
-      expect(hatalar[0]).toContain('webp')
+      expect(hatalar[0], adres).toContain('png/jpeg/webp')
     }
+  })
+
+  it('UZANTISIZ adres kabul edilir (cihaz içerik türüne bakar, dosya adına bakmaz)', () => {
+    // i3 bulgusu: panel uzantısız https adresini reddediyordu; cihaz kabul ediyor → doğru adres engelleniyordu.
+    for (const adres of ['https://ornek.test/a', 'https://ornek.test/api/gorsel?id=3']) {
+      expect(gorselUrlHatalari(adres), adres).toEqual([])
+    }
+  })
+
+  it('kullanıcı bilgisi ve 443 dışı port reddedilir (cihaz reddeder — sessiz kalmayalım)', () => {
+    for (const adres of [
+      'https://kullanici:parola@ornek.test/a.png',
+      'https://ornek.test:8443/a.png',
+      'https://ornek.test:80/a.png',
+    ]) {
+      expect(gorselUrlHatalari(adres).length, adres).toBeGreaterThan(0)
+    }
+    expect(gorselUrlHatalari('https://ornek.test:443/a.png')).toEqual([])
+  })
+
+  it('hata metni adresi geri basmaz (kimlik bilgisi ekrana sızmasın)', () => {
+    const parola = 'cok-gizli-parola'
+    const hatalar = gorselUrlHatalari(`https://kullanici:${parola}@ornek.test/a.png`)
+    expect(hatalar.join(' ')).not.toContain(parola)
+    expect(hatalar.join(' ')).not.toContain('kullanici:')
   })
 
   it('boş ve aşırı uzun adres reddedilir', () => {
@@ -85,11 +110,18 @@ describe('gorselUrlYaz', () => {
     expect(yeni.ilceId).toBe('I1')
   })
 
-  it('eski ALIAS’lar (contentURL/url) temizlenir', () => {
-    const eski: YayinDto = { ...kayit, contentURL: 'https://ornek.test/alias.png', url: 'https://ornek.test/url.png' }
+  it('eski ALIAS’ların HEPSİ (contentURL/url/gorsel) temizlenir', () => {
+    // i3 bulgusu: dördüncü alias `gorsel` kayıtta kalıyordu; belge "eski alias'lar temizlenir" diyordu.
+    const eski = {
+      ...kayit,
+      contentURL: 'https://ornek.test/alias.png',
+      url: 'https://ornek.test/url.png',
+      gorsel: 'https://ornek.test/gorsel.png',
+    } as YayinDto
     const yeni = gorselUrlYaz(eski, GECERLI)
     expect(yeni.contentURL).toBeUndefined()
     expect(yeni.url).toBeUndefined()
+    expect((yeni as Record<string, unknown>)['gorsel']).toBeUndefined()
     expect(yeni.contentUrl).toBe(GECERLI)
   })
 

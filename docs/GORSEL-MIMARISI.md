@@ -150,7 +150,9 @@ yapılır. Adımlar (menüdeki adlar görünür; `VeriView` yalnız dosya adıd�
 
 1. Panelde soldan **Nöbet ve Yayınlar** → üstteki **Yayınlar (N gün)** sekmesi.
 2. Değiştirmek istediğiniz satırda **Görsel** düğmesi → *Yayın görseli* penceresi.
-3. Adresi yazın (yalnız `https` + `.png/.jpg/.jpeg/.webp`; panel aynı listeyi doğrular).
+3. Adresi yazın. Panel cihazın kurallarını uygular: `https`, kullanıcı adı/parola **yok**, port
+   **443**, uzantı varsa `png/jpg/jpeg/webp` (uzantısız adres kabul — cihaz `image/png|jpeg|webp`
+   içerik türüne bakar). Hata metni adresi geri basmaz (kimlik bilgisi ekrana sızmasın).
 4. **Uygula** (yalnız taslağa yazar) → sayfadaki **Kaydet** (yayına alır) → **Bildir** (cihazları
    hemen tetikler; MQTT yoksa cihaz en geç 30–120 sn içinde damgadan alır).
 5. Cihazda doğrulayın: yeni adres önbellekte olmadığı için ilk turda iner.
@@ -159,9 +161,13 @@ Kurallar:
 - **Aynı dosya adını (hash) yeniden kullanmayın.** Cihaz görseli `yayin-gorselleri/<hash>.webp`
   yolundaki önbellekten gösterir; içerik değişip ad aynı kalırsa eski görsel görünmeye devam eder.
   Yeni sürüm → yeni hash → yeni ad.
-- Eski `contentURL`/`url` alias'ları yazarken **temizlenir** (cihaz `contentUrl ?? contentURL ?? url`
-  sırasıyla okur; iki alan çelişmesin).
-- Panelin doğruladığı biçim, cihazın `core/guvenlik.py` kabul listesiyle aynıdır (png/jpeg/webp).
+- Eski `contentURL`/`url`/`gorsel` alias'ları yazarken **temizlenir**. Cihaz `contentUrl ?? contentURL`
+  sırasıyla okur (`data_handler.py:80`, `tarayici.py:705`, `pharmacy_app.py:819`); `url` ve `gorsel`
+  alanlarını HİÇ okumaz — iki alan çelişmesin diye yazarken silinir.
+- Kural kaynağı cihaz tarafıdır: `kiosk/security/network.py` (`gorsel_icin_ayarlar`: şema, kullanıcı
+  bilgisi, port, herkese açık host) + `kiosk/security/image_policy.py` (içerik türü beyaz listesi
+  `image/png|jpeg|webp`). Panel aynı kuralları uygular; tek fark: port ve kimlik bilgisi denetimi
+  panelde erkenden yapılır ki operatör "kaydettim ama görsel çıkmıyor" durumuna düşmesin.
 
 ---
 
