@@ -36,6 +36,11 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+try:  # ALLOWED_HOSTS (hedef beyaz listesi) — araç kiosk/ dışından koşulursa boş kalır
+    import config  # noqa: E402
+except ImportError:  # pragma: no cover - normalde kiosk/ içinden koşulur
+    config = None  # type: ignore[assignment]
+
 DURUM_GOVDESI = json.dumps(
     {"zaman": "2026-10-25T10:00:00Z", "lastupdate": "2026-10-25 09:59:58", "tetik": {"zaman": "2026-10-25T09:00:00Z"}},
     ensure_ascii=False,
@@ -133,20 +138,70 @@ def olc(adres: str, cihaz: int, aralik_s: float, sure_s: float, isci: int = 64) 
     return {"ozet": ozet_hesapla(gecikmeler, hatalar, sure_s), "hedef_hiz": round(hedef_hiz, 2)}
 
 
+def _hedef_guvenli_mi(adres: str) -> tuple[bool, str]:
+    """`--adres` yalnız KENDİ uçlarımıza gidebilir (26 Ekim i5 bulgusu).
+
+    Bu araç 64 iş parçacığıyla saniyede yüzlerce istek atar; yanlışlıkla üçüncü taraf bir adrese
+    koşulursa dışarıdan gelen bir yük testi gibi görünür (ve başkasının kotasını yakar). Bu yüzden
+    hedef beyaz listedir: yerel test sunucusu + izinli alan adları (CloudFront/S3 dağıtımları).
+    """
+    from urllib.parse import urlparse
+
+    try:
+        u = urlparse(adres)
+    except ValueError:
+        return False, f"adres çözümlenemedi: {adres}"
+    if u.scheme not in ("http", "https"):
+        return False, f"şema desteklenmiyor: {u.scheme or '(yok)'} — http/https bekleniyor"
+    host = (u.hostname or "").lower()
+    if not host:
+        return False, "adres host içermiyor"
+    if host in {"127.0.0.1", "localhost", "::1", "[::1]"}:
+        return True, ""
+    izinli = {str(h).lower() for h in getattr(config, "ALLOWED_HOSTS", ())}
+    if any(host == h or host.endswith("." + h) for h in izinli):
+        return True, ""
+    # AWS dağıtımları: CloudFront (*.cloudfront.net) ve S3 (*.amazonaws.com)
+    if host.endswith(".cloudfront.net") or host.endswith(".amazonaws.com"):
+        return True, ""
+    return False, (f"hedef izin listesinde değil: {host} — yalnız yerel adresler, "
+                   f"{', '.join(sorted(izinli))}, *.cloudfront.net, *.amazonaws.com")
+
+
 def main(argv: list[str] | None = None) -> int:
     ayristirici = argparse.ArgumentParser(description="600 cihaz yoklama ölçek testi")
-    ayristirici.add_argument("--cihaz", type=int, default=600)
+    ayristirici.add_argument("--cihaz", type=int, default=600, help="eşzamanlı cihaz sayısı (≤ 2000)")
     ayristirici.add_argument("--aralik", type=float, default=30.0, help="cihaz başına yoklama aralığı (sn)")
-    ayristirici.add_argument("--sure", type=float, default=15.0, help="ölçüm süresi (sn)")
-    ayristirici.add_argument("--isci", type=int, default=64, help="eşzamanlı istek sayısı")
+    ayristirici.add_argument("--sure", type=float, default=15.0, help="ölçüm süresi (sn, ≤ 300)")
+    ayristirici.add_argument("--isci", type=int, default=64, help="eşzamanlı istek sayısı (≤ 128)")
     ayristirici.add_argument("--adres", default="", help="hedef adres (boşsa yerel test sunucusu)")
     ayristirici.add_argument("--json", action="store_true", help="yalnız JSON çıktısı")
     secim = ayristirici.parse_args(argv)
+
+    # ÜST SINIRLAR (i5 bulgusu): sınırsız `--sure`/`--cihaz` ile farkında olmadan bir yük testine
+    # dönüşmesin. Değerler ölçüm için fazlasıyla yeterli (600 cihaz · 30 sn · 64 iş parçacığı).
+    if not 1 <= secim.cihaz <= 2000:
+        print(f"✗ --cihaz 1…2000 aralığında olmalı (gelen: {secim.cihaz})", file=sys.stderr)
+        return 2
+    if not 1 <= secim.sure <= 300:
+        print(f"✗ --sure 1…300 sn aralığında olmalı (gelen: {secim.sure})", file=sys.stderr)
+        return 2
+    if not 1 <= secim.isci <= 128:
+        print(f"✗ --isci 1…128 aralığında olmalı (gelen: {secim.isci})", file=sys.stderr)
+        return 2
+    if secim.aralik <= 0:
+        print(f"✗ --aralik > 0 olmalı (gelen: {secim.aralik})", file=sys.stderr)
+        return 2
 
     sunucu = None
     adres = secim.adres.strip()
     if not adres:
         sunucu, adres = yerel_sunucu()
+    else:
+        guvenli, neden = _hedef_guvenli_mi(adres)
+        if not guvenli:
+            print(f"✗ {neden}", file=sys.stderr)
+            return 2
 
     try:
         sonuc = olc(adres, secim.cihaz, secim.aralik, secim.sure, secim.isci)
