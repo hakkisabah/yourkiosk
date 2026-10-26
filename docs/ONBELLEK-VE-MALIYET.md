@@ -21,15 +21,16 @@ kayıt bayat + ETag varsa   → kosullu_indir()     → 304 ise GÖVDE İNMEZ, d
 ## Yoklama aralığı (emniyet ağı)
 
 Anlık güncelleme **MQTT push** (Qt) ve **`/degisiklik` uzun yoklaması** (tarayıcı) ile gelir.
-`DAMGA_KONTROL_MS` yalnız "push kaçtı" durumu içindir → varsayılan **300 sn**.
+`DAMGA_KONTROL_MS` yalnız "push kaçtı" durumu içindir → **push bağlı 120 sn, kopuk 30 sn**.
 
 | Cihaz | Aralık | İstek/ay | CloudFront | S3 GET | Toplam |
 |---|---|---|---|---|---|
-| 600 | 20 sn | 233 M | $174,96 | $93,31 | **$268,27** |
-| 600 | **300 sn** | 15,6 M | $11,66 | $6,22 | **$17,88** |
-| 1000 | 300 sn | 25,9 M | $19,44 | $10,37 | **$29,81** |
+| 600 | 20 sn (eski, tarihsel) | 233 M | $174,96 | $93,31 | **$268,27** |
+| 600 | **120 sn (push bağlı, bugün)** | 38,9 M | $29,16 | $15,55 | **$44,71** |
+| 600 | 300 sn (eski, tarihsel) | 15,6 M | $11,66 | $6,22 | **$17,88** |
+| 1000 | 120 sn | 64,8 M | $48,60 | $25,92 | **$74,52** |
 
-(3 küçük istek/cihaz/tur · CloudFront $0,0075/10k · S3 GET $0,0004/1k)
+(3 küçük istek/cihaz/tur · CloudFront $0,0075/10k · S3 GET $0,0004/1k. Tur = 2.592.000 sn/ay.)
 
 Ayarlamak için `ayarlar.json` → `calistirma.degisiklik_kontrol_ms` (5000–3600000).
 

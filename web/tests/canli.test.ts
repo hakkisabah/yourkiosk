@@ -3,8 +3,9 @@
  *
  * İki yol vardır:
  *  1) ANLIK (uzun yoklama `/degisiklik`): imza değiştiği an bildirim → yenileme (tipik <1 sn),
- *  2) YOKLAMA (`DAMGA_KONTROL_MS`, varsayılan **300 sn** — anlıklık push/uzun yoklamayla gelir;
- *     20 sn'lik süre 600 cihazda ~$268/ay istek maliyeti demekti): `lastupdate.json` + `tetikle.json`.
+ *  2) YOKLAMA (`DAMGA_KONTROL_MS`, push BAĞLI **120 sn** / kopuk **30 sn** — anlıklık push/uzun
+ *     yoklamayla gelir; 20 sn'lik süre 600 cihazda ~$268/ay istek maliyeti demekti):
+ *     `lastupdate.json` + `tetikle.json`.
  * Ayrıca panelin yazdığı TETİKLEYİCİ yalnızca ilgili ilçenin cihazında hemen uygulanır.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -120,7 +121,7 @@ describe('tetikUygulanmali — ilçe bazlı tetikleyici kuralı', () => {
 })
 
 describe('canlı değişiklik — yansıma', () => {
-  it('damga değişince (20 sn yoklaması) gösterim yenilenir', async () => {
+  it('damga değişince (yoklama turu) gösterim yenilenir', async () => {
     const durum: SahteDurum = { damga: 'D1', eczane: 'ESKİ', yuklemeSayisi: 0 }
     const { kiosk } = kur(durum)
     kiosk.baslat()
@@ -152,7 +153,7 @@ describe('canlı değişiklik — yansıma', () => {
 
     // sunucu "değişti" bildirir (damga D2), arayüz ANINDA yeniler.
     // (Uzun yoklama turu: imza değişmedikçe 800 ms nefes verir; yani en kötü ~1 sn,
-    //  20 sn'lik yoklamayı beklemez.)
+    //  damga yoklamasını beklemez.)
     durum.damga = 'D2'
     durum.eczane = 'YENİ'
     durum.bildirim = { degisti: true, imza: 'İMZA2', damga: 'D2', tetik: null }

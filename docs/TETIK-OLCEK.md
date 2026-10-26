@@ -25,7 +25,7 @@ Panel (Kaydet) ──publish──► MQTT broker ──message──► 600 cih
                                    └──────────► mevcut imza/uzun yoklama → ANINDA yenileme
 ```
 
-- Gecikme: **~100 ms** (yoklamada 3–20 sn).
+- Gecikme: **~100 ms** (yoklamada push bağlı 120 sn / kopuk 30 sn; yoklama yalnız emniyet ağı).
 - Maliyet: cihaz başına **tek bağlantı**; mesaj yalnız yayın başına.
 
 | Seçenek | Aylık maliyet (600 cihaz) | Not |

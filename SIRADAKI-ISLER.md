@@ -210,8 +210,9 @@ yeniden başlat), yedekleme (S3 sürümleme), cihaz durumunun panelde izlenmesi.
 * **Görsel köprüsü** `/gorsel?u=…`: CORS engeli olmadan görsel indirme + Qt ile **aynı** cihaz
   önbelleği + güvenlik kapıları (izin listesi, bayt/piksel bütçesi, SVG/HTML reddi).
 * **Eksik ayar dosyaları** 404 yerine varsayılan içerikle sunulur.
-* **Nöbet değişikliğini anında yansıtma**: `tetikle.json` + uzun yoklama `/degisiklik` + 20 sn damga
-  yoklaması + panel düğmesi + Qt `tetik_kontrol()` + `tools/nobet_tetikle.py`.
+* **Nöbet değişikliğini anında yansıtma**: `tetikle.json` + uzun yoklama `/degisiklik` + damga
+  yoklaması (push bağlı 120 sn / kopuk 30 sn) + panel düğmesi + Qt `tetik_kontrol()` +
+  `tools/nobet_tetikle.py`.
 * **Test sayıları**: kiosk 352 · web 108 · panel 104.
 * **İş 1 düzeltmesi**: geçici çoklu-nöbetçi aracı gösterilen bloğu dolduruyor + `lastupdate` damgasını
   tazeliyor; sunucu değişiklik imzasına `lastSystemData.json` eklendi; web'e zorla yenileme yolu.

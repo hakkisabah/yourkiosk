@@ -4,13 +4,17 @@ NEDEN: `DAMGA_KONTROL_MS` bir zamanlar 20 sn'ydi; 30/120 sn'ye çekildikten sonr
 NODET-DEGISIKLIGI.md, KOMUTLAR.md ve iki araç docstring'i "20 sn" demeye devam etti. Kullanıcı
 "bildirdim ama değişmedi" beklentisini bu yanlış metinden kuruyor.
 
-Bu test SABİT KALIPLARI aramaz (eski sürüm öyleydi ve bayat metni kaçırdı — i5 bulgusu).
-Bunun yerine tüm kiosk metinlerini TARAR:
+Bu test SABİT KALIP ARAMAZ; iddiaları SINIFLANDIRIR (25 Ekim i3 bulguları sonrası yeniden yazıldı):
 
-  1. Bir satırda `DAMGA_KONTROL_MS` geçiyorsa "20 sn"/"20000" geçemez (bayat sabit).
-  2. `getattr(config, "DAMGA_KONTROL_MS", <varsayılan>)` varsayılanı 120000 olmalı; sessiz
-     `20000` varsayılanı belgeyle çelişir.
-  3. Yoklama süresinden söz eden satır "20 sn" diyemez (tek moda özgü değer genellenemez).
+  · Kapsam: deponun TAMAMI (kiosk + web + panel + docs), `.md .py .ts .tsx .vue .sh .json …`.
+    Eski sürüm yalnız `kiosk/` altını ve yalnız {.md,.py,.json,.sh} uzantılarını tarıyordu →
+    `web/src`'teki bayat "20 sn" satırları hiç görülmüyordu (i3 bulgusu).
+  · "20 sn"/"300 sn" her yerde yasak DEĞİL: maliyet karşılaştırması ve tarihsel ölçüm meşrudur.
+    Yasak olan, bunları **bugünkü yoklama aralığı** gibi sunmak. Bu yüzden satır bağlamına bakılır
+    (fiyat/≈/idi/eski…) ve istisnalar `MUAF` tablosunda GEREKÇESİYLE tutulur.
+  · `push bağlı X sn / kopuk Y sn` ikilisi yapısal olarak denetlenir: 120/30 olmalı.
+  · git yoksa (arşiv/tarball) tarama SESSİZCE tüm ağaca düşmez — açıkça `skip` eder. Eski sürüm
+    düşüyordu ve gitignore'lu cihaz verisi (`ayarlar.json`) yüzünden yanlış kırmızı üretiyordu.
 """
 
 from __future__ import annotations
@@ -20,53 +24,67 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 import config
 
 KIOSK = Path(__file__).resolve().parents[1]
-ATLANAN = {".venv", ".qt-libs", "__pycache__", "_arsiv", ".karantina", "onbellek", "node_modules"}
+KOK = KIOSK.parent  # depo kökü: kapsam kiosk ile sınırlı olamaz
+ATLANAN = {".venv", ".qt-libs", "__pycache__", "_arsiv", ".karantina", "onbellek", "node_modules",
+           "dist", ".pytest_cache", ".git", ".cache", "coverage"}
+METIN_UZANTI = {".md", ".py", ".json", ".sh", ".ts", ".tsx", ".vue", ".yaml", ".yml",
+                ".txt", ".css", ".html", ".conf", ".service", ".nft"}
 
+#: Gerçek değerler (tek kaynak: kiosk/config.py). Metinler bunlarla çelişemez.
+PUSH_SN = config.DAMGA_KONTROL_MS_PUSH // 1000
+PUSH_YOK_SN = config.DAMGA_KONTROL_MS_PUSH_YOK // 1000
 
-def _izlenen_dosyalar() -> set[Path] | None:
-    """`git` varsa İZLENEN dosyaların kümesi; yoksa None.
-
-    i5 bulgusu: tarama `kiosk/` altındaki TÜM .json dosyalarını okuyordu — cihazda
-    `ayarlar.json`, `lastSystemData.json` gibi gitignore'lu VERİ dosyaları da taranıyor ve
-    içlerinde geçen bir sayı testi kırabiliyordu. Sadece depoya giren metinler taranmalı.
-    """
-    try:
-        cikti = subprocess.run(
-            ["git", "-C", str(KIOSK), "ls-files", "-z"],
-            capture_output=True, text=True, timeout=30, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if cikti.returncode != 0 or not cikti.stdout:
-        return None
-    return {KIOSK / ad for ad in cikti.stdout.split("\0") if ad}
-
-
-#: Bayat süre işaretleri. DİKKAT: `120 sn` içindeki "20 sn" eşleşmesin diye önceki karakter
-#: rakam olamaz (`(?<!\d)`) — ilk sürüm bunu kaçırdı ve doğru metni de "bayat" saydı.
+#: Bayat süre işaretleri. `120 sn` içindeki "20 sn" eşleşmesin diye önceki karakter rakam olamaz.
 BAYAT_SN = re.compile(r"(?<!\d)20\s*sn\b", re.IGNORECASE)
 BAYAT_MS = re.compile(r"(?<!\d)20000(?!\d)")
+ESKI_SN = re.compile(r"(?<!\d)300\s*sn\b", re.IGNORECASE)
+#: İkili iddia biçimi: "push bağlı 120 sn / kopuk 30 sn"
+IKILI = re.compile(r"push\s*ba[ğg]l[ıi]\D{0,12}(\d+)\s*sn\D{0,20}kopuk\D{0,12}(\d+)\s*sn", re.IGNORECASE)
+#: Tarihsel/ölçüm bağlamı: bunlar bayat iddia değil, karşılaştırmadır.
+TARIH = re.compile(r"(\bidi\b|\bik[ie]n\b|önce|eski|tarihsel|karşılaştır|demekti|yerine|≈|\$|maliyet)",
+                   re.IGNORECASE)
+
 #: Kendi belgesi: eski değeri ANLATIR (20 sn), taranmaz.
 KENDI = Path(__file__).resolve()
 
+#: Gerekçeli istisnalar: (dosya, satır parçası) → neden bayat sayılmıyor.
+MUAF: dict[tuple[str, str], str] = {
+    ("README.md", "en çok 20 sn"): "tarayıcı uzun yoklamasının tetik gecikmesi (DAMGA değil)",
+    ("kiosk/README.md", "**10 yoklama turunda bir**"): "komut çapraz kontrolü: 10 tur × 120 sn",
+}
+
+
+def _izlenen_dosyalar() -> set[Path]:
+    """`git` varsa İZLENEN dosyalar; yoksa test SKIP edilir (sessiz tüm-ağaç taraması yok)."""
+    cikti = None
+    try:
+        cikti = subprocess.run(
+            ["git", "-C", str(KOK), "ls-files", "-z"],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as hata:  # pragma: no cover - ortam arızası
+        pytest.skip(f"git çalıştırılamadı ({hata}) → taranacak dosya kümesi bilinmiyor")
+    if cikti is None:  # pragma: no cover - yukarıdaki skip zaten çıkardı
+        pytest.skip("git çıktısı yok → tarama atlandı")
+    if cikti.returncode != 0 or not cikti.stdout:
+        pytest.skip("git deposu değil (arşiv/tarball) → izlenen dosya listesi yok; tarama atlandı")
+    return {KOK / ad for ad in cikti.stdout.split("\0") if ad}
+
 
 def _metinler() -> list[Path]:
-    """kiosk altındaki taranacak metin dosyaları (üretilen/3. parti dizinler hariç)."""
+    """Depodaki taranacak metin dosyaları (yalnız git'in izlediği, üretilen dizinler hariç)."""
     izlenen = _izlenen_dosyalar()
-    dosyalar: list[Path] = []
-    for yol in KIOSK.rglob("*"):
-        if not yol.is_file() or yol.suffix not in {".md", ".py", ".json", ".sh"}:
-            continue
-        if any(parca in ATLANAN for parca in yol.parts):
-            continue
-        # git varsa yalnız depoya giren dosyalar (cihaz verisi/gitignore'lu json taranmaz)
-        if izlenen is not None and yol not in izlenen:
-            continue
-        dosyalar.append(yol)
-    assert len(dosyalar) > 30, "tarama beklenenden az dosya buldu (yol hatası?)"
+    dosyalar = [
+        yol for yol in izlenen
+        if yol.is_file() and yol.suffix in METIN_UZANTI
+        and not any(parca in ATLANAN for parca in yol.parts)
+    ]
+    assert len(dosyalar) > 70, f"tarama beklenenden az dosya buldu ({len(dosyalar)}) — kapsam daralmış"
     return sorted(dosyalar)
 
 
@@ -76,6 +94,19 @@ def _kisa(satir: str, sinir: int = 160) -> str:
     return temiz if len(temiz) <= sinir else temiz[:sinir] + "…"
 
 
+def _muaf(yol: Path, satir: str) -> bool:
+    ad = str(yol.relative_to(KOK))
+    return any(ad == dosya and parca in satir for dosya, parca in MUAF)
+
+
+def _satir_iddiasi(satir: str) -> bool:
+    """Satır BUGÜNKÜ yoklama aralığından söz ediyor mu? (tarihsel/ölçüm bağlamı hariç)"""
+    if TARIH.search(satir):
+        return False
+    kucuk = satir.lower()
+    return ("yoklama" in kucuk) or ("damga" in kucuk) or ("damga_kontrol_ms" in kucuk)
+
+
 def test_damga_araligi_iki_degerli_kalir():
     """Sabitler: push bağlı 120 sn, kopuk 30 sn (etkin aralık bağlantıya göre seçilir)."""
     assert config.DAMGA_KONTROL_MS_PUSH == 120 * 1000
@@ -83,22 +114,79 @@ def test_damga_araligi_iki_degerli_kalir():
     assert config.DAMGA_KONTROL_MS == 120 * 1000
 
 
-def test_hicbir_metinde_bayat_20_sn_iddiasi_yok():
-    """Tarama: `DAMGA_KONTROL_MS` geçen satırda 20 sn/20000; yoklama geçen satırda 20 sn kalmamalı."""
+def test_tarama_kapsami_web_ve_kok_belgelerini_gorur():
+    """Kapsam kilidi: .ts/.tsx ve depo kökü belgeleri taranmalı (i3 bulgusu: hiç bakılmıyordu)."""
+    adlar = {str(y.relative_to(KOK)) for y in _metinler()}
+    assert any(a.endswith(".ts") for a in adlar), "hiç .ts dosyası taranmıyor (süzgeç daralmış)"
+    assert any(a.endswith(".tsx") or a.endswith(".vue") for a in adlar)
+    assert "docs/ONBELLEK-VE-MALIYET.md" in adlar, "depo kökü belgeleri taranmıyor"
+    assert "web/src/kiosk.ts" in adlar
+
+
+def test_hicbir_metinde_bayat_yoklama_iddiasi_yok():
+    """Bugünkü aralık iddiası 120/30 olmalı; 20 sn/300 sn yalnız tarihsel bağlamda geçebilir."""
     kacak: list[str] = []
+    kullanilan: set[tuple[str, str]] = set()
     for yol in _metinler():
         if yol == KENDI:
             continue
-        for no, satir in enumerate(yol.read_text(encoding="utf-8").splitlines(), 1):
-            bayat_sn = bool(BAYAT_SN.search(satir))
-            damga = "DAMGA_KONTROL_MS" in satir
-            yoklama = "yoklama" in satir.lower()
-            if damga and (bayat_sn or BAYAT_MS.search(satir)):
-                kacak.append(f"{yol.relative_to(KIOSK)}:{no}: {_kisa(satir)}")
-            elif yoklama and "TETIK_KONTROL_MS" not in satir and (bayat_sn or BAYAT_MS.search(satir)):
-                # `TETIK_KONTROL_MS` kendi başına 20 sn/20000'dir (ayrı sabit, doğru) — hariç tutulur.
-                kacak.append(f"{yol.relative_to(KIOSK)}:{no}: {_kisa(satir)}")
-    assert not kacak, "bayat yoklama süresi (20 sn / 20000):\n" + "\n".join(kacak)
+        icerik = yol.read_text(encoding="utf-8", errors="replace")
+        # KOD dosyasında "her 20/300 sn" iddia değildir: zaman aşımı, bekleme, gecikme sabitleri
+        # (ör. chromium `300 sn zaman aşımı`) meşrudur. Bu yüzden kod kuralı yalnız yoklama
+        # zincirindeki dosyalara uygulanır: içinde `DAMGA_KONTROL_MS` geçenler.
+        yoklama_zinciri = "DAMGA_KONTROL_MS" in icerik
+        for no, satir in enumerate(icerik.splitlines(), 1):
+            if _muaf(yol, satir):
+                kullanilan.update(k for k in MUAF if k[0] == str(yol.relative_to(KOK)) and k[1] in satir)
+                continue
+            ikili = IKILI.search(satir)
+            if ikili and (int(ikili.group(1)) != PUSH_SN or int(ikili.group(2)) != PUSH_YOK_SN):
+                kacak.append(f"{yol.relative_to(KOK)}:{no}: ikili {ikili.group(0)!r} ≠ "
+                             f"{PUSH_SN}/{PUSH_YOK_SN} — {_kisa(satir)}")
+                continue
+            kucuk = satir.lower()
+            if "TETIK_KONTROL_MS" in satir or "tetik" in kucuk:
+                continue  # 20 sn TETİK için DOĞRU (ayrı sabit); "tetik" bağlamı karışmasın
+            if yol.suffix not in {".md", ".txt"}:
+                if not yoklama_zinciri:
+                    continue
+                # KOD/BETİK dosyalarında ("sn" yazıyorsa) iddia sayılır: i3 bulgusu, "# 20 sn yeterli
+                # olurdu" gibi anahtar kelimesiz satır eski sürümde yeşil kalıyordu. Ham `20000`
+                # sayısı bu kurala girmez (koltuk sınırları, bayt uzunlukları — iddia değil).
+                if (BAYAT_SN.search(satir) or ESKI_SN.search(satir)) and not TARIH.search(satir):
+                    kacak.append(f"{yol.relative_to(KOK)}:{no}: bayat süre (kod/belge) — {_kisa(satir)}")
+                continue
+            if not _satir_iddiasi(satir):
+                continue
+            if BAYAT_SN.search(satir) or BAYAT_MS.search(satir):
+                kacak.append(f"{yol.relative_to(KOK)}:{no}: bayat 20 sn — {_kisa(satir)}")
+            elif ESKI_SN.search(satir):
+                kacak.append(f"{yol.relative_to(KOK)}:{no}: bayat 300 sn — {_kisa(satir)}")
+    assert not kacak, "bayat yoklama süresi iddiası (120/30 bekleniyor):\n" + "\n".join(kacak)
+
+    olu = set(MUAF) - kullanilan
+    assert not olu, f"MUAF kayıtları artık eşleşmiyor (silinmeli): {sorted(olu)}"
+
+
+def _getattr_varsayilanlari(satir: str) -> list[str]:
+    """`getattr(config, "DAMGA_KONTROL_MS", <ifade>)` içindeki <ifade>'yi PARANTEZ DENGELEYEREK al.
+
+    i3 bulgusu: eski `([^)]+?)` deseni iç içe ifadede (`int(ayar)`) yanlış pozitif üretiyor ve
+    DOĞRU kodu kırmızıya düşürüyordu.
+    """
+    cikti: list[str] = []
+    for bul in re.finditer(r'getattr\(\s*config\s*,\s*"DAMGA_KONTROL_MS"\s*,', satir):
+        derinlik, basla, i = 1, bul.end(), bul.end()
+        while i < len(satir):
+            if satir[i] == "(":
+                derinlik += 1
+            elif satir[i] == ")":
+                derinlik -= 1
+                if derinlik == 0:
+                    cikti.append(satir[basla:i].strip())
+                    break
+            i += 1
+    return cikti
 
 
 def _ifade_degeri(ifade: str) -> int | None:
@@ -133,18 +221,23 @@ def test_getattr_varsayilanlari_kodla_ayni():
     aritmetik ifade biçimini kaçırdığı için timer_manager'daki 30 dakikalık bayat varsayılan
     yeşil testle yaşıyordu. Artık ifade AST ile hesaplanıp karşılaştırılır.
     """
-    desen = re.compile(r'getattr\(\s*config\s*,\s*"DAMGA_KONTROL_MS"\s*,\s*([^)]+?)\s*\)')
     yanlis: list[str] = []
     for yol in _metinler():
         if yol.suffix != ".py" or yol == KENDI:
-            # KENDİ dosyası atlanır: docstring'ler örnek `getattr(...)` biçimi anlatır.
-            continue
-        for no, satir in enumerate(yol.read_text(encoding="utf-8").splitlines(), 1):
-            for ifade in desen.findall(satir):
+            continue  # KENDİ dosyası atlanır: docstring'ler örnek biçim anlatır.
+        for no, satir in enumerate(yol.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            for ifade in _getattr_varsayilanlari(satir):
                 deger = _ifade_degeri(ifade)
                 if deger != 120_000:
-                    yanlis.append(f"{yol.relative_to(KIOSK)}:{no}: {_kisa(ifade, 40)} → {deger}")
+                    yanlis.append(f"{yol.relative_to(KOK)}:{no}: {_kisa(ifade, 40)} → {deger}")
     assert not yanlis, "yanlış varsayılan (120000 bekleniyor): " + repr(yanlis)
+
+
+def test_getattr_cozumleyici_ic_ice_ifadeyi_dogru_okur():
+    """Yardımcı testi: sınır çözümü bozulursa üstteki kilit sessizce yanlış kırmızı üretir."""
+    assert _getattr_varsayilanlari('x = getattr(config, "DAMGA_KONTROL_MS", 120_000)') == ["120_000"]
+    assert _getattr_varsayilanlari('y = getattr(config, "DAMGA_KONTROL_MS", int(ayar))') == ["int(ayar)"]
+    assert _getattr_varsayilanlari('getattr(config, "DAMGA_KONTROL_MS", 1800 * 1000)') == ["1800 * 1000"]
 
 
 def test_ifade_degeri_aritmetigi_cozer():
@@ -192,20 +285,19 @@ def test_belgelerde_menude_gorunmeyen_dosya_adi_talimat_olarak_kullanilmaz():
     Kullanıcı geri bildirimi: talimatta "panelde VeriView'de" denince ekranda öyle bir şey
     bulunamıyor. Belgeler görünen menü adını kullanmalı; dosya adı geçecekse 'dosya:' demeli.
     """
-    kok = Path(__file__).resolve().parents[2]
     yasak = ("VeriView →", "VeriView'de", "VeriView ekranında", "AyarlarView'de")
     kotu = []
-    for md in list((kok / "docs").glob("*.md")) + [kok / "panel" / "README.md"]:
+    for md in list((KOK / "docs").glob("*.md")) + [KOK / "panel" / "README.md"]:
         if not md.exists():
             continue
         metin = md.read_text(encoding="utf-8")
         for kalip in yasak:
             if kalip in metin:
-                kotu.append(f"{md.relative_to(kok)}: {kalip}")
+                kotu.append(f"{md.relative_to(KOK)}: {kalip}")
     assert not kotu, f"talimatta menüde görünmeyen dosya adı kullanılmış: {kotu}"
 
     # panel/README bu kuralı açıkça yazmalı (yeni talimat yazan buraya bakar).
-    pano = (kok / "panel" / "README.md").read_text(encoding="utf-8")
+    pano = (KOK / "panel" / "README.md").read_text(encoding="utf-8")
     assert "Nöbet ve Yayınlar" in pano and "dosya adları menüde görünmez" in pano
 
 
