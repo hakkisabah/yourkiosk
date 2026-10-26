@@ -149,6 +149,50 @@ Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce v
 | 6 | **En eski iş yaşı** (kuyruk tıkanıklığı) | < 120 dk |
 | 7 | Son 24s zaman aşımı (`çıkış 124`) | 0 |
 | 8 | Son 24s karar kapısı reddi | < 3 |
+| 9 | **Bellek tavanı birimde** (`MemoryMax` + `NODE_OPTIONS` heap) | tanımlı |
+| 10 | **Boş RAM / takas** | ≥ 500 MB boş · takas <%50 |
+| 11 | **Son 24s OOM / core dump izi** | 0 (`journalctl --user -u …`) |
+| 12 | Ağır komut koşucusu (`agir-komut.sh`) | var + çalıştırılabilir |
+
+## Bellek tavanı (26 Ekim dersi — node core dump)
+
+**Belirti:** `journalctl --user -u yourkiosk-nobetci` içinde
+
+```
+Process 101636 (node-MainThread) of user 1000 dumped core.
+#3  node::OOMErrorHandler … #5 v8::internal::Heap::FatalProcessOutOfMemory
+```
+
+**Kök neden:** makinede ~3,8 GB RAM var; V8 tavanını makine RAM'inden **bağımsız** kurar (Hermes TUI
+8 GB ister, Node varsayılanı ~2 GB). Ağır bir Node komutu (test/typecheck/derleme) tavansız koşunca
+heap makinenin taşıyamayacağı yere ayarlanır → takas dolar → V8 "ölümcül OOM" ile **abort** eder
+(çekirdeğin OOM-killer'ı değil, sürecin kendisi). i3'te görülmemesinin nedeni: i3 kod/derleme
+koşmaz, yalnız karar verir.
+
+**Dört katmanlı koruma (hepsi birimde/betikte görünür):**
+
+| Katman | Nerede | Ne yapar |
+|---|---|---|
+| V8 tavanı | birim `Environment=NODE_OPTIONS=--max-old-space-size` | Node çocukları RAM'in 1/4'ü kadar heap ile sınırlanır (4 GB makinede ~950 MB) |
+| cgroup tavanı | birim `MemoryHigh` (%60) / `MemoryMax` (%75) | taşma olursa OOM **yalnız birimi** öldürür; makine ve sohbet ayakta kalır |
+| Çökme freni | birim `StartLimitIntervalSec=300` + `StartLimitBurst=5` | OOM sonrası `Restart=always` sonsuz oturum/core dump döngüsü kurmaz |
+| Ağır komut koşucusu | `otomasyon/betik/agir-komut.sh` | boş RAM eşiği altında **reddeder** (çıkış 7), ölçülü heap verir, `systemd-run --scope` ile yalıtır, `flock` ile sıraya sokar (çıkış 8) |
+
+```bash
+# planı gör (hiçbir şey koşmaz)
+./otomasyon/betik/agir-komut.sh --kuru -- npm test
+
+# ağır komut (test / typecheck / derleme) — doğrudan `npm test` DEĞİL
+cd panel && ../../otomasyon/betik/agir-komut.sh -- npm test
+```
+
+**Ölçülen gerçek değerler (bu depoda, boş makinede):** panel `vitest` 576 MB tepe · `vue-tsc`
+930 MB tepe · web `vitest` 340 MB tepe. Yani tek komut sığar; **iki ağır komut + sohbet gateway'i**
+4 GB'a sığmaz — koşucunun sıraya sokması bu yüzden.
+
+Tavanlar `nobetci-kur.sh` çalışırken makineden ölçülür (sabit sayı yazılmaz); kurulum çıktısı
+`bellek tavanı: RAM … MB → MemoryHigh … MemoryMax … heap …` satırını basar. Birim güncellendikten
+sonra doğrulama: `python3 otomasyon/betik/nobetci.py --rol i5 --kendini-denetle` → 9–12 ✓.
 
 ## Sınırlar
 

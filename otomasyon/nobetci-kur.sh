@@ -66,6 +66,25 @@ cron_kaldir() {
 }
 
 DEPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# ── BELLEK TAVANI (26 Ekim dersi: `node-MainThread` V8 FatalProcessOutOfMemory core dump) ────────
+# i5'te birim cgroup'unda node abort etti; makinede ~3,8 GB RAM var. V8 tavanı makine RAM'inden
+# bağımsız kurulduğunda (Hermes TUI 8 GB ister) takas dolar ve süreç "ölümcül OOM" ile düşer.
+# Bu yüzden tavanlar KURULUM ANINDA makineden ölçülür (sabit sayı yazmak 4 GB'lık i5'e 16 GB'lık
+# tavan verir). Değerler birimde görünür → "ayarladım" sanıp görünmez bırakmak yok.
+RAM_MB="$(awk '/^MemTotal:/ { printf "%d", $2/1024 }' /proc/meminfo 2>/dev/null || true)"
+case "${RAM_MB:-}" in ''|*[!0-9]*) RAM_MB=0 ;; esac
+if [ "$RAM_MB" -gt 1024 ]; then
+  MEM_HIGH_MB=$(( RAM_MB * 60 / 100 ))          # yumuşak: üstünde çekirdek geri- baskı uygular
+  MEM_MAX_MB=$(( RAM_MB * 75 / 100 ))           # sert: aşarsa OOM yalnız bu birimi öldürür
+  NODE_HEAP_MB=$(( RAM_MB / 4 ))                # V8 old-space tavanı (Node çocukları için)
+  [ "$NODE_HEAP_MB" -lt 512 ] && NODE_HEAP_MB=512
+  [ "$NODE_HEAP_MB" -gt 2048 ] && NODE_HEAP_MB=2048
+else
+  # Ölçüm yok/küçük: muhafazakâr varsayılan (görünür uyarı ile)
+  MEM_HIGH_MB=1024; MEM_MAX_MB=1280; NODE_HEAP_MB=768
+  echo "UYARI: MemTotal okunamadı (${RAM_MB} MB) → muhafazakâr bellek tavanları kullanılıyor" >&2
+fi
+
 # --sadece-cron: yalnız cron temizliği yap, systemd'ye DOKUNMA
 if [ "$CRON_KALDIR" -eq 2 ]; then
   exec "$(command -v python3)" "$DEPO/otomasyon/betik/cron_temizle.py" --sil
@@ -85,16 +104,32 @@ cat <<UNIT
 [Unit]
 Description=yourkiosk nobetci ($ROL) - olay gudumlu PR incelemesi
 After=network-online.target
+# ÇÖKME DÖNGÜSÜ FRENİ: 26 Ekim'de node OOM'u ardından Restart=always her 5 sn'de yeni oturum
+# açtı; her oturum token + core dump üretti. 5 dakikada 5'ten fazla çökme → birim durur (görünür).
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
 WorkingDirectory=$DEPO
 Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=GITHUB_DEPO=hakkisabah/yourkiosk
+# Node çocukları (vitest/vue-tsc/vite) ÖLÇÜLÜ V8 tavanı devralır: makine RAM'inin 1/4'ü
+# (4 GB makinede ~950 MB). Tavansız V8, RAM'den büyük tavan kurup "FatalProcessOutOfMemory" ile
+# abort ediyordu (26 Ekim, casperi5 core dump). Ağır komutlar yine de agir-komut.sh ile koşmalı.
+Environment=NODE_OPTIONS=--max-old-space-size=$NODE_HEAP_MB
 $([ -n "$PROFIL" ] && echo "Environment=NOBETCI_PROFIL=$PROFIL")
 # Ayrı profil + düşük öncelik: Open WebUI/sohbet yükü nöbetçiyi aç bırakmasın (26 Ekim i5 mimarisi)
 Nice=10
 CPUWeight=50
+# BELLEK TAVANI: yumuşak eşikte çekirdek geri-baskı uygular, sert eşikte OOM YALNIZ bu birimi
+# öldürür (makine takasa gömülmez, sohbet/panel ayakta kalır). Değerler kurulumda ölçülür.
+MemoryAccounting=yes
+MemoryHigh=${MEM_HIGH_MB}M
+MemoryMax=${MEM_MAX_MB}M
+TasksMax=1024
+OOMPolicy=stop
+TimeoutStopSec=30
 ExecStart=$PYTHON $DEPO/otomasyon/betik/nobetci.py --rol $ROL --aralik 15${PROFIL:+ --profil $PROFIL}
 Restart=always
 RestartSec=5
@@ -136,6 +171,7 @@ case "$KIP" in
     sleep 2
     echo
     echo "=== kuruldu ==="
+    echo "bellek tavanı: RAM ${RAM_MB} MB → MemoryHigh ${MEM_HIGH_MB} MB · MemoryMax ${MEM_MAX_MB} MB · NODE_OPTIONS heap ${NODE_HEAP_MB} MB"
     systemctl --user --no-pager status "$UNIT_ADI" | head -10
     echo
     echo "canlı günlük: journalctl --user -u $UNIT_ADI -f"
