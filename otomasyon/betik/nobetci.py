@@ -605,6 +605,60 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
     satir(zaman_asimi == 0, "son 24s zaman aşımı yok", f"{zaman_asimi} olay")
     satir(kapi_red < 3, "karar kapısı reddi < 3", f"{kapi_red} olay → {kapi_dosya}")
 
+    # 9-12) BELLEK: 26 Ekim'de birim cgroup'unda `node-MainThread` V8 FatalProcessOutOfMemory ile
+    # core dump aldı (makinede 3,8 GB RAM; V8 tavanı RAM'den büyük kuruldu, takas doldu). Bu dört
+    # kontrol o arıza sınıfını makineyle doğrular: tavan birimde mi, makinede boşluk var mı,
+    # son 24 saatte OOM izi var mı, ağır komutlar ölçülü koşuyor mu.
+    try:
+        birim_ayar = subprocess.run(
+            ["systemctl", "--user", "show", UNIT_ADI, "-p", "MemoryMax", "-p", "MemoryHigh",
+             "-p", "Environment"],
+            capture_output=True, text=True, timeout=15).stdout
+    except (OSError, subprocess.SubprocessError):
+        birim_ayar = ""
+    tavan_mb = 0
+    m = re.search(r"^MemoryMax=(\d+)", birim_ayar, re.M)
+    if m:
+        tavan_mb = int(m.group(1)) // (1024 * 1024)
+    heap_var = bool(re.search(r"--max-old-space-size=\d+", birim_ayar))
+    satir(tavan_mb > 0 and heap_var, "bellek tavanı birimde",
+          f"MemoryMax={tavan_mb} MB · NODE_OPTIONS heap={'var' if heap_var else 'YOK'}"
+          if (tavan_mb or heap_var) else "tanımsız → nobetci-kur.sh ile yeniden kur")
+
+    bos_mb = takas_dolu_pct = 0
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as f:
+            deger = {}
+            for satirl in f:
+                p = satirl.split(":")
+                if len(p) == 2:
+                    deger[p[0].strip()] = int(p[1].split()[0])  # kB
+        bos_mb = deger.get("MemAvailable", 0) // 1024
+        takas = deger.get("SwapTotal", 0)
+        takas_dolu_pct = int((takas - deger.get("SwapFree", 0)) * 100 / takas) if takas else 0
+    except (OSError, ValueError):
+        pass
+    satir(bos_mb >= 500 and takas_dolu_pct < 50, "bellek/ takas sağlıklı",
+          f"boş {bos_mb} MB · takas %{takas_dolu_pct} dolu"
+          + ("" if bos_mb >= 500 else " → ağır komut koşma (agir-komut.sh reddeder)"))
+
+    oom_izi = 0
+    try:
+        cikti = subprocess.run(
+            ["journalctl", "--user", "-u", UNIT_ADI, "--since", "-24h", "--no-pager", "-o", "cat"],
+            capture_output=True, text=True, timeout=30).stdout
+        oom_izi = sum(1 for s in cikti.splitlines()
+                      if re.search(r"dumped core|FatalProcessOutOfMemory|oom-kill|Out of memory", s))
+    except (OSError, subprocess.SubprocessError):
+        oom_izi = -1
+    satir(oom_izi == 0, "son 24s OOM/core dump yok",
+          "temiz" if oom_izi == 0 else (f"{oom_izi} satır → journalctl --user -u {UNIT_ADI}"
+                                        if oom_izi > 0 else "okunamadı"))
+
+    agir = DEPO_VARSAYILAN / "otomasyon" / "betik" / "agir-komut.sh"
+    satir(agir.is_file() and os.access(agir, os.X_OK), "ağır komut koşucusu",
+          str(agir) if agir.is_file() else f"yok: {agir}")
+
     print(f"\n{'✓ tüm kontrol noktaları temiz' if sorun == 0 else f'✗ {sorun} kontrol noktası sorunlu'}")
     return 0 if sorun == 0 else 1
 

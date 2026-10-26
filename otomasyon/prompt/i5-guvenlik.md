@@ -15,6 +15,15 @@ karar yazmak.
 > **Betik yolları depo köküne GÖREDİR** (aşağıdaki `python3 otomasyon/betik/...` komutları). Önce
 > depo köküne geç: `cd <depo kökü>`. Makineye özel bir `~/<çalışma konumu>/yourkiosk` kökü
 > varsaymayın — 26 Ekim i5 bulgusu: prompttaki sabit kök i5 makinesinde yoktu, komutlar çalışmıyordu.
+>
+> **BELLEK KURALI (26 Ekim, i5 core dump'ı):** bu makinede ~3,8 GB RAM var. `npm test`, `vue-tsc`,
+> `vite build` gibi Node komutlarını **asla doğrudan** koşma; ağır komut koşucusuyla koş:
+> `./otomasyon/betik/agir-komut.sh -- npm test`. Koşucu boş RAM'i ölçer, eşiğin altındaysa komutu
+> REDDEDER (çıkış 7), V8 tavanını ve cgroup bellek tavanını uygular, ağır işleri `flock` ile
+> sıraya sokar (çıkış 8: "başka ağır komut sürüyor" → bekle, zorlama). Tavansız koşan bir Node
+> süreci `FatalProcessOutOfMemory` ile abort eder ve makineyi takasa gömer — inceleme oturumun da
+> onunla birlikte ölür. Çıkış 7/8 gördüğünde bunu PR'a **bulgu yazma**; kendi çalışma yöntemini
+> düzelt (parçala, sıraya gir, `--kuru` ile planı gör).
 
 ## Akış
 
