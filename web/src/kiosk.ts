@@ -483,10 +483,13 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
   // ---------------------------------------------------------------- canlı değişiklik
   /**
    * Damga + tetikleyici yoklaması (`DAMGA_KONTROL_MS`).
-   * Maliyet notu: bu yoklama tur başına TEK istek demektir (`durum.json`); anlık güncelleme
-   * `/degisiklik` uzun yoklaması + MQTT ile gelir. Tarayıcı modunda bağlantıya göre seçim YOK:
-   * sabit `DAMGA_KONTROL_MS` (varsayılan 120 sn) kullanılır. 600 cihazda 120 sn ≈ 13,0 M
-   * istek/ay ≈ $15; 30 sn ≈ 51,8 M ≈ $60 (bkz. docs/ONBELLEK-VE-MALIYET.md).
+   * Maliyet notu: bu tur **en çok İKİ küçük istek** demektir — `lastupdate.json` + `tetikle.json`.
+   * Tarayıcı modu `durum.json`u HİÇ okumaz (o tek isteklik yol Qt moduna aittir, bkz.
+   * `kiosk/core/durum.py`); damga değişirse veri dosyaları ayrıca iner.
+   * Anlık güncelleme `/degisiklik` uzun yoklaması + MQTT ile gelir. Tarayıcı modunda bağlantıya
+   * göre seçim YOK: sabit `DAMGA_KONTROL_MS` kullanılır — Qt modu ise `yoklama_araligi()` ile push
+   * bağlı 120 sn / kopuk 30 sn seçer. 600 cihazda 120 sn ≈ 13,0 M istek/ay ≈ $15;
+   * 30 sn ≈ 51,8 M ≈ $60 (bkz. docs/ONBELLEK-VE-MALIYET.md).
    *
    * Yalnızca KÜÇÜK dosyalar okunur (`lastupdate.json`, `tetikle.json`); büyük veri
    * dosyaları damga değişmedikçe indirilmez. Anlık uç (`/degisiklik`) yoksa tek yol budur.

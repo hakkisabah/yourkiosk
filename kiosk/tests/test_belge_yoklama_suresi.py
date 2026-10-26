@@ -57,6 +57,23 @@ KELIMESIZ_KADANS = re.compile(r"(?<![\d,.])\d+\s*sn['’]?[de]{1,2}\s*bir\b|her\
 TARIH_KESIN = re.compile(r"(\bidi\b|\bik[ie]n\b|eski|tarihsel|karşılaştır|demekti|yerine)",
                          re.IGNORECASE)
 
+# --- "varsayılan" iddiaları: BUGÜNKÜ durum `config.TETIK_PUSH_AKTIF`ten türetilir ----------
+#: 26 Ekim i5 bulgusu (kör nokta): maliyet cümlelerindeki YANLIŞ "varsayılan" iddiası hiç
+#: denetlenmiyordu — `≈`/`$` geçen satır "ölçüm bağlamı" sayılıp atlanıyordu, bu yüzden
+#: "push bağlı varsayılan" ve "Tablo 120 sn (varsayılan, push bağlı)" yeşil kalıyordu.
+#: Oysa push VARSAYILAN DEĞİL (`TETIK_PUSH_AKTIF=False`) → bugünkü varsayılan 30 sn.
+#: Markdown kalınlığı (`**`) ve parantez arası serbest metin için pencere geniş tutulur.
+VARSAYILAN_PUSH = re.compile(
+    r"push\s*(ba[ğg]l[ıi]|kapal[ıi])\D{0,40}?varsay[ıi]lan"
+    r"|varsay[ıi]lan\D{0,25}?push\s*(ba[ğg]l[ıi]|kapal[ıi])",
+    re.IGNORECASE,
+)
+#: "varsayılan ... 30 sn" / "30 sn ... varsayılan" — sayı config'ten türetilen değer olmalı.
+VARSAYILAN_KADANS = re.compile(
+    r"varsay[ıi]lan\D{0,45}?(\d+)\s*sn|(?<![\d,.])(\d+)\s*sn\D{0,30}?varsay[ıi]lan",
+    re.IGNORECASE,
+)
+
 #: Kendi belgesi: eski değeri ANLATIR (20 sn), taranmaz.
 KENDI = Path(__file__).resolve()
 
@@ -136,6 +153,70 @@ def test_iddia_siniflandirici_kelimesiz_kadansi_yakalar():
     assert not _satir_iddiasi("Eskiden 20 sn'de bir yoklanıyordu")     # açık tarihsel işaret
     assert not _satir_iddiasi("20 sn ≈ $89/ay ile karşılaştır")        # karşılaştırma
     assert not _satir_iddiasi("koltuk sınırı 20 sn bekler")            # kadans iddiası değil
+
+
+def _varsayilan_ihlali(satir: str) -> str | None:
+    """Satır 'varsayılan' diyorsa config'in BUGÜNKÜ durumuyla çelişiyor mu?
+
+    İki denetim (26 Ekim i5 kör noktası):
+      1. Push durumu: `TETIK_PUSH_AKTIF` False iken "push bağlı varsayılan" YANLIŞ.
+      2. Kadans sayısı: yoklama/damga bağlamında "varsayılan 120 sn" gibi bir sayı, config'ten
+         türetilen etkin değerle (push kapalı → 30 sn) aynı olmalı.
+    `≈`/`$`/`maliyet` bu denetimi MUAF TUTMAZ — asıl kaçak tam olarak maliyet cümlesindeydi.
+    """
+    kucuk = satir.lower()
+    if "varsay" not in kucuk:
+        return None
+    beklenen_durum = "bağlı" if config.TETIK_PUSH_AKTIF else "kapalı"
+    beklenen_sn = PUSH_SN if config.TETIK_PUSH_AKTIF else PUSH_YOK_SN
+    eslesme = VARSAYILAN_PUSH.search(satir)
+    if eslesme:
+        yazan = next(g for g in eslesme.groups() if g).lower()
+        if yazan[:2] != beklenen_durum[:2]:  # bağlı/bağlı, kapalı/kapalı
+            return (f"varsayılan push durumu {yazan!r} ≠ {beklenen_durum!r} "
+                    f"(TETIK_PUSH_AKTIF={config.TETIK_PUSH_AKTIF})")
+    if not ("yoklama" in kucuk or "damga" in kucuk or "push" in kucuk):
+        return None  # başka bir ayarın varsayılanı (ör. komut zaman aşımı 60 sn)
+    kadans = VARSAYILAN_KADANS.search(satir)
+    if kadans:
+        yazan_sn = int(next(g for g in kadans.groups() if g))
+        if yazan_sn != beklenen_sn:
+            return f"varsayılan kadans {yazan_sn} sn ≠ {beklenen_sn} sn"
+    return None
+
+
+def test_varsayilan_ayristiricisi_kendi_kendini_denetler():
+    """Kapının kendisi: bugünkü config'te (push kapalı) yanlış iddiayı yakalar, doğruyu bırakır."""
+    ihlal = _varsayilan_ihlali
+    # i5'in bulduğu iki satır (maliyet bağlamında gizlenmiş):
+    assert ihlal("600 cihaz × **120 sn**'lik turda (push bağlı varsayılan) bu **~38,9 M**")
+    assert ihlal("Tablo 120 sn (varsayılan, push bağlı) tabanıyla hesaplanmıştır.")
+    assert ihlal("`DAMGA_KONTROL_MS` (varsayılan 120 sn) kullanılır")
+    # Doğru satırlar kırmızıya düşmemeli:
+    assert ihlal("30 sn (push KAPALI, bugünkü varsayılan) → ~51,8 M istek/ay") is None
+    assert ihlal("| 600 · push **kapalı (bugünkü varsayılan)** | **30 sn** | 51,8 M |") is None
+    assert ihlal("| Zaman aşımı | `komut_zaman_asimi_s` (varsayılan 60 sn) |") is None
+    assert ihlal("push bağlı 120 sn / kopuk 30 sn (karşılaştırma)") is None
+
+
+def test_varsayilan_iddialari_config_ile_ayni():
+    """Depodaki TÜM metinlerde 'varsayılan' iddiası koddan türetilen değeri yazmalı.
+
+    26 Ekim i5 bulgusu: `TARIH` kalıbı `≈`/`$` geçen satırı ölçüm bağlamı sayıp atlıyordu →
+    maliyet cümlesine gizlenmiş "push bağlı varsayılan" hiç denetlenmiyordu. Bu test bağlam
+    muafiyeti UYGULAMAZ; yalnız config sabitleriyle karşılaştırır.
+    """
+    kacak: list[str] = []
+    for yol in _metinler():
+        if yol == KENDI:
+            continue
+        for no, satir in enumerate(yol.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            ihlal = _varsayilan_ihlali(satir)
+            if ihlal:
+                kacak.append(f"{yol.relative_to(KOK)}:{no}: {ihlal} — {_kisa(satir)}")
+    assert not kacak, ("'varsayılan' iddiası config ile çelişiyor "
+                       f"(push {'açık' if config.TETIK_PUSH_AKTIF else 'kapalı'}):\n"
+                       + "\n".join(kacak))
 
 
 def test_damga_araligi_iki_degerli_kalir():

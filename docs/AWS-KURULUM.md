@@ -92,16 +92,20 @@ yalnız Cognito rolüyle ve `kiosk/*` ön ekiyle.
 | Kalem | Hesap | Aylık |
 |---|---|---|
 | Depolama | ~0,5 GB (sürümler dahil) × $0,0245/GB | ≈ $0,01 |
-| GET isteği | `lastupdate.json` push bağlı 120 sn'de bir → 3 cihaz ≈ 65 bin istek × $0,0004/1000 | ≈ $0,03 |
+| GET isteği | `lastupdate.json` 30 sn'de bir → 3 cihaz ≈ 259 bin istek × $0,0004/1000 | ≈ $0,10 |
 | PUT isteği | ~600 yazma/ay | ≈ $0,003 |
 | Dışa aktarım | ~200 MB/ay × $0,09/GB | ≈ $0,02 |
-| **Toplam** | | **≈ $0,06/ay** |
+| **Toplam** | | **≈ $0,13/ay** |
 
-Push kapalıysa yoklama 30 sn'ye iner (`DAMGA_KONTROL_MS_PUSH_YOK`) → ≈ 259 bin istek ≈ $0,10,
-toplam **≈ $0,13/ay**. Tablo 120 sn (varsayılan, push bağlı) tabanıyla hesaplanmıştır.
+Tablo **30 sn** (bugünkü varsayılan: `config.TETIK_PUSH_AKTIF = False`, yani
+`DAMGA_KONTROL_MS_PUSH_YOK`) tabanıyla hesaplanmıştır. MQTT push açılırsa yoklama 120 sn'ye çıkar
+(`DAMGA_KONTROL_MS_PUSH`) → ≈ 65 bin istek ≈ $0,03, toplam **≈ $0,06/ay**.
 
 En büyük kalem **istek sayısı**: cihaz yerel önbellek kullandığı için yalnız `lastupdate.json` yoklanıyor
-(42 bayt). Yoklama sıklığı `kiosk/ayarlar.json` → `TETIK_ARALIK_SN` ile düşürülebilir.
+(42 bayt). Yoklama sıklığı `kiosk/ayarlar.json` → `calistirma.degisiklik_kontrol_ms` ile ayarlanır
+(`ayarlar.py` bu anahtarı `config.DAMGA_KONTROL_MS`e yazar; 5 sn – 1 saat). Qt modunda çalışma anındaki
+aralık `DAMGA_KONTROL_MS`e değil bağlantı durumuna bağlıdır: push bağlı 120 sn (`DAMGA_KONTROL_MS_PUSH`),
+push kapalı/kopuk 30 sn (`DAMGA_KONTROL_MS_PUSH_YOK`).
 
 ---
 
