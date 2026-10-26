@@ -59,7 +59,10 @@ def test_paylasilan_cihaz_hesabi_durum_konusuna_yazamaz() -> None:
     assert "topic write yourkiosk/durum/+" not in blok, (
         "paylaşılan `cihaz` hesabına joker durum yazma yetkisi geri gelmiş (cihaz taklidi)"
     )
-    assert "topic deny write yourkiosk/durum/#" in blok, "paylaşılan hesap için deny kuralı yok"
+    # Yazma kuralı YOK = yazamıyor (acl_file varsayılanı reddet).
+    assert not re.search(r"^topic\s+(write|readwrite)\b", blok, re.MULTILINE), (
+        "paylaşılan `cihaz` hesabına yazma yetkisi verilmiş"
+    )
     assert "topic read yourkiosk/yayin" in blok
 
 
@@ -67,7 +70,8 @@ def test_panel_izleme_salt_okur() -> None:
     """panel-izleme yalnız durum konusunu okur ve yazamaz."""
     blok = _acl_bloku(_metin(KUR), "panel-izleme")
     assert "topic read yourkiosk/durum/+" in blok
-    assert "topic write" not in blok.replace("topic deny write", "")
+    assert not re.search(r"^topic\s+(write|readwrite)\b", blok, re.MULTILINE)
+    assert "deny" not in blok, "`deny` okumayı da kapatır → panel-izleme izlemeyi kaybeder"
 
 
 def test_acl_testi_kendini_curutmez() -> None:
@@ -109,3 +113,56 @@ def test_cihaz_ekle_betigi_cihaz_basina_yetki_verir() -> None:
     metin = _metin(MOSQUITTO / "cihaz-ekle.sh")
     assert 'local kullanici="cihaz-$kimlik"' in metin
     assert "topic write $KONU_TABANI/durum/$kimlik" in metin
+
+def test_acl_satirlari_gecerli_sozdizimi() -> None:
+    """26 Ekim i5 bulgusu: `topic deny write <konu>` GEÇERSİZ sözdizimi.
+
+    mosquitto erişim türünü TEK sözcük alır (`topic [read|write|readwrite|deny] <konu>`);
+    `deny write x` yazınca konu "write x" olur ve hiçbir şey reddedilmez. `deny` ayrıca okumayı
+    da kapatır (yön ayrımı yok) → panel-izleme için kullanılamaz. Doğru model: kural YAZMAMAK.
+    """
+    metin = _metin(KUR)
+    izinli = {"read", "write", "readwrite", "deny"}
+    for satir in metin.splitlines():
+        s = satir.strip()
+        if s.startswith("#") or not s.startswith("topic "):
+            continue
+        alanlar = s.split()
+        assert len(alanlar) >= 3, f"eksik ACL satırı: {s}"
+        assert alanlar[1] in izinli, f"geçersiz erişim türü: {s}"
+        assert alanlar[1] != "deny", "`deny` okumayı da kapatır → yazma reddi için kural YAZILMAZ"
+        assert alanlar[2].startswith("yourkiosk/"), f"beklenmeyen konu: {s}"
+
+
+def test_kurulum_idempotent_cihaz_kimliklerini_silmez() -> None:
+    """26 Ekim i5 bulgusu: tekrar koşan kur.sh parola dosyasını ve ACL'i SIFIRLIYORDU.
+
+    `mosquitto_passwd -b -c` dosyayı sıfırdan yazar, `cat > acl` cihaz-<id> bloklarını ezer →
+    600 cihazın kalp atışı sessizce düşer (betik başlığı "idempotent" diyordu).
+    """
+    metin = _metin(KUR)
+    # `-c` (sıfırla) yalnız dosya YOKKEN çalışan dalda olmalı.
+    assert "-b -c" in metin
+    parola_blogu = metin.split("PWFILE=/etc/mosquitto/auth/passwd")[1].split("# mosquitto 2.x")[0]
+    sifirla = [satir for satir in parola_blogu.splitlines() if "-b -c" in satir]
+    assert sifirla, "ilk kurulum yolu (-b -c) kaybolmuş"
+    assert any("[ -f \"$PWFILE\" ]" in satir for satir in metin.splitlines()), (
+        "parola dosyası varlığı denetlenmiyor → tekrar koşuda cihaz kimlikleri silinir"
+    )
+    # ACL: yönetilen blok işaretli, cihaz blokları korunuyor, yazım atomik.
+    assert "# >>> yourkiosk-managed" in metin and "# <<< yourkiosk-managed" in metin
+    assert "cat > /etc/mosquitto/auth/acl" not in metin, "ACL hâlâ tümüyle eziliyor"
+    assert 'install -m 640 -o mosquitto -g mosquitto "$ACL_GECICI" "$ACL_DOSYA"' in metin
+    assert "ACL_KORUNAN" in metin and "cihaz-ekle.sh blokları" in metin
+
+
+def test_dogrulama_degisken_adlari_kodla_uyusur() -> None:
+    """26 Ekim i5 bulgusu: başlık `MQTT_PAROLA_CIHAZ` diyordu, 5. kontrol `MQTT_CIHAZ_PAROLA`."""
+    metin = _metin(DOGRULA)
+    baslik = metin.split("set -uo pipefail")[0]
+    for ad in ("MQTT_PAROLA_PANEL", "MQTT_PAROLA_CIHAZ", "MQTT_PAROLA_IZLEME",
+               "MQTT_CIHAZ_ID", "MQTT_CIHAZ_PAROLA"):
+        assert ad in baslik, f"değişken belgede yok: {ad}"
+    assert "MQTT_CIHAZ_KULLANICI" not in metin, "eski/yanlış değişken adı kalmış (5. kontrol atlanır)"
+    # 5. kontrol kimlik verilmezse ATLAR (paylaşılan `cihaz` hesabı yazamaz → sahte ✓ üretmesin)
+    assert '"${MQTT_CIHAZ_ID:-}" ]' in metin

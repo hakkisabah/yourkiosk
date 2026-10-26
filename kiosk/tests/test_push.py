@@ -107,6 +107,37 @@ def test_durum_konusu_joker_ve_slash_temizler(monkeypatch) -> None:
     assert push.durum_konusu() == "yourkiosk/durum/bilinmeyen"
 
 
+def test_durum_konusu_acl_ve_panel_sozlesmesine_uyar(monkeypatch) -> None:
+    """26 Ekim i5 bulgusu: yayıncı kimliği yalnız `/ + #` temizliyordu.
+
+    ACL aracı (`cihaz-ekle.sh`) `^[A-Za-z0-9_-]{1,40}$`, panel `^[A-Za-z0-9_-]+$` ve ≤64 istiyor.
+    Türkçe karakter/boşluk/nokta içeren kimlik ACL'e yazılamıyor → cihaz panelde sonsuza kadar
+    "bilinmiyor" kalıyordu. Tek normalizasyon kuralı: ASCII dışı ve joker → `-`, en çok 40.
+    """
+    import re
+
+    from core import push
+
+    monkeypatch.setattr(config, "TETIK_PUSH_KONU", "yourkiosk/yayin", raising=False)
+    monkeypatch.setattr(config, "TETIK_PUSH_AKTIF", True, raising=False)
+    for ham in ("İZMİR 01", "C.1", "C 1", "a" * 70, "C/1", "C+1", "C#1"):
+        konu = push.durum_konusu(ham)
+        kimlik = konu.split("/")[-1]
+        assert re.fullmatch(r"[A-Za-z0-9_-]{1,40}", kimlik), f"{ham!r} → {kimlik!r} ACL'e uymuyor"
+        assert konu == f"yourkiosk/durum/{kimlik}"
+
+
+def test_durum_konusu_taban_egik_cizgiyle_kaymaz(monkeypatch) -> None:
+    """26 Ekim i5 bulgusu: `yourkiosk/yayin/` → taban `yourkiosk/yayin` olup konu kayıyordu."""
+    from core import push
+
+    monkeypatch.setattr(config, "TETIK_PUSH_AKTIF", True, raising=False)
+    for konu, beklenen in (("yourkiosk/yayin/", "yourkiosk/durum/C1"),
+                           ("yourkiosk/yayin//", "yourkiosk/durum/C1")):
+        monkeypatch.setattr(config, "TETIK_PUSH_KONU", konu, raising=False)
+        assert push.durum_konusu("C1") == beklenen
+
+
 def test_kalp_atisi_belgesi_alanlari(monkeypatch) -> None:
     from datetime import datetime, timezone
 
