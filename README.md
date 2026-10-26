@@ -27,7 +27,8 @@ ayarlar ilçe / bölge / cihaz kapsamında ayrı ayrı verilebilir.
   artık kullanılmayan görseller cihazdan ve S3'ten silinir.
 * **Nöbet değişikliğini anında yansıtma:** panel `tetikle.json` yazar; cihaz kendi ilçesini
   ilgilendiren tetikleyiciyi görünce **beklemeden** yenilenir (tarayıcı modunda uzun yoklama ile
-  genelde 1 sn, Qt modunda en çok 20 sn). Ayrıntı: [`kiosk/NODET-DEGISIKLIGI.md`](kiosk/NODET-DEGISIKLIGI.md).
+  genelde 1 sn, Qt modunda en çok 120 sn — push bağlıyken anlıklık MQTT'den, yoklama push kapalıysa
+  30 sn). Ayrıntı: [`kiosk/NODET-DEGISIKLIGI.md`](kiosk/NODET-DEGISIKLIGI.md).
 * **Güvenlik:** yalnız beyaz listedeki alan adları, yalnız HTTPS, bayt/piksel bütçesi, SVG/HTML
   reddi, cihaz kimliği hiç sunulmaz, yerel sunucu yalnız `127.0.0.1`. Ayrıntı: [`kiosk/GUVENLIK.md`](kiosk/GUVENLIK.md).
 * **Maliyet bilinci:** S3/veri trafiği ve Lambda alternatifi tablolarla: [`panel/MAALIYET.md`](panel/MAALIYET.md).

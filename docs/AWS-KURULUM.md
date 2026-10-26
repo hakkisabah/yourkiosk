@@ -92,10 +92,13 @@ yalnız Cognito rolüyle ve `kiosk/*` ön ekiyle.
 | Kalem | Hesap | Aylık |
 |---|---|---|
 | Depolama | ~0,5 GB (sürümler dahil) × $0,0245/GB | ≈ $0,01 |
-| GET isteği | `lastupdate.json` 20 sn'de bir → 3 cihaz ≈ 390 bin istek × $0,0004/1000 | ≈ $0,16 |
+| GET isteği | `lastupdate.json` push bağlı 120 sn'de bir → 3 cihaz ≈ 65 bin istek × $0,0004/1000 | ≈ $0,03 |
 | PUT isteği | ~600 yazma/ay | ≈ $0,003 |
 | Dışa aktarım | ~200 MB/ay × $0,09/GB | ≈ $0,02 |
-| **Toplam** | | **≈ $0,20/ay** |
+| **Toplam** | | **≈ $0,06/ay** |
+
+Push kapalıysa yoklama 30 sn'ye iner (`DAMGA_KONTROL_MS_PUSH_YOK`) → ≈ 259 bin istek ≈ $0,10,
+toplam **≈ $0,13/ay**. Tablo 120 sn (varsayılan, push bağlı) tabanıyla hesaplanmıştır.
 
 En büyük kalem **istek sayısı**: cihaz yerel önbellek kullandığı için yalnız `lastupdate.json` yoklanıyor
 (42 bayt). Yoklama sıklığı `kiosk/ayarlar.json` → `TETIK_ARALIK_SN` ile düşürülebilir.

@@ -48,13 +48,20 @@ IKILI = re.compile(r"push\s*ba[ğg]l[ıi]\D{0,12}(\d+)\s*sn\D{0,20}kopuk\D{0,12}
 #: Tarihsel/ölçüm bağlamı: bunlar bayat iddia değil, karşılaştırmadır.
 TARIH = re.compile(r"(\bidi\b|\bik[ie]n\b|önce|eski|tarihsel|karşılaştır|demekti|yerine|≈|\$|maliyet)",
                    re.IGNORECASE)
+#: KELİMESİZ kadans iddiası: "20 sn'de bir", "her 20 sn". `yoklama`/`damga` sözcüğü geçmese de
+#: bir aralık iddiasıdır (26 Ekim i5 bulgusu: docs/AWS-KURULUM.md:95 bu yüzden yeşil kalıyordu).
+KELIMESIZ_KADANS = re.compile(r"(?<![\d,.])\d+\s*sn['’]?[de]{1,2}\s*bir\b|her\s+\d+\s*sn\b",
+                              re.IGNORECASE)
+#: Fiyat/ölçüm bağlamı (`≈`, `$`, `maliyet`) kelimesiz kadans iddiasını MUAF TUTMAZ; yalnız açık
+#: tarihsel/karşılaştırma işareti tutar — maliyet tablosundaki bayat aralık da yanlış iddiadır.
+TARIH_KESIN = re.compile(r"(\bidi\b|\bik[ie]n\b|eski|tarihsel|karşılaştır|demekti|yerine)",
+                         re.IGNORECASE)
 
 #: Kendi belgesi: eski değeri ANLATIR (20 sn), taranmaz.
 KENDI = Path(__file__).resolve()
 
 #: Gerekçeli istisnalar: (dosya, satır parçası) → neden bayat sayılmıyor.
 MUAF: dict[tuple[str, str], str] = {
-    ("README.md", "en çok 20 sn"): "tarayıcı uzun yoklamasının tetik gecikmesi (DAMGA değil)",
     ("kiosk/README.md", "**10 yoklama turunda bir**"): "komut çapraz kontrolü: 10 tur × 120 sn",
 }
 
@@ -100,11 +107,35 @@ def _muaf(yol: Path, satir: str) -> bool:
 
 
 def _satir_iddiasi(satir: str) -> bool:
-    """Satır BUGÜNKÜ yoklama aralığından söz ediyor mu? (tarihsel/ölçüm bağlamı hariç)"""
+    """Satır BUGÜNKÜ yoklama aralığından söz ediyor mu? (tarihsel/ölçüm bağlamı hariç)
+
+    Üç kademe:
+      1. Kelimesiz kadans ("20 sn'de bir", "her 20 sn") → iddia. Burada fiyat bağlamı (`≈`, `$`,
+         `maliyet`) muafiyet SAYILMAZ: maliyet tablosundaki bayat aralık da yanlış iddiadır
+         (26 Ekim i5 bulgusu: docs/AWS-KURULUM.md:95). Yalnız açık tarihsel işaret muaftır.
+      2. Tarihsel/ölçüm bağlamı → iddia değil.
+      3. Anahtar sözcük (`yoklama`/`damga`/`DAMGA_KONTROL_MS`) → iddia.
+    """
+    if KELIMESIZ_KADANS.search(satir):
+        return not TARIH_KESIN.search(satir)
     if TARIH.search(satir):
         return False
     kucuk = satir.lower()
     return ("yoklama" in kucuk) or ("damga" in kucuk) or ("damga_kontrol_ms" in kucuk)
+
+
+def test_iddia_siniflandirici_kelimesiz_kadansi_yakalar():
+    """Kapının kendisi test edilir: anahtar sözcük daraltılırsa bu test kırmızı olur.
+
+    i5 bulgusu (26 Ekim): `_satir_iddiasi` yalnız 'yoklama'/'damga' geçen satırları iddia
+    sayıyordu; kadansı kelimesiz anlatan bayat ifade yeşil kalıyordu.
+    """
+    assert _satir_iddiasi("`lastupdate.json` 20 sn'de bir → 3 cihaz ≈ 390 bin istek")
+    assert _satir_iddiasi("her 20 sn bir damga okunur")
+    assert _satir_iddiasi("Yoklama aralığı 20 sn")                     # anahtar sözcük yolu
+    assert not _satir_iddiasi("Eskiden 20 sn'de bir yoklanıyordu")     # açık tarihsel işaret
+    assert not _satir_iddiasi("20 sn ≈ $89/ay ile karşılaştır")        # karşılaştırma
+    assert not _satir_iddiasi("koltuk sınırı 20 sn bekler")            # kadans iddiası değil
 
 
 def test_damga_araligi_iki_degerli_kalir():
