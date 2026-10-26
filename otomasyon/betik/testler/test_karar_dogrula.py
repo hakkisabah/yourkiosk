@@ -231,6 +231,38 @@ class KanitKatmaniTesti(unittest.TestCase):
         self.assertFalse(sonuc.gecti)
         self.assertTrue(any("fail-closed" in h for h in sonuc.hatalar), sonuc.hatalar)
 
+    def test_head_okunamazsa_fail_closed(self):
+        """26 Ekim i5 bulgusu: head 0/403/429 ile okunamazsa karar GEÇMEMELİ (eskiden yalnız uyarı).
+
+        Kanıt dosyası karar dosyasındaki (bayat olabilecek) sha'da BULUNABİLİYOR: eski kod bu yüzden
+        kararı geçiriyordu. Yeni kod head'i doğrulayamadığı için reddeder.
+        """
+        import base64
+        karar = self._karar(sha="a" * 40)
+        icerik = {"content": base64.b64encode(("x\n" * 60).encode()).decode(), "encoding": "base64"}
+        cagrilar: list[str] = []
+
+        def api(yol, token, depo):
+            cagrilar.append(yol)
+            if "/files" in yol:
+                return 200, [{"filename": "kiosk/core/push.py"}]
+            if yol.startswith("/pulls/"):
+                return kod, None                      # head OKUNAMIYOR
+            if yol.startswith("/contents/"):
+                return 200, icerik                    # bayat sha'da kanıt "var"
+            return 404, None
+
+        for kod in (0, 403, 429):
+            cagrilar.clear()
+            sonuc = kd.Sonuc()
+            with unittest.mock.patch.object(kd, "_api", api):
+                kd.kanit_denetle(karar, sonuc, "t", "depo")
+            self.assertFalse(sonuc.gecti, f"HTTP {kod}: bayat kanıtla karar geçti")
+            self.assertTrue(any(f"head okunamadı (HTTP {kod})" in h for h in sonuc.hatalar), sonuc.hatalar)
+            self.assertFalse(any("sha karşılaştırması yapılmadı" in u for u in sonuc.uyarilar), sonuc.uyarilar)
+            self.assertFalse(any("/contents/" in y for y in cagrilar),
+                             f"head okunamazken içerik denetlendi: {cagrilar}")
+
     def test_token_varken_kanit_katmani_calisir(self):
         sha = "f" * 40
         karar = self._karar(sha=sha)
