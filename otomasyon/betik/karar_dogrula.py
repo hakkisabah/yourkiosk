@@ -14,6 +14,9 @@ yayınlanmadan önce şu kurallarla süzer:
      kararsızlık işareti varsa karar `onay`/`kabul` OLAMAZ (→ `sorun`).
   5. KANIT (ağ): her bulgunun `dosya:satir`'ı PR head'inde gerçekten var mı, satır numarası
      dosyanın içinde mi? (dosya PR'da değişmemişse "değişen dosya değil" uyarısı)
+  6. KAPANIŞ ÖLÇÜTÜ: `sorun`/`red`/`duzeltme` kararlarında her bulgu `kabul` alanında "neyi
+     yapınca bu bulgu KAPANIR" yazmalı. Ölçütsüz düzeltme reçetesi iki tur sonra aynı bulguyla
+     geri döner (25 Ekim'de yaşandı).
 
 Kullanım:
     python3 otomasyon/betik/karar_dogrula.py /tmp/karar-83.json
@@ -249,6 +252,18 @@ def dogrula_karar(karar: dict, makine: str | None = None, *, token: str | None =
             sonuc.hatalar.append(f"bulgu #{i}: 'aciklama' çok kısa (<15) — neden sömürülebilir yazılmalı")
         if any(y in aciklama.casefold() for y in YER_TUTUCU):
             sonuc.hatalar.append(f"bulgu #{i}: 'aciklama' şablon metni")
+        # KABUL ÖLÇÜTÜ (yeni): bulguyu neyin KAPATACAĞI makine-okunur yazılmalı.
+        # Neden: 25 Ekim'de i3'ün verdiği reçete ("kökü depo köküne al") çürük çıktı; geliştirici
+        # uyguladı, aynı sınıf hata açık kaldı. Ölçüt yazılmayan düzeltme kararı, iki tur sonra
+        # aynı bulguyla geri döner. Karar "onay/kabul" değilse her bulgu kapanış ölçütü taşır.
+        kabul = str(b.get("kabul") or b.get("kapanis") or "").strip()
+        if karar_metni in {"sorun", "red", "duzeltme"}:
+            if len(kabul) < 15:
+                sonuc.hatalar.append(
+                    f"bulgu #{i}: 'kabul' (kapanış ölçütü) zorunlu ve ≥15 karakter — "
+                    "'neyi yapınca bu bulgu KAPANIR' yazılmalı")
+            elif any(y in kabul.casefold() for y in YER_TUTUCU):
+                sonuc.hatalar.append(f"bulgu #{i}: 'kabul' şablon metni")
 
     # kapsam (denetlenen)
     ham_alanlar = karar.get("denetlenen") or []

@@ -59,8 +59,10 @@ Depo kuralları: `kiosk/GUVENLIK.md`, `kiosk/KOMUTLAR.md`, `docs/AWS-KURULUM.md`
  "ozet":"3 cümleye kadar",
  "bulgular":[{"dosya":"panel/src/domain/push.ts","satir":24,"onem":"orta",
               "aciklama":"MQTT parolası VITE_ ile pakete gömülüyor; paneli açan herkes okuyabilir.",
+              "kabul":"Panel paketinde parola hiç görünmüyor (dist grep temiz) ve panel yayın-yalnız hesap kullanıyor.",
               "oneri":"Yayın-yalnız hesap + 90 günde rotasyon; uzun vadede Lambda köprüsü."}],
- "denetlenen":["gömülü sır","TLS","IAM en az yetki","bağımlılık"],
+ "denetlenen":["gömülü sır","komut çalıştırma","dosya/yol","ağ/TLS","kimlik/yetki","girdi doğrulama",
+               "sır sızıntısı","bağımlılık","DoS/maliyet","kalıcılık/geri dönüş","kapsayıcı/servis","test kanıtı"],
  "not":"i3 için: 1. bulgu doğrulanmalı (paket içeriğine bakın)."}
 ```
 
@@ -71,6 +73,12 @@ Depo kuralları: `kiosk/GUVENLIK.md`, `kiosk/KOMUTLAR.md`, `docs/AWS-KURULUM.md`
   `sır sızıntısı`, `bağımlılık`, `DoS/maliyet`, `kalıcılık/geri dönüş`, `kapsayıcı/servis`,
   `test kanıtı`. Bir alana gerçekten bakmadıysan **bak**, sonra yaz — uydurma.
 - `yuksek` önemde bulgu varken `onay` verilemez (kapı reddeder).
+- **`kabul` (kapanış ölçütü) ZORUNLU**: `sorun`/`red` kararlarında her bulgu için "neyi yapınca
+  bu bulgu KAPANIR" yaz — ölçülebilir olsun (dosya + davranış + test). `oneri` alanı bir öneridir,
+  kapıyı geçmez; kapanışı `kabul` belirler. Ölçütsüz reçete iki tur sonra aynı bulguyla döner.
+- **Aynı commit'e ikinci kez karar yazma.** Durum kontrolleri commit'e bağlıdır: bu sha için
+  `guvenlik/inceleme` zaten varsa iş bitmiştir; geliştirici yeni commit atınca sha değişir ve PR
+  kendiliğinden geri gelir. Aynı sha'yı yeniden incelemek boş oturumdur (25 Ekim'de döngü üretti).
 
 6. **KARAR KAPISI** — yayından önce doğrula (şema + 12 alan + tutarlılık + `dosya:satır` kanıtı):
    ```bash

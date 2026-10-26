@@ -176,7 +176,7 @@ class Github:
             return 0, None
 
 
-def birlesik_durumlar(gh: Github, sha: str) -> dict[str, str]:
+def birlesik_durumlar(gh: Github, sha: str) -> dict[str, str | None]:
     """commit'e yazılmış durum kontrolleri → {bağlam: durum}"""
     kod, govde = gh.al(f"/repos/{gh.depo}/commits/{sha}/status")
     if kod in (0, 304) and not govde:
@@ -234,6 +234,9 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
     PR'lar hiç incelenmiyordu (25 Ekim: #83/#84 → 10 saat `guvenlik/inceleme` olmadan bekledi).
     Bu yüzden: tüm açık PR'lar çekilir (tek istek, `per_page=100`), yaşa göre sıralanır,
     ancak ondan sonra `limit` uygulanır.
+
+    İkinci kural — **aynı sha'ya ikinci karar yazılmaz**: durum kontrolleri commit'e bağlıdır,
+    dolayısıyla "bu şerh zaten yazılmış" = "iş geliştiricide". Yeni commit → yeni sha → iş döner.
     """
     kod, govde = gh.al(f"/repos/{gh.depo}/pulls?state=open&per_page=100&sort=created&direction=asc")
     if kod == 304 and govde is None:
@@ -243,6 +246,7 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
 
     an = time.time()
     cikti: list[dict] = []
+    atlanan = 0  # bu sha için kararı zaten yazılmış PR'lar (top geliştiricide)
     for pr in govde:
         if pr.get("draft"):
             continue
@@ -259,16 +263,31 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
                  # güncellenme yaşı: PR'a yeni commit geldiyse inceleme de yenilenmeli
                  "guncelleme_dk": yas_dk(pr.get("updated_at"), an)}
 
+        # ── AYNI SHA'YA İKİNCİ KEZ KARAR YAZILMAZ ─────────────────────────────────────────
+        # Durum kontrolleri COMMIT'e bağlıdır: yeni commit = yeni sha = durum yok. Yani "bu sha
+        # için karar zaten yazılmış" demek, "yapılacak yeni bir şey yok, top geliştiricide" demek.
+        # Bu kural olmadan 25 Ekim'de i3 aynı head'e (cc4e4b81) ÜÇ tur üst üste "düzeltme" yazdı
+        # ve nöbetçi her turda boşuna oturum açtı; i5 de kendi "sorun" verdiği sha'yı sonsuz
+        # yeniden inceliyordu. Geliştirici yeni commit atınca sha değişir → iş kendiliğinden döner.
         if rol == "i5":
-            # incelenmemiş (ya da sorun bulunup etiketlenmiş) PR'lar
-            if inceleme != "success" or SORUN_ETIKETI in etiketler:
+            if inceleme is None:
                 cikti.append(kayit)
+            elif inceleme != "success":
+                atlanan += 1  # sorun yazılmış, düzeltme geliştiricide
         else:  # i3 — yalnız i5 onay verdikten sonra çalışır
-            if inceleme == "success" and (karar != "success" or ONAY_ETIKETI not in etiketler):
+            if inceleme != "success":
+                continue
+            etiketsiz_onay = karar == "success" and ONAY_ETIKETI not in etiketler  # yarım yazım: etiket eksik
+            if karar is None or etiketsiz_onay:
                 cikti.append(kayit)
+            elif karar != "success":
+                atlanan += 1  # karar verilmiş (düzeltme/red), geliştiricide
 
     # yaş büyük = daha eski → başa. Eşitlikte PR numarası küçük olan (daha eski) önce.
     cikti.sort(key=lambda i: (-i["yas_dk"], i["pr"]))
+    if atlanan:
+        gunluk(getattr(gh, "gunluk", None), f"{rol}: {atlanan} PR bu commit için zaten karara bağlı "
+                                            f"→ yeni commit bekleniyor (yeniden karar yazılmaz)")
     return cikti[:limit]
 
 

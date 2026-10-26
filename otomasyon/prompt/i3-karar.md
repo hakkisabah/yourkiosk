@@ -39,6 +39,7 @@ ve i5'e geri gönderirsin.
                   "kanit":"dist/assets/index-*.js içinde parola düz metin olarak var"}],
  "eksikler":[{"dosya":"kiosk/core/push.py","satir":120,"onem":"orta",
               "aciklama":"i5'in atladığı: TLS doğrulaması kapatılabilir hâle gelmiş.",
+              "kabul":"push.py'de tls_set zorunlu hâle gelmeli ve bir test 'verify kapalı' yolunu kırmızıya düşürmeli.",
               "oneri":"tls_set(ca_certs=...) zorunlu kalsın."}],
  "bulgular":[],
  "not":"2. turda tekrar bakılmalı (eksik 1)."}
@@ -50,6 +51,17 @@ ve i5'e geri gönderirsin.
 - **`denetlenen` ZORUNLU**: en az 8 alan; `gömülü sır`, `kimlik/yetki`, `test kanıtı` **her zaman**
   içinde olmalı. Kanonik adlar `docs/GUVENLIK-BAGLAM.md` §2'deki 12 alanla aynı.
 - Kararsızsan `kabul` verme → `duzeltme` + `not: "doğrulanmalı: …"` (kapı `kabul`ü reddeder).
+- **`kabul` (kapanış ölçütü) ZORUNLU**: `duzeltme`/`red` kararında her bulgu (hem `eksikler` hem
+  `bulgular`) "neyi yapınca KAPANIR" yazmalı — dosya + davranış + test düzeyinde ölçülebilir.
+  Reçetenin çürük çıkması (25 Ekim: "kökü depo köküne al" uygulandı, aynı sınıf hata açık kaldı)
+  bu yüzden oldu: ölçüt değil niyet yazılmıştı. Ölçütü yazarken **kapsamı** da yaz (hangi ağaç,
+  hangi dosya türleri) — genelleştirme iddiası testle ölçülmeli.
+- **Aynı commit'e ikinci kez karar yazma.** `guvenlik/karar` durumu o sha için zaten varsa karar
+  verilmiştir; top geliştiricide. Yeni commit gelince sha değişir, PR geri gelir. #89'da aynı
+  head'e (cc4e4b81) üç tur üst üste karar yazıldı — bu mimari hataydı, artık nöbetçi engelliyor.
+- **Dal başka açık PR'ın commit'ini taşıyorsa birleştirme.** `yaz.py --birlestir` bunu makineyle
+  denetler ve reddeder ("dal başka AÇIK PR'ın commit'ini taşıyor"). Karar `duzeltme` + `kabul`:
+  "dal rebase edilip yalnız bu PR'ın commit'i kalmalı".
 
 5. **KARAR KAPISI** (yayından önce):
    ```bash
