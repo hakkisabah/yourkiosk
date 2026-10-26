@@ -128,3 +128,60 @@ kuruşlar mertebesinde; asıl maliyet sahadaki SIM/ADSL kotasıdır). Verinin b�
 Süresi geçen yayınların görselleri cihazdan ve kovadan silinir (§2.6, `panel/README.md`);
 veri kaydı temizlenirken `lastupdate` damgası tazelenir, cihazlar bir sonraki saatlik kontrolde
 yeni veriyi alır (ek bir tam indirme, yalnızca gerçek değişiklik olduğunda).
+
+---
+
+## 5) Yoklama + tetikleyici: ölçülmüş istek/bant maliyeti (600 cihaz)
+
+Sayılar **tahmin değil**: `kiosk/tools/olcek_test.py` (yük) ve `kiosk/tools/tarayici_olcum.py`
+(gövde baytı) ile ölçüldü.
+
+### 5.1 İstek maliyeti (S3 GET ≈ $0,0004 / 1.000 istek, CloudFront ayrı)
+
+| Yoklama aralığı | 600 cihazda aylık istek | ≈ S3 GET |
+|---|---|---|
+| 30 sn | **51.840.000** | **$20,74** |
+| 120 sn | 12.960.000 | $5,18 |
+| 300 sn | 5.184.000 | $2,07 |
+
+Ölçüm koşusu (yerel sunucu, 10 sn, 600 cihaz · 30 sn): **20 istek/sn**, 200 istek, **0 hata**,
+p50 **3,2 ms**, p95 **3,7 ms**, p99 **3,8 ms**. Yani istek hızı sorun değil; **maliyet** aralıkla
+doğrusal. 600 cihazda 30 sn yerine 300 sn kullanmak aylık ~$18 tasarruf eder; MQTT push
+(`deploy/mosquitto/`) yoklamayı tamamen gereksiz kılar.
+
+### 5.2 Bant maliyeti (cihaz başına, gövde baytları)
+
+| Kalem | Değer |
+|---|---|
+| `durum.json` gövdesi (tek istek/tur) | 114 bayt |
+| Kararlı turda inen gövde | **0 bayt** (ETag → 304) |
+| Günlük büyük veri (günde 5 yayın) | ~1,3 MB |
+| **Aylık toplam** | **~39 MB** |
+
+600 cihazda aylık ≈ **23 GB**. S3/CloudFront egress fiyatıyla bu, istek maliyetinden **küçük**
+kalır; asıl kalem sahadaki SIM/ADSL kotasıdır (§4).
+
+### 5.3 Görsel optimizasyonu (yayın görselleri)
+
+Panelin yayın görselleri bugün WebP'ye çevrilmeden yüklenebiliyor; ölçülen kazanç büyük:
+
+```
+2473 KB PNG → 221 KB WebP q82 (%91 küçüldü, 1916×1080)
+```
+
+Tek komutla mevcut yayınları da dönüştürüp adresleri güncelleyebilirsiniz:
+
+```bash
+cd kiosk
+# KURU (hiçbir dosya değişmez) — önce planı görün:
+.venv/bin/python tools/gorsel_webp.py --veri lastSystemData.json \
+  --klasor onbellek/gorsel --klasor yayin-gorselleri \
+  --url-taban https://<dağıtım>/kiosk/yayin-gorselleri/ --cikti yayin-gorselleri
+# gerçek yazma (yedek: lastSystemData.json.bak):
+... --yaz
+# sonra: WebP'leri S3'e yükleyin (--s3 kova=önek) + lastupdate.json damgasını tazeleyin
+```
+
+`--veri` modu yalnız `Yayinlar` içindeki adresleri değiştirir; diğer alanlar korunur ve yazmadan
+önce **yedek** alınır. S3'e yükleme adımı AWS anahtarı gerektirir (bu depoda anahtar yoktur).
+

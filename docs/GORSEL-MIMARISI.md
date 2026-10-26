@@ -122,7 +122,8 @@ Yan kazanç: **bellek**. 1916×1080 → **7,9 MB RAM**; 1280×721 → **3,5 MB**
 
 ## 5) Panelden görsel yükleme hattı (henüz yok — tasarım önerisi)
 
-Bugün panel yalnız **adres** yazıyor (`contentUrl`); dosya yükleme yok. Yükleme eklendiğinde:
+Bugün panel `contentUrl` alanını **SALT-OKUNUR** gösteriyor (yayın sekmesi yalnız hedefleme
+düzenler; adres düzenlemesi #88 ile gelecek) ve dosya yükleme yok. Yükleme eklendiğinde:
 
 ```
 seçilen dosya

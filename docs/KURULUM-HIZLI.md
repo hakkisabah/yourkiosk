@@ -56,7 +56,7 @@ VITE_IDENTITY_POOL_ID=…
 VITE_MQTT_URL=wss://yourkiosk.hakkisabah.com:8084/mqtt
 VITE_MQTT_KONU=yourkiosk/yayin
 VITE_MQTT_KULLANICI=panel
-VITE_MQTT_PAROLA=…
+# VITE_MQTT_PAROLA YOK — parola derlemeye gömülmez; panelde oturumda bir kez sorulur.
 ```
 
 Yayın: `./panel/infra/yayinla.sh` (AWS yayın anahtarı: `docs/AWS-KURULUM.md §10`).

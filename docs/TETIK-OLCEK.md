@@ -56,11 +56,13 @@ yoklama emniyet ağı çalışmaya devam eder).
 VITE_MQTT_URL=wss://broker.example:8084/mqtt
 VITE_MQTT_KONU=yourkiosk/yayin
 VITE_MQTT_KULLANICI=panel
-VITE_MQTT_PAROLA=…
+# PAROLA YOK: panel paketi CloudFront'tan herkese açık; `VITE_*` değerleri derlemeye gömülür.
+# Operatör yayın parolasını oturumda bir kez girer; yalnız sessionStorage'da tutulur.
 ```
 
 Tanımlı değilse panel sessizce atlar (cihazlar yoklamayla çalışır). `mqtt` paketi **dinamik**
-yüklenir; yapılandırma yoksa ana pakete girmez.
+yüklenir; yapılandırma yoksa ana pakete girmez. Parola yoksa yayın FAIL-CLOSED olur (parolasız
+bağlantı denenmez) ve operatöre ne yapacağını söyleyen mesaj gösterilir.
 
 ## Mosquitto ile hızlı kurulum (VPS)
 

@@ -159,7 +159,7 @@ panel() {
     if [ -f panel/.env.ornek ]; then
       cp panel/.env.ornek panel/.env.local
       uyar "panel/.env.local oluşturuldu — AWS/Cognito değerlerini doldurun (VITE_*)"
-      uyar "MQTT için: VITE_MQTT_URL / VITE_MQTT_KONU / VITE_MQTT_KULLANICI / VITE_MQTT_PAROLA"
+      uyar "MQTT için: VITE_MQTT_URL / VITE_MQTT_KONU / VITE_MQTT_KULLANICI (parola derlemeye GİRMEZ; panelde oturumda sorulur)"
     else
       hata "panel/.env.ornek bulunamadı"; return 1
     fi

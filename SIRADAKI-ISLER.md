@@ -245,3 +245,33 @@ yeniden başlat), yedekleme (S3 sürümleme), cihaz durumunun panelde izlenmesi.
 | 11 | Yedekten geri dönme provası | S3 sürümleme açık; bir nesneyi eski sürümden geri alma tatbikatı |
 
 **Tamamlananlar (bu oturum):** panel CloudFront yayını · cihaz verisi ikinci dağıtım · giriş/404/structuredClone hataları · `veri.dosya_adresi` görünürlüğü · oto tetikleme (aktif+modlar) · anlık tetik (yoklama) · MQTT push altyapısı · panel yayın anahtarı · kiosk 370+ / web 111 / panel 114 test.
+
+---
+
+## 25 Ekim — kullanıcı talebiyle kapatılanlar (4, 5, 6, 7, 9, 10, 11, 12, 13, 15–20)
+
+Ayrıntı ve kanıt: PR #81–#84. Aşağıdaki maddeler **kod + test + ölçüm** ile kapatıldı; AWS
+anahtarı gerektiren adımlar betik/belge olarak hazır, çalıştırma kullanıcıda.
+
+| # | İş | Durum | Nerede |
+|---|---|---|---|
+| 4 | `ayarlar.json` **tam belge** | ✅ Panel kaydı şemadaki her anahtarı yazar (eksikler varsayılan) | `panel/src/domain/ayarBelgesi.ts` |
+| 5 | Panelde son uzaktan komut | ✅ Durum ekranında kart (beyaz liste/imza/hedef/yaş uyarıları) | `panel/src/domain/komut.ts` |
+| 6 | Komut uygulanırken ekran bilgisi | ✅ Qt kaplaması + tarayıcı `/komut-bildirim` katmanı | `kiosk/core/bildirim.py` |
+| 7 | Görsel optimizasyonu | ✅ Toplu dönüştürme + veri adresi güncelleme (`--veri`, kuru/yaz); ölçüm 2473→221 KB (%91) | `kiosk/tools/gorsel_webp.py` |
+| 8 | Panel MFA (TOTP) | ⏸ Kullanıcı kararı: sistem tam çalışınca | — |
+| 9 | CloudWatch/fatura alarmı | ✅ 4 alarm + IAM izin listesi + ücretsiz kota analizi (10 alarm/10 metrik) | `deploy/cloudwatch/` |
+| 10 | 600 cihaz izleme | ✅ MQTT retained kalp atışı + LWT; panelde çevrimiçi/çevrimdışı; ölçek testi | `kiosk/core/push.py`, `panel/src/domain/cihazIzleme.ts`, `kiosk/tools/olcek_test.py` |
+| 11 | Yedekten geri dönme | ✅ Betik + tatbikat adımları + kabul ölçütü (S3 sürümleme şart) | `deploy/yedek/` |
+| 12 | Tarayıcı bellek/ağ ölçümü | ✅ Araç + ölçülen ağ sayıları (~39 MB/ay/cihaz); bellek cihazda koşulacak | `kiosk/tools/tarayici_olcum.py`, README §7.1 |
+| 13 | Canlıya geçiş | ✅ Sıralı kontrol listesi (S3/sürümleme/yaşam döngüsü, CloudFront, panel, systemd, güncelleme, izleme, yedek, go/no-go) | `deploy/CANLIYA-GECIS.md` |
+| 15 | web render testi kayması | ✅ Saat veriye bağlı, satır sayısı veriden hesaplanıyor | `web/tests/render.test.ts` |
+| 16 | `durum.json` veri kapısı | ✅ `json_yukle` (64 KB / derinlik 16 / 2.000 düğüm) | `kiosk/core/durum.py` |
+| 17 | Derin-JSON testi | ✅ Ayrıştırıcı taşması `VeriHatasi`ya çevriliyor + cihazın toparlandığı kanıtlandı | `kiosk/security/veri_dogrulama.py` |
+| 18 | Uzaktan komut canlı testi (8. adım) | ⏳ **Cihazda** yapılacak (kullanıcı) | kiosk kontrol listesi |
+| 19 | Belgelerin tazelenmesi | ✅ README §1.8/§1.9/§7.1 + `panel/MAALIYET.md` §5 (ölçülmüş sayılar) | — |
+| 20 | Kalıntı dallar | ✅ Yerel `fix/qt-bildir-durum-tetigi`, `gecici-komut`, birleşmiş `duzeltme/*` dalları silindi | — |
+
+**Hâlâ açık (kullanıcı/ortam gerektirenler):** MQTT broker (IP+DNS), AWS anahtarıyla altyapı
+adımları (S3 yaşam döngüsü, CloudWatch kurulumu, yedek tatbikatı, görsellerin S3'e yüklenmesi),
+cihazda canlı doğrulamalar (uzaktan komut, tarayıcı bellek ölçümü), Telegram (en son).

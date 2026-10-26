@@ -1,0 +1,29 @@
+{
+  "Rules": [
+    {
+      "ID": "eski-surumler-30-gun",
+      "Filter": { "Prefix": "" },
+      "Status": "Enabled",
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 30 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 3 }
+    },
+    {
+      "ID": "yayin-gorselleri-silinecek-etiketli-30-gun",
+      "Comment": "Yalniz 'silinebilir=true' etiketli gorseller silinir: eski kural (onek + 90 gun) panelde KULLANILAN gorseli de siliyordu (ad = icerik sha, contentUrl kalici). Temizligi panel yapar, etiket kanit sonrasi konur.",
+      "Filter": {
+        "And": {
+          "Prefix": "kiosk/yayin-gorselleri/",
+          "Tags": [{ "Key": "silinebilir", "Value": "true" }]
+        }
+      },
+      "Status": "Enabled",
+      "Expiration": { "Days": 30 }
+    },
+    {
+      "ID": "gecici-dosyalar-7-gun",
+      "Filter": { "Prefix": "kiosk/tmp/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 7 }
+    }
+  ]
+}
