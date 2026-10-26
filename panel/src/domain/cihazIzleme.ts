@@ -10,6 +10,8 @@
  * MQTT yapılandırılmamışsa izleme sessizce kapalıdır — panel çalışmaya devam eder.
  */
 
+import { guvenliAdresMi } from './izlemeKimligi'
+
 /** Bir cihazın "çevrimiçi" sayılması için son kalp atışının yaşı (dakika).
  *  Cihaz 5 dakikada bir yayınlar; 15 dk = 3 kaçırılmış atış (ağ dalgalanmasına tolerans). */
 export const VARSAYILAN_ESIK_DK = 15
@@ -222,6 +224,12 @@ export async function izlemeBaslat(
 ): Promise<IzlemeOturumu | null> {
   const url = String(ayarlar.url ?? '').trim()
   if (!url) return null
+  // İKİNCİ KAPI (26 Ekim i5 bulgusu): adres çağırandan ne gelirse gelsin `connect`e verilmeden
+  // önce şema denetlenir. `ws://`/`http://` ile parola düz metin gider; `http://` hiç bağlanmaz.
+  if (!guvenliAdresMi(url)) {
+    olaylar.durum?.('hata', `broker adresi güvenli değil (${url}) — wss://… bekleniyor`)
+    return null
+  }
   const { connect } = olaylar.baglan
     ? { connect: olaylar.baglan }
     : ((await import('mqtt')) as unknown as {

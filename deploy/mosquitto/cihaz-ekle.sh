@@ -13,7 +13,7 @@
 # Çıktı: parola (yalnız bir kez gösterilir) + cihazın ayarlar.json alanları.
 set -euo pipefail
 
-AUTH_DIZIN="/etc/mosquitto/auth"
+AUTH_DIZIN="${AUTH_DIZIN:-/etc/mosquitto/auth}"   # test: geçici dizin verilebilir
 PASSWD="$AUTH_DIZIN/passwd"
 ACL="$AUTH_DIZIN/acl"
 KONU_TABANI="${KONU_TABANI:-yourkiosk}"
@@ -28,6 +28,11 @@ listele() {
 sil() {
   local kimlik="$1" kullanici="cihaz-$1"
   mosquitto_passwd -D "$PASSWD" "$kullanici" >/dev/null 2>&1 || true
+  # 26 Ekim i5 bulgusu: `mosquitto_passwd -D` dosyayı geçici kopyadan yeniden yazar; sahiplik
+  # root:mosquitto + 0640 geri kurulmazsa mosquitto parola dosyasını okuyamaz (bütün cihazlar
+  # kimlik doğrulamada düşer). `ekle()` ve kur.sh aynı işlemden sonra bunu yapıyordu.
+  chown root:mosquitto "$PASSWD"
+  chmod 640 "$PASSWD"
   # ACL'de bu kullanıcıya ait 3 satırlık bloğu kaldır
   # ÖNGÖRÜLEBİLİR yol YASAK (i5 bulgusu): `$ACL.yeni` bilinen bir ad; dizin mosquitto'ya ait
   # (0750 mosquitto:mosquitto) olduğu için broker süreci oraya sembolik bağ koyup root'a keyfî

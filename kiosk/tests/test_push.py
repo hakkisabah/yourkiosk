@@ -149,3 +149,73 @@ def test_kalp_atisi_belgesi_alanlari(monkeypatch) -> None:
     assert belge["zaman"] == "2026-10-25T09:30:00Z"
     assert belge["mod"] == "tarayici"
     assert push.kalp_atisi_belgesi(False)["cevrimici"] is False
+
+
+def test_tls_porttan_bagimsiz_acik(monkeypatch) -> None:
+    """26 Ekim i5 bulgusu: TLS yalnız `port == 8883` iken kuruluyordu.
+
+    `TETIK_PUSH_PORT` başka bir değere (1883/8884/443/ters vekil) ayarlanınca kullanıcı/parola
+    ve kalp atışı ŞİFRESİZ gidiyordu. Kural: TLS varsayılan AÇIK, porttan bağımsız.
+    """
+    from core import push
+
+    monkeypatch.setattr(config, "TETIK_PUSH_TLS", True, raising=False)
+    for port in (8883, 1883, 8884, 443):
+        monkeypatch.setattr(config, "TETIK_PUSH_PORT", port, raising=False)
+        assert push.tls_gerekli() is True, f"port {port} için TLS kapalı kaldı"
+    monkeypatch.setattr(config, "TETIK_PUSH_TLS", False, raising=False)
+    assert push.tls_gerekli() is False, "açık kapatma (TETIK_PUSH_TLS=false) yok sayıldı"
+
+
+def test_tls_kur_ca_ve_istemci_sertifikasi(monkeypatch) -> None:
+    """`tls_kur` CA'yı ve varsa istemci sertifikasını (AWS IoT Core) bağlar."""
+    from core import push
+
+    class Sahte:
+        def __init__(self) -> None:
+            self.cagrilar: list[dict] = []
+
+        def tls_set(self, **kw) -> None:  # noqa: ANN003
+            self.cagrilar.append(kw)
+
+    monkeypatch.setattr(config, "TETIK_PUSH_CA", "", raising=False)
+    monkeypatch.setattr(config, "TETIK_PUSH_SERTIFIKA", "", raising=False)
+    monkeypatch.setattr(config, "TETIK_PUSH_ANAHTAR", "", raising=False)
+    sade = Sahte()
+    push.tls_kur(sade)
+    assert sade.cagrilar == [{"ca_certs": None}]
+
+    monkeypatch.setattr(config, "TETIK_PUSH_CA", "/tmp/kok.pem", raising=False)
+    monkeypatch.setattr(config, "TETIK_PUSH_SERTIFIKA", "/tmp/cihaz.pem", raising=False)
+    monkeypatch.setattr(config, "TETIK_PUSH_ANAHTAR", "/tmp/cihaz.key", raising=False)
+    x509 = Sahte()
+    push.tls_kur(x509)
+    assert x509.cagrilar == [{"ca_certs": "/tmp/kok.pem", "certfile": "/tmp/cihaz.pem",
+                             "keyfile": "/tmp/cihaz.key"}]
+
+
+def test_taban_konu_bos_yayin_konusunda_cokmez(monkeypatch) -> None:
+    """Yayın konusu boş/tek parçasız kalırsa taban BOŞ olmamalı.
+
+    Boş taban `"/durum/<id>"` konusu üretiyordu; panel `yourkiosk/durum/+` dinlediği için cihaz
+    sonsuza kadar "bilinmiyor" kalırdı. Taban `yourkiosk`a düşer.
+    """
+    from core import push
+
+    for konu, beklenen in (("", "yourkiosk"), ("/", "yourkiosk"), ("yourkiosk", "yourkiosk"),
+                           ("yourkiosk/yayin", "yourkiosk"), ("a/b/c", "a/b")):
+        monkeypatch.setattr(config, "TETIK_PUSH_KONU", konu, raising=False)
+        assert push.taban_konu() == beklenen, f"{konu!r} → {push.taban_konu()!r}"
+        assert push.durum_konusu("C1") == f"{beklenen}/durum/C1"
+
+
+def test_taban_konu_panel_ile_ayni_kurali_uygular() -> None:
+    """Panel (`cihazIzleme.ts`) ve cihaz aynı tabanı hesaplamalı — yoksa panel cihazı hiç görmez."""
+    from pathlib import Path
+
+    panel = (Path(__file__).resolve().parents[2] / "panel" / "src" / "domain"
+             / "cihazIzleme.ts").read_text(encoding="utf-8")
+    assert "lastIndexOf('/')" in panel or "rsplit" in panel or "split('/')" in panel, (
+        "panel taban hesabı değişmiş — cihazla parite testi güncellenmeli"
+    )
+    assert "/durum/" in panel, "panel durum konusu kalıbı değişmiş"

@@ -19,6 +19,7 @@ import {
 } from '@/domain/cihazIzleme'
 import {
   izlemeAdresi,
+  izlemeAdresiHatasi,
   izlemeKonusu,
   kimligiOku,
   kimligiSil,
@@ -51,6 +52,7 @@ let oturum: IzlemeOturumu | null = null
 let saatZamanlayici: number | undefined
 
 const izlemeUrl = izlemeAdresi(import.meta.env as unknown as Record<string, string | undefined>)
+const izlemeUrlHatasi = izlemeAdresiHatasi(import.meta.env as unknown as Record<string, string | undefined>)
 const bagliMi = computed(() => izlemeDurumu.value === 'acik')
 
 function durumEsle(durum: BaglantiDurumu, ayrinti?: string): void {
@@ -244,9 +246,15 @@ async function kaydet(): Promise<void> {
 
     <v-alert v-if="mesaj" type="info" variant="tonal" class="mb-4" closable @click:close="mesaj = ''">{{ mesaj }}</v-alert>
 
-    <v-alert v-if="izlemeDurumu === 'kapali'" type="info" variant="tonal" density="compact" class="mb-4">
-      Çevrimiçi izleme <strong>kapalı</strong> — panelde <code>VITE_MQTT_URL</code> tanımlı değil.
-      Cihazlar çalışmaya devam eder (yoklama emniyet ağı); durum sütunu "bilinmiyor" görünür.
+    <v-alert v-if="izlemeDurumu === 'kapali'" :type="izlemeUrlHatasi ? 'warning' : 'info'" variant="tonal" density="compact" class="mb-4">
+      <template v-if="izlemeUrlHatasi">
+        Çevrimiçi izleme <strong>açılamadı</strong> — {{ izlemeUrlHatasi }}.
+        Adresi düzeltin (ör. <code>wss://yourkiosk.hakkisabah.com:8084/mqtt</code>) ve paneli yeniden derleyin.
+      </template>
+      <template v-else>
+        Çevrimiçi izleme <strong>kapalı</strong> — panelde <code>VITE_MQTT_URL</code> tanımlı değil.
+        Cihazlar çalışmaya devam eder (yoklama emniyet ağı); durum sütunu "bilinmiyor" görünür.
+      </template>
     </v-alert>
     <v-alert v-else-if="izlemeDurumu === 'kimlik-gerekli'" type="info" variant="tonal" density="compact" class="mb-4">
       Çevrimiçi izleme için broker <strong>okuma</strong> kimliği gerekli (kullanıcı
