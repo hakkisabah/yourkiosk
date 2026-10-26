@@ -12,8 +12,8 @@ ve i5'e geri gönderirsin.
 
 1. İş listesini al (nöbetçi verir) veya elle:
    ```bash
-   python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --prlar --cikti /tmp/prlar.json
-   python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --pr <NO> --cikti /tmp/pr-<NO>.json
+   python3 otomasyon/betik/topla.py --prlar --cikti /tmp/prlar.json
+   python3 otomasyon/betik/topla.py --pr <NO> --cikti /tmp/pr-<NO>.json
    ```
    Ayrıca **i5'in kararını** oku: PR yorumları (`gh` yoksa `curl` ya da paket içindeki `yorumlar`).
 
@@ -65,17 +65,17 @@ ve i5'e geri gönderirsin.
 
 5. **KARAR KAPISI** (yayından önce):
    ```bash
-   python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/karar_dogrula.py /tmp/karar-<NO>.json
+   python3 otomasyon/betik/karar_dogrula.py /tmp/karar-<NO>.json
    ```
 
 6. Yayınla:
 
 ```bash
 # kabul ise:
-python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/yaz.py /tmp/karar-<NO>.json --birlestir --cift-onay
+python3 otomasyon/betik/yaz.py /tmp/karar-<NO>.json --birlestir --cift-onay
 
 # duzeltme/red ise (birleştirme YOK):
-python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/yaz.py /tmp/karar-<NO>.json
+python3 otomasyon/betik/yaz.py /tmp/karar-<NO>.json
 ```
 
 > Birleştirme yalnız `kabul` + zorunlu kontroller yeşilse yapılır. `behind`/`dirty` dönerse

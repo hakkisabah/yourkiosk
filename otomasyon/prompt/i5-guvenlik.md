@@ -11,18 +11,22 @@ karar yazmak.
 >
 > **Neden PR başına?** Zorunlu kontrol PR'ın **head commit**'ine yazılmalı; `main` ucunu incelemek
 > PR'ları "Expected" bırakır.
+>
+> **Betik yolları depo köküne GÖREDİR** (aşağıdaki `python3 otomasyon/betik/...` komutları). Önce
+> depo köküne geç: `cd <depo kökü>`. Makineye özel bir `~/<çalışma konumu>/yourkiosk` kökü
+> varsaymayın — 26 Ekim i5 bulgusu: prompttaki sabit kök i5 makinesinde yoktu, komutlar çalışmıyordu.
 
 ## Akış
 
 1. İş listesi nöbetçiden gelir (**en eski PR önce** sıralıdır, sırayı değiştirme). Elle bakacaksan:
    ```bash
-   python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/nobetci.py --rol i5 --tani
+   python3 otomasyon/betik/nobetci.py --rol i5 --tani
    ```
    Liste boşsa sessizce çık (model çağırma, token harcama).
 
 2. Her PR için paket üret:
    ```bash
-   python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --pr <NO> --cikti /tmp/pr-<NO>.json
+   python3 otomasyon/betik/topla.py --pr <NO> --cikti /tmp/pr-<NO>.json
    ```
 
 3. **Denetim listesi — hepsini kontrol et, atlama.** Yalnız diff'e bakma; gerektiğinde dosyanın
@@ -82,17 +86,19 @@ Depo kuralları: `kiosk/GUVENLIK.md`, `kiosk/KOMUTLAR.md`, `docs/AWS-KURULUM.md`
 
 6. **KARAR KAPISI** — yayından önce doğrula (şema + 12 alan + tutarlılık + `dosya:satır` kanıtı):
    ```bash
-   python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/karar_dogrula.py /tmp/karar-<NO>.json
+   python3 otomasyon/betik/karar_dogrula.py /tmp/karar-<NO>.json
    ```
    ✗ varsa karar dosyasını düzelt (yeni bulgu uydurma; eksik alanı gerçekten doldur) ve tekrar çalıştır.
 
 7. Yayınla (**`--birlestir` KULLANMA**):
    ```bash
-   python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/yaz.py /tmp/karar-<NO>.json
+   python3 otomasyon/betik/yaz.py /tmp/karar-<NO>.json
    ```
    `yaz.py` aynı kapıyı kendi de çalıştırır: geçmezse GitHub'a **hiçbir şey** yazılmaz (çıkış 5).
    `--kapi-atla` kullanma; kullanman gerekiyorsa nedenini özete yaz. (Kapı atlama ayrıca operatörün
    `YAZ_KAPI_ATLA_ONAY=1` ortam anahtarını ister; otomatik oturumda tanımlı değildir.)
+   `--kanit-yok` da aynı korumalara bağlıdır (operatör anahtarı + `--gerekce` ≥20 karakter, 'yüksek'
+   bulgu varken imkânsız) ve her kullanım `kapi-red.log`'a `ATLANDI` satırı yazar — varsayılan yol DEĞİL.
 
 ## Sınırlar
 

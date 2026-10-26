@@ -242,7 +242,7 @@ Son commit'lerin `guvenlik/inceleme` durumunu, açık PR'ları, etiketleri ve so
 ```bash
 ~/.local/state/yourkiosk-otomasyon/son-sha    # en son incelenen commit
 hermes cron runs <job_id>                     # son koşular + çıktı
-python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --imza   # şu anki uzak HEAD
+python3 otomasyon/betik/topla.py --imza   # şu anki uzak HEAD (depo kökünden)
 ```
 
 Yeniden incelemek için: `rm ~/.local/state/yourkiosk-otomasyon/son-sha` (sonra `--ilk` ile çalıştırın).
