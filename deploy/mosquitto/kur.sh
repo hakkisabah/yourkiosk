@@ -74,15 +74,36 @@ PAROLA_CIHAZ="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
 PAROLA_IZLEME="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
 # mosquitto kullanıcısı dizine GİREBİLMELİ (0700 root:root olsaydı pwfile açılamazdı)
 install -m 750 -o mosquitto -g mosquitto -d /etc/mosquitto/auth
-mosquitto_passwd -b -c /etc/mosquitto/auth/passwd panel "$PAROLA_PANEL"
-mosquitto_passwd -b /etc/mosquitto/auth/passwd cihaz "$PAROLA_CIHAZ"
-mosquitto_passwd -b /etc/mosquitto/auth/passwd panel-izleme "$PAROLA_IZLEME"
+PWFILE=/etc/mosquitto/auth/passwd
+# 26 Ekim i5 bulgusu: `-c` parola dosyasını SIFIRDAN yazar → betik ikinci kez koştuğunda
+# `cihaz-<id>` kullanıcıları (ve ACL blokları) silinir, 600 cihazın kalp atışı sessizce düşer.
+# Betik başlığı "idempotent" diyor; artık gerçekten öyle: dosya varsa KORUNUR, yalnız üç yönetilen
+# kullanıcı güncellenir (`mosquitto_passwd -b` = ekle/güncelle, diğerlerine dokunmaz).
+if [ -f "$PWFILE" ]; then
+  mosquitto_passwd -b "$PWFILE" panel "$PAROLA_PANEL"
+else
+  mosquitto_passwd -b -c "$PWFILE" panel "$PAROLA_PANEL"
+fi
+mosquitto_passwd -b "$PWFILE" cihaz "$PAROLA_CIHAZ"
+mosquitto_passwd -b "$PWFILE" panel-izleme "$PAROLA_IZLEME"
 # mosquitto 2.x parola dosyasının SAHİBİNİN root olmasını bekler (uyarı → ileride hata)
 chown root:mosquitto /etc/mosquitto/auth/passwd
 chmod 640 /etc/mosquitto/auth/passwd
 
 echo "=== 6/8 ACL (panel yazar · cihaz okur · cihaz-<id> kendi durumuna yazar · panel-izleme yalnız okur) ==="
-cat > /etc/mosquitto/auth/acl <<'EOF'
+# 26 Ekim i5 bulgusu: `cat >` ACL dosyasını TÜMÜYLE eziyordu → `cihaz-ekle.sh` ile eklenen
+# cihaz-<id> blokları her kurulumda siliniyor, 600 cihazın kalp atışı sessizce düşüyordu.
+# Artık yönetilen blok işaretlerle yazılır, cihaz blokları KORUNUR ve yazım ATOMİK (install).
+ACL_DOSYA=/etc/mosquitto/auth/acl
+ACL_GECICI="$(mktemp)"
+ACL_KORUNAN="$(mktemp)"
+if [ -f "$ACL_DOSYA" ]; then
+  awk '/^# >>> yourkiosk-managed/{atla=1; next} /^# <<< yourkiosk-managed/{atla=0; next} !atla' \
+    "$ACL_DOSYA" >"$ACL_KORUNAN"
+fi
+{
+  echo "# >>> yourkiosk-managed (kur.sh üretir — bu blok her koşuda YENİLENİR)"
+  cat <<'EOF'
 # Panel yalnızca yayın konusuna YAZABİLİR (tetikleyici).
 user panel
 topic write yourkiosk/yayin
@@ -93,19 +114,27 @@ topic write yourkiosk/yayin
 # parolayı taşıdığı için yazabilseydi, ele geçirilen tek bir kiosk başka cihazın çevrimiçi
 # durumunu taklit edebilirdi. Kalp atışı için cihaz BAŞINA kullanıcı gerekir:
 #   ./cihaz-ekle.sh <cihazId>      → user cihaz-<id> + topic write yourkiosk/durum/<id>
-# `deny` kuralı önceliklidir; aşağıdaki joker yazma yetkisini kesin olarak kapatır.
+#
+# YAZMA KURALI YOK = YAZAMIYOR (acl_file varsayılanı reddet). 26 Ekim i5 bulgusu: eski
+# `topic deny write ...` GEÇERSİZ sözdizimiydi (mosquitto erişim türünü tek sözcük alır → konu
+# "write yourkiosk/durum/#" oluyordu) ve `deny` okumayı da kapatır (yön ayrımı yok).
 user cihaz
 topic read yourkiosk/yayin
-topic deny write yourkiosk/durum/#
 
-# Panel izleme: SADECE durum konularını OKUR. Yayın yazamaz, ayar göremez.
-# Parolası panel paketine gömülmez (çalışma anında girilir) — sızsa bile yalnız durum okunur.
+# Panel izleme: SADECE durum konularını OKUR. Yayın yazamaz (yazma kuralı yok → varsayılan ret),
+# ayar göremez. Parolası panel paketine gömülmez (çalışma anında girilir).
 user panel-izleme
 topic read yourkiosk/durum/+
-topic deny write yourkiosk/durum/#
 EOF
-chown mosquitto:mosquitto /etc/mosquitto/auth/acl
-chmod 640 /etc/mosquitto/auth/acl
+  echo "# <<< yourkiosk-managed"
+  if [ -n "$(grep -v '^[[:space:]]*$' "$ACL_KORUNAN" 2>/dev/null || true)" ]; then
+    echo
+    echo "# --- cihaz-ekle.sh blokları (kur.sh bunlara DOKUNMAZ) ---"
+    cat "$ACL_KORUNAN"
+  fi
+} >"$ACL_GECICI"
+install -m 640 -o mosquitto -g mosquitto "$ACL_GECICI" "$ACL_DOSYA"
+rm -f "$ACL_GECICI" "$ACL_KORUNAN"
 
 echo "=== 7/8 yapılandırma ==="
 cat > /etc/mosquitto/conf.d/yourkiosk.conf <<'EOF'
@@ -136,8 +165,15 @@ tls_version tlsv1.2
 allow_anonymous false
 password_file /etc/mosquitto/auth/passwd
 acl_file      /etc/mosquitto/auth/acl
+# 26 Ekim i5 bulgusu: max_connections DİNLEYİCİ BAŞINA bir ayardır ve varsayılanı -1 (sınırsız).
+# Yalnız 8883'e tavan koymak 8084'ü açık bırakıyordu → WebSocket dinleyicisi de sınırlı.
+max_connections 600
 
 # Genel sınırlar
+# 26 Ekim i5 bulgusu: `max_queued_messages` kaldırılmıştı → varsayılan 1000 mesaj/istemci;
+# 1200 bağlantı × 1000 × ≤1 KB ≈ 1,2 GB kuyruk belleği. 50 mesaj/istemci yeterli.
+max_queued_messages 50
+max_inflight_messages 20
 message_size_limit 1024
 persistence false
 
@@ -195,7 +231,13 @@ mosquitto_pub -h 127.0.0.1 -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
 # Sabit /tmp yolu YOK: root olarak `>` ile sabit dosyaya yazmak, /tmp'de sembolik bağ kuran
 # yerel kullanıcıya root'un rastgele bir dosyayı kesmesine izin verir (i5 bulgusu).
 GECICI_DIZIN="$(mktemp -d)"
-trap 'rm -rf "$GECICI_DIZIN"' EXIT
+# 26 Ekim i5 bulgusu: geçici test ACL'i yalnız betiğin SONUNDA siliniyordu; `set -euo pipefail`
+# yüzünden arada çöken koşu üretim ACL'inde test kullanıcısı bırakıyordu. Yedek al, çıkışta dön.
+cp /etc/mosquitto/auth/acl "$GECICI_DIZIN/acl.yedek"
+ACL_YEDEK="$GECICI_DIZIN/acl.yedek"
+trap 'cp "$ACL_YEDEK" /etc/mosquitto/auth/acl 2>/dev/null; chown mosquitto:mosquitto /etc/mosquitto/auth/acl 2>/dev/null; chmod 640 /etc/mosquitto/auth/acl 2>/dev/null; rm -rf "$GECICI_DIZIN"' EXIT
+SORUN=0
+belirsiz() { echo "  ? $1 — abone bağlanamadı (çıkış $2); sonuç DOĞRULANAMADI"; SORUN=$((SORUN+1)); }
 CAFILE=/etc/ssl/certs/ca-certificates.crt
 TEST_CIHAZ="kurulumtest$$"
 TEST_PAROLA="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
@@ -221,15 +263,19 @@ sleep 1
 KONU_TAKLIT="yourkiosk/durum/taklit$$"
 ( timeout 5 mosquitto_sub -h 127.0.0.1 -p 8883 --cafile "$CAFILE" \
     -u panel-izleme -P "$PAROLA_IZLEME" -t "$KONU_TAKLIT" -C 1 \
-    >"$GECICI_DIZIN/taklit" 2>/dev/null || true ) &
+    >"$GECICI_DIZIN/taklit" 2>/dev/null ) &
+ABONE1=$!
 sleep 1
 mosquitto_pub -h 127.0.0.1 -p 8883 --cafile "$CAFILE" \
   -u cihaz -P "$PAROLA_CIHAZ" -t "$KONU_TAKLIT" -m '{"cevrimici":true}' 2>/dev/null || true
-sleep 2
+wait "$ABONE1" 2>/dev/null; RC1=$?
 if [ -s "$GECICI_DIZIN/taklit" ]; then
   echo "  ✗ GÜVENLİK: paylaşılan cihaz hesabı başka cihazın durum konusuna yazabildi"
-else
+  SORUN=$((SORUN+1))
+elif [ "$RC1" -eq 124 ]; then
   echo "  ✓ paylaşılan cihaz hesabı durum konusuna YAZAMIYOR (cihaz başına kimlik)"
+else
+  belirsiz "paylaşılan cihaz hesabı taklit testi" "$RC1"
 fi
 
 # 2) Cihaz kimliği kalp atışını yazabilmeli, panel-izleme okuyabilmeli.
@@ -252,15 +298,18 @@ fi
 KONU_SIZINTI="yourkiosk/durum/sizinti$$"
 ( timeout 5 mosquitto_sub -h 127.0.0.1 -p 8883 --cafile "$CAFILE" \
     -u panel-izleme -P "$PAROLA_IZLEME" -t "$KONU_SIZINTI" -C 1 \
-    >"$GECICI_DIZIN/sizinti" 2>/dev/null || true ) &
+    >"$GECICI_DIZIN/sizinti" 2>/dev/null ) &
+ABONE3=$!
 sleep 1
 mosquitto_pub -h 127.0.0.1 -p 8883 --cafile "$CAFILE" \
   -u panel-izleme -P "$PAROLA_IZLEME" -t "$KONU_SIZINTI" -m '{"cevrimici":true}' 2>/dev/null || true
-sleep 2
+wait "$ABONE3" 2>/dev/null; RC3=$?
 if [ -s "$GECICI_DIZIN/sizinti" ]; then
-  echo "  ✗ GÜVENLİK: panel-izleme yayın yapabildi (ACL fazla geniş)"
-else
+  echo "  ✗ GÜVENLİK: panel-izleme yayın yapabildi (ACL fazla geniş)"; SORUN=$((SORUN+1))
+elif [ "$RC3" -eq 124 ]; then
   echo "  ✓ panel-izleme YAYIN yapamıyor (salt-okur)"
+else
+  belirsiz "panel-izleme salt-okur testi" "$RC3"
 fi
 
 # Temizlik: retained test mesajı, geçici cihaz kullanıcısı ve ACL bloğu.
@@ -315,3 +364,12 @@ echo "cihaz     : cihaz / $PAROLA_CIHAZ"
 echo "kayıt     : /root/yourkiosk-mqtt-credentials.txt (0600)"
 echo
 echo "Sıradaki: panel .env.local + ./panel/infra/yayinla.sh · cihazlarda pip install paho-mqtt"
+
+# Güvenlik testleri özeti (i5 bulgusu: "doğrulanamadı" sessizce ✓ sayılmasın).
+echo
+if [ "$SORUN" -eq 0 ]; then
+  echo "  ✓ ACL/güvenlik testleri DOĞRULANDI (taklit kapalı, kalp atışı zinciri, salt-okur izleme)"
+else
+  echo "  ✗ $SORUN güvenlik testi SORUNLU/DOĞRULANAMADI — yukarıdaki satırlara bakın"
+  exit 1
+fi

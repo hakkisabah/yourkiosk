@@ -63,15 +63,25 @@ panel yayınını ben yaparım; sonunda anahtarı kaldırmanızı hatırlatırı
    ```
    → `./panel/infra/yayinla.sh`
 2. **Cihazlarda**: `pip install paho-mqtt`
-3. **Panelden ayarlar** (Tetikleme grubu):
-   `push_aktif=true` · `push_broker=broker.<IP>.nip.io` · `push_port=8883` ·
-   `push_konu=yourkiosk/yayin` · `push_kullanici=cihaz` · `push_parola=<cihaz parolası>` ·
-   `kontrol_ms=300000` (5 dk emniyet ağı)
-4. **Doğrulama** (herhangi bir makineden):
+3. **Cihaz başına MQTT kimliği** (ZORUNLU — 26 Ekim i5 bulgusu: belge `push_kullanici=cihaz`
+   diyordu; paylaşılan `cihaz` hesabı `durum/<id>` konusuna YAZAMAZ, yani izleme sessizce ölüydü):
    ```bash
-   MQTT_PAROLA_PANEL=… MQTT_PAROLA_CIHAZ=… bash dogrula.sh broker.<IP>.nip.io
+   sudo deploy/mosquitto/cihaz-ekle.sh C1     # → cihaz-C1 kullanıcısı + parolası (bir kez gösterilir)
    ```
-   Beklenen: TLS ✓ · panel yayını ✓ · cihaz aboneliği ✓ · **cihaz yayını RED** ✓ · anonim RED ✓ · 1883 kapalı ✓
+4. **Panelden ayarlar** (Tetikleme grubu):
+   `push_aktif=true` · `push_broker=broker.<IP>.nip.io` · `push_port=8883` ·
+   `push_konu=yourkiosk/yayin` · `push_kullanici=cihaz-<cihazId>` · `push_parola=<cihaz-ekle çıktısı>` ·
+   `kontrol_ms=300000` (5 dk emniyet ağı)
+5. **Doğrulama** (herhangi bir makineden):
+   ```bash
+   MQTT_PAROLA_PANEL=… MQTT_PAROLA_CIHAZ=… MQTT_PAROLA_IZLEME=… \
+     MQTT_CIHAZ_ID=C1 MQTT_CIHAZ_PAROLA=… bash dogrula.sh broker.<IP>.nip.io
+   ```
+   Beklenen: TLS ✓ · panel yayını ✓ · cihaz aboneliği ✓ · **cihaz yayını RED** ✓ ·
+   **taklit RED** ✓ · anonim RED ✓ · **kalp atışı zinciri** ✓ · 1883 kapalı ✓
+
+> **panel-izleme hesabı**: yalnız `yourkiosk/durum/+` konusunu OKUR (parolası `kur.sh` çıktısında).
+> Panel paketine GÖMÜLMEZ; panelde *Cihazlar → İzlemeyi bağla* ile bir kez girilir.
 
 ## 5. Maliyet ve kapasite
 
@@ -224,7 +234,7 @@ Beklenen: TLS ✓ · panel yayını ✓ · cihaz aboneliği ✓ · **cihaz yayı
 
 1. Panel `.env.local`: `VITE_MQTT_URL=wss://yourkiosk.hakkisabah.com:8084/mqtt` (+ konu/kullanıcı/parola) → `./panel/infra/yayinla.sh`
 2. Cihazlarda `pip install paho-mqtt`
-3. Panel → Tetikleme: `push_aktif=true` · `push_broker=yourkiosk.hakkisabah.com` · `push_port=8883` · `push_kullanici=cihaz` · `push_parola=…` · `kontrol_ms=300000`
+3. Panel → Tetikleme: `push_aktif=true` · `push_broker=yourkiosk.hakkisabah.com` · `push_port=8883` · `push_kullanici=cihaz-<cihazId>` (cihaz-ekle.sh) · `push_parola=…` · `kontrol_ms=300000`
 4. (Öneri) Lightsail → **Snapshots** → otomatik snapshot aç (yapılandırma yeniden üretilebilir, ama geri dönüş hızlı olur)
 
 ### 9.8 Maliyet

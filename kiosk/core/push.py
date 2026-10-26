@@ -92,15 +92,27 @@ def istemci_kimligi(cihaz: str | None = None) -> str:
     return f"yk-{temiz}-{uuid.uuid4().hex[:6]}"
 
 
+def durum_kimligi(cihaz: str | None = None) -> str:
+    """Konu için cihaz kimliği — TEK normalizasyon kuralı (i5 bulgusu).
+
+    Üç tüketici aynı sözleşmeyi uygulamak zorunda: yayıncı (burası), ACL aracı (`cihaz-ekle.sh`,
+    `^[A-Za-z0-9_-]{1,40}$`) ve panel (`cihazIzleme.ts`). Eskiden yayıncı yalnız `/ + #`
+    temizliyordu → `İZMİR 01` gibi bir kimlik ACL'e yazılamayan konu üretiyor, cihaz panelde
+    sonsuza kadar "bilinmiyor" kalıyordu. Kural: ASCII dışı ve joker karakterler `-`, en çok 40.
+    """
+    ham = str(cihaz or cihaz_kimligi() or "bilinmeyen")
+    temiz = re.sub(r"[^A-Za-z0-9_-]", "-", ham).strip("-")[:40] or "bilinmeyen"
+    return temiz
+
+
 def durum_konusu(cihaz: str | None = None) -> str:
     """Cihaz durum konusu: `<taban>/durum/<cihazId>` (`yourkiosk/yayin` → `yourkiosk/durum/<id>`).
 
-    `+` ve `#` MQTT joker karakterleridir; kimlikte bulunurlarsa konu bozulur → temizlenir.
+    Kimlik `durum_kimligi()` ile normalleştirilir; tabanın sonundaki eğik çizgiler kırpılır
+    (26 Ekim i5 bulgusu: `yourkiosk/yayin/` → taban `yourkiosk/yayin` olup konu kayıyordu).
     """
-    taban = konu().rsplit("/", 1)[0] if "/" in konu() else konu()
-    kimlik = str(cihaz or cihaz_kimligi() or "bilinmeyen")
-    kimlik = kimlik.replace("/", "-").replace("+", "-").replace("#", "-").strip() or "bilinmeyen"
-    return f"{taban}/durum/{kimlik}"
+    taban = konu().rstrip("/").rsplit("/", 1)[0] if "/" in konu().rstrip("/") else konu().rstrip("/")
+    return f"{taban}/durum/{durum_kimligi(cihaz)}"
 
 
 def kalp_atisi_belgesi(cevrimici: bool = True, simdi: datetime | None = None) -> dict:
@@ -193,15 +205,23 @@ def _dongu(durdur: threading.Event) -> None:
             istemci.subscribe(konu(), qos=1)
             # ÇEVRİMİÇİ BİLDİRİMİ (retained): panel 600 cihazın durumunu buradan görür.
             try:
-                istemci.publish(
+                bilgi = istemci.publish(
                     durum_konusu(),
                     json.dumps(kalp_atisi_belgesi(True), ensure_ascii=False),
                     qos=1,
                     retain=True,
                 )
+                # i5 bulgusu: MQTT 3.1.1 yetkisiz PUBLISH'i istemciye HATA olarak döndürmez;
+                # `rc` yine de yerel kuyruğa kabul edildiğini söyler. En azından kuyruğa alma
+                # hatasını yutmayalım (ACL yanlışsa cihaz panelde "bilinmiyor" kalır → iz bırak).
+                if getattr(bilgi, "rc", 0) != 0:
+                    log.warning("kalp atışı kuyruğa alınamadı (rc=%s) — ACL/konu denetlenmeli",
+                                getattr(bilgi, "rc", "?"))
             except Exception:  # noqa: BLE001 - kalp atışı push'u engellememeli
                 log.debug("kalp atışı yayınlanamadı", exc_info=True)
-            log.info("MQTT bağlandı (%s:%s) · konu=%s · durum=%s", adres, port, konu(), durum_konusu())
+            # i5 bulgusu: konu (dolayısıyla cihaz kimliği) GÜNLÜĞE yazılmaz — `kiosk.log`
+            # okunabilir bir dosya ve depo kuralı ham clientID/cihaz kimliği yazmayı yasaklar.
+            log.info("MQTT bağlandı (%s:%s) · konu=%s · kalp atışı açık", adres, port, konu())
         else:
             log.warning("MQTT bağlanamadı (rc=%s)", rc)
 
@@ -245,12 +265,14 @@ def _dongu(durdur: threading.Event) -> None:
                 elif time.monotonic() - son_kalp >= KALP_ATISI_S:
                     son_kalp = time.monotonic()
                     try:
-                        istemci.publish(
+                        bilgi = istemci.publish(
                             durum_konusu(),
                             json.dumps(kalp_atisi_belgesi(True), ensure_ascii=False),
                             qos=1,
                             retain=True,
                         )
+                        if getattr(bilgi, "rc", 0) != 0:
+                            log.warning("kalp atışı kuyruğa alınamadı (rc=%s)", getattr(bilgi, "rc", "?"))
                     except Exception:  # noqa: BLE001
                         log.debug("kalp atışı yayınlanamadı", exc_info=True)
                 time.sleep(1.0)
