@@ -19,6 +19,35 @@ python3 --version && git --version && curl --version | head -1
 
 ---
 
+## 0b. Makine kimliği (yalnız operatör — `sudo` ile bir kez)
+
+Kapı akışında **hangi makinenin hangi rolü** oynadığı operatörün kurduğu dosyadan okunur:
+`/etc/yourkiosk-makine-kimligi`. Neden dosya: karar JSON'undaki `makine` alanı ajanın **kendi
+beyanıydı** → i5 oturumu `"makine": "i3"` yazıp `guvenlik/inceleme` + `guvenlik/karar`
+kontrollerini tek başına yeşile çevirebiliyordu (AGENTS.md §3.3 yasaklıyor). Dosya `root`
+sahipli olduğu için ajan onu yazamaz; beyan ile dosya çelişirse `yaz.py` **çıkış 5** ile reddeder.
+
+`i5` makinesinde:
+
+```bash
+sudo sh -c 'printf i5 > /etc/yourkiosk-makine-kimligi'
+sudo chmod 0644 /etc/yourkiosk-makine-kimligi
+```
+
+`i3` makinesinde aynısı `printf i3` ile. Doğrula (ikisi de ✓ olmalı):
+
+```bash
+ls -l /etc/yourkiosk-makine-kimligi        # -rw-r--r-- root root … ve içerik: i5 | i3
+python3 otomasyon/betik/ortam-kontrol.py --rol i5 | grep 'makine kimliği'
+```
+
+> Kimlik **kalıcıdır** (TTL yok) — bilet gibi süreli değil, çünkü rol kurulum bilgisidir.
+> Yanlış makinede yazım denemesi `KİMLİK UYUŞMAZLIĞI` ile durur; `--birlestir` yalnız `i3`
+> kimliğinde çalışır. Bu iki durum testlerle kilitli
+> (`otomasyon/betik/testler/test_yaz.py::MakineKimligiTesti`).
+
+---
+
 ## 1. Token dosyası
 
 Her makineye **kendi** fine-grained token'ı (i5 ve i3 ayrı; bir sızarsa diğeri etkilenmesin).

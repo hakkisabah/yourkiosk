@@ -47,6 +47,28 @@ git pull
 > `--kabul-et-lan` ile yazılır; yazım hatalı adresler reddedilir (çıkış 2). Anahtar **komut
 > satırına** hiç verilmez: dosyadan okunur ve `.env`'e yazılır (argv sızıntısı yok).
 
+### 3a. Bu makinede seçilen kurulum: LAN'a açık (operatör onaylı)
+
+Geliştirme makinesinde Hermes istemcileri **başka makinelerden** bağlanıyor → sunucu
+`0.0.0.0:8642` dinliyor. Bu bilinçli bir operatör kararıdır ve **kayda geçer**: uygulama anında
+`~/.config/hermes-secrets/api-server.lan-onay` dosyası yazılır (0600). `--kontrol` bu dosyayı
+görürse `0.0.0.0` satırı ✗ değil **✓ "LAN'a açık (operatör onaylı)"** olur; dosya yoksa ✗ kalır.
+Geri alma (`--dinle 172.17.0.1` / `127.0.0.1`) kaydı **siler** → karar görünür ve geri alınabilir.
+
+```bash
+./otomasyon/betik/api-sunucu-sertlestir.sh --dinle 0.0.0.0 --kabul-et-lan   # onay kaydını yazar
+./otomasyon/betik/api-sunucu-sertlestir.sh --kontrol                        # ✓ LAN'a açık (operatör onaylı)
+```
+
+> `0.0.0.0`'da uç **ağdan erişilebilir** ve terminal yetkilidir: erişim yalnız `API_SERVER_KEY`
+> ile sınırlıdır. Ağ değişirse anahtarı döndürün (`--anahtar-yenile`). Güvenlik sınırı: aynı
+> LAN'daki başka bir kullanıcı anahtarı ele geçirirse kabuk komutu çalıştırabilir — kabul edilen
+> risk ve gerekçesi `docs/GUVENLIK-BAGLAM.md` §5'te.
+
+> **Open WebUI:** bu makinede operatör kararıyla `-p 0.0.0.0:3000` yayınında ve **değiştirilmeyecek**
+> (ağdan erişim gerekiyor). Aşağıdaki `-p 127.0.0.1:3000:8080` önerisi yeni/temiz kurulum içindir;
+> çalışan konteynerde operatör onayı olmadan yeniden oluşturmayın.
+
 Betik gateway'i **yeniden başlatmaz**; ayrı bir kabukta:
 
 ```bash

@@ -39,8 +39,17 @@ from pathlib import Path
 TABAN = "https://api.github.com"
 BASLIKLAR = {"Accept": "application/vnd.github+json", "User-Agent": "yourkiosk-otomasyon"}
 #: Karar kapısı reddi/atlaması buraya JSON satırları olarak yazılır (nobetci denetler).
-KAPI_LOG = Path(os.environ.get("YAZ_KAPI_LOG") or
-                Path.home() / ".local" / "state" / "yourkiosk-otomasyon" / "kapi-red.log")
+#: 26 Ekim i5 bulgusu: yol `YAZ_KAPI_LOG` ortam değişkeninden geliyordu → ajan `/dev/null` verip
+#: kapı atlamasının izini silebiliyor, `--kendini-denetle`nin 8. noktası kör kalıyordu. Aynı sınıf
+#: hata bilet yolunda kapatılmıştı; burada da yol SABİT. (Testler modül özniteliğini enjekte eder;
+#: üretim CLI'ında yolu taşıyan bir anahtar YOKTUR.)
+KAPI_LOG = Path.home() / ".local" / "state" / "yourkiosk-otomasyon" / "kapi-red.log"
+
+#: MAKİNE KİMLİĞİ — operatörün kurduğu ROOT sahipli dosya (`i5` ya da `i3`).
+#: 26 Ekim i5 bulgusu: kimlik karar dosyasının KENDİ `makine` alanından okunuyordu; i5 oturumu
+#: "i3" yazıp iki kapıyı da tek başına geçirebiliyordu (AGENTS.md:52-53 yasaklıyor). Artık kimlik
+#: dosyadan okunur, karar dosyasındaki değerle uyuşmazsa yazım reddedilir (çıkış 5).
+KIMLIK_VARSAYILAN = Path("/etc/yourkiosk-makine-kimligi")
 
 #: Kapı atlama BİLETİ — operatörün ürettiği, ajanın üretemediği ikinci anahtar.
 #: Neden: ortam değişkenini ajan kendi kabuğundan verebiliyor (terminal yetkisi var). Bilet
@@ -412,6 +421,75 @@ def bilet_sahibi_denetimi(st: "os.stat_result") -> bool:
     return st.st_uid == 0
 
 
+def kimlik_sahibi_denetimi(st: "os.stat_result") -> bool:
+    """Kimlik dosyası root sahipli mi? (ajan root değil → kendi rolünü kuramaz)
+
+    Testler bu FONKSİYONU enjekte eder; biletten AYRI tutulur ki iki mekanizmanın testleri
+    birbirini gevşetmesin. Ortam değişkeniyle gevşetilebilen bir anahtar YOKTUR.
+    """
+    return st.st_uid == 0
+
+
+def kimlik_dizini_denetimi(st: "os.stat_result") -> bool:
+    """Kimlik dosyasının üst dizini root sahipli ve grup/dünya-yazılamaz mı?"""
+    return st.st_uid == 0 and not (st.st_mode & 0o022)
+
+
+def kimlik_yolu() -> Path:
+    """Makine kimliği dosyasının yolu — SABİT (ortam değişkeniyle taşınamaz)."""
+    return KIMLIK_VARSAYILAN
+
+
+def makine_kimligi_denetle(yol: Path | None = None, *, sahip_denetimi=None,
+                           dizin_denetimi=None) -> tuple[str, str]:
+    """Bu makinenin rolü → (`i5` | `i3`, ret gerekçesi boş) ya da (`""`, gerekçe).
+
+    NEDEN DOSYA: karar dosyasındaki `makine` alanı ajanın kendi beyanıydı; i5 oturumu "i3" yazıp
+    iki zorunlu kontrolü de tek başına geçirebiliyordu (AGENTS.md:52-53). Kimlik artık operatörün
+    kurduğu ROOT sahipli dosyadan okunur; ajan root olmadığı için onu yazamaz.
+
+    Kabul ölçütleri (bilet ile aynı sınıf): normal dosya, ROOT sahipli, grup/dünya-yazılamaz,
+    üst dizini root sahipli ve yazılamaz, sanal dosya sistemi (/proc · /sys · /dev) dışında,
+    içeriği `i5` ya da `i3`. TTL YOK: kimlik kalıcı bir kurulum bilgisidir (bilet geçicidir).
+    """
+    hedef = Path(yol) if yol is not None else kimlik_yolu()
+    hedef_str = str(hedef)
+    if any(hedef_str == onek or hedef_str.startswith(onek + "/") for onek in SANAL_ONEKLER):
+        return "", (f"makine kimliği sanal dosya sisteminde ({hedef_str}) — "
+                    f"{' · '.join(SANAL_ONEKLER)} altındaki yollar kabul edilmez")
+    try:
+        st = hedef.lstat()
+    except OSError as hata:
+        return "", (f"makine kimliği yok ({hedef}): {hata.strerror or hata}; operatör: "
+                    f"sudo sh -c 'printf i5 > {hedef}' && sudo chmod 0644 {hedef}")
+    if not stat.S_ISREG(st.st_mode):
+        return "", f"makine kimliği normal dosya değil ({hedef})"
+    denetim = sahip_denetimi if sahip_denetimi is not None else kimlik_sahibi_denetimi
+    if not denetim(st):
+        return "", (f"makine kimliği root sahipli değil (uid {st.st_uid}, yol {hedef}) — "
+                    f"yalnız operatör kurabilir")
+    mod = st.st_mode & 0o777
+    if mod & 0o022:
+        return "", f"makine kimliği grup/dünya-yazılabilir (mod {mod:04o}, yol {hedef})"
+    ust = hedef.parent
+    try:
+        st_ust = ust.stat()
+    except OSError as hata:
+        return "", f"makine kimliği dizini okunamıyor ({ust}): {hata.strerror or hata}"
+    d_denetim = dizin_denetimi if dizin_denetimi is not None else kimlik_dizini_denetimi
+    if not d_denetim(st_ust):
+        return "", (f"makine kimliği dizini güvenli değil (uid {st_ust.st_uid}, "
+                    f"mod {st_ust.st_mode & 0o777:04o}, dizin {ust})")
+    try:
+        ham = hedef.read_text(encoding="utf-8").strip().lower()
+    except OSError as hata:
+        return "", f"makine kimliği okunamadı ({hedef}): {hata.strerror or hata}"
+    if ham not in MAKINE_AYARI:
+        return "", (f"makine kimliği tanınmıyor ({ham!r}) — beklenen: "
+                    f"{' | '.join(sorted(MAKINE_AYARI))}")
+    return ham, ""
+
+
 def operator_izi_denetle() -> tuple[bool, str, str]:
     """Kapı atlama/kanıt kapatma izni → (kabul, uzun gerekçe, günlük için kısa gerekçe).
 
@@ -528,6 +606,33 @@ def main() -> int:
 
     makine = str(karar.get("makine", "i5")).lower()
     baglam, onay_etiketi, sorun_etiketi = MAKINE_AYARI.get(makine, MAKINE_AYARI["i5"])
+
+    # ---- MAKİNE KİMLİĞİ (26 Ekim i5 bulgusu) ------------------------------------------------
+    # Karar dosyasındaki `makine` alanı ajanın KENDİ beyanıydı: i5 oturumu "i3" yazıp hem
+    # `guvenlik/inceleme` hem `guvenlik/karar` kontrolünü tek başına yeşile çevirebiliyordu
+    # (AGENTS.md:52-53 yasaklıyor). Kimlik artık operatörün kurduğu ROOT sahipli dosyadan okunur:
+    #   · dosya yok/geçersiz  → çıkış 5 (fail-closed; operatör kurulum komutu hata metninde)
+    #   · beyan ≠ dosya       → çıkış 5
+    #   · --birlestir yalnız kimlik `i3` iken (karar makinesi) kullanılabilir
+    kimlik, kimlik_neden = makine_kimligi_denetle()
+    if not kimlik:
+        print(f"[yaz] MAKİNE KİMLİĞİ REDDEDİLDİ — {kimlik_neden}", file=sys.stderr)
+        print("  Kimlik operatör kurulumudur; ajan kendi rolünü seçemez.", file=sys.stderr)
+        _kapi_red_yaz(karar, makine, [f"makine kimliği geçersiz: {kimlik_neden}"], atlandi=False)
+        return 5
+    if kimlik != makine:
+        print(f"[yaz] KİMLİK UYUŞMAZLIĞI — bu makine {kimlik!r}, karar dosyası {makine!r} diyor. "
+              "Reddedildi.", file=sys.stderr)
+        _kapi_red_yaz(karar, makine,
+                      [f"kimlik uyuşmazlığı: makine={kimlik!r}, karar={makine!r}"], atlandi=False)
+        return 5
+    makine = kimlik
+    if a.birlestir and kimlik != "i3":
+        print(f"[yaz] --birlestir REDDEDİLDİ — bu makinenin kimliği {kimlik!r}; birleştirme "
+              "karar makinesine (i3) aittir.", file=sys.stderr)
+        _kapi_red_yaz(karar, makine,
+                      [f"--birlestir reddedildi: kimlik {kimlik!r}"], atlandi=False)
+        return 5
 
     # ---- KANIT KATMANI (--kanit-yok) — ajanın tek başına kapatabileceği bir anahtar DEĞİL ---------
     # 26 Ekim i5 bulgusu: bayrak `kanit=not a.kanit_yok` ile dosya:satır kanıtı denetimini tamamen
