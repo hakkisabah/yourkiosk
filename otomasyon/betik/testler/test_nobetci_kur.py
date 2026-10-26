@@ -8,6 +8,7 @@ olmak zorunda — yoksa "ayırdım" sanılır ama aynı gateway'de çalışmaya 
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -71,6 +72,51 @@ class UnitTesti(unittest.TestCase):
         for deger in ("guvenlik", "guvenlik-2", "guvenlik_2", "g"):
             metin = unit_uret("--profil", deger, home=self.home)
             self.assertIn(f"--profil {deger}", metin)
+
+    # ── BELLEK TAVANI (26 Ekim: birim cgroup'unda node OOM/core dump) ──────────────────────────
+    @staticmethod
+    def _ram_mb() -> int:
+        for satir in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            if satir.startswith("MemTotal:"):
+                return int(satir.split()[1]) // 1024
+        return 0
+
+    def test_bellek_tavani_birimde_ve_makineyle_uyumlu(self):
+        """Tavanlar sabit değil, KURULUM ANINDA makineden ölçülür; 4 GB'lık i5'e 16 GB tavan yazılmaz."""
+        ram = self._ram_mb()
+        metin = unit_uret(home=self.home)
+        self.assertIn("MemoryAccounting=yes", metin)
+        self.assertIn("MemoryHigh=", metin)
+        self.assertIn("MemoryMax=", metin)
+        self.assertIn("OOMPolicy=stop", metin)
+        yuksek = int(re.search(r"^MemoryHigh=(\d+)M$", metin, re.M).group(1))
+        tavan = int(re.search(r"^MemoryMax=(\d+)M$", metin, re.M).group(1))
+        self.assertLess(yuksek, tavan, "MemoryHigh < MemoryMax olmalı (yumuşak eşik önce)")
+        if ram > 1024:
+            self.assertAlmostEqual(tavan, ram * 75 // 100, delta=2,
+                                   msg="MemoryMax makine RAM'inin %75'i olmalı")
+            self.assertAlmostEqual(yuksek, ram * 60 // 100, delta=2)
+            self.assertLess(tavan, ram, "bellek tavanı makine RAM'ini aşamaz")
+
+    def test_node_v8_tavani_olculu(self):
+        """Node çocukları RAM'in 1/4'ü kadar V8 tavanı devralır (512–2048 arası sınırlı)."""
+        ram = self._ram_mb()
+        metin = unit_uret(home=self.home)
+        m = re.search(r"^Environment=NODE_OPTIONS=--max-old-space-size=(\d+)$", metin, re.M)
+        self.assertIsNotNone(m, "NODE_OPTIONS tavansız → V8 'FatalProcessOutOfMemory' riski")
+        heap = int(m.group(1))
+        self.assertGreaterEqual(heap, 512)
+        self.assertLessEqual(heap, 2048)
+        if ram > 2048:
+            self.assertLessEqual(heap, ram, "V8 tavanı makine RAM'ini aşamaz")
+
+    def test_cokme_dongusu_freni_var(self):
+        """Restart=always tek başına çökme döngüsünü sonsuzlaştırır (her tur = token + core dump)."""
+        metin = unit_uret(home=self.home)
+        self.assertIn("StartLimitIntervalSec=300", metin)
+        self.assertIn("StartLimitBurst=5", metin)
+        self.assertIn("TasksMax=", metin)
+        self.assertIn("TimeoutStopSec=", metin)
 
 
 if __name__ == "__main__":
