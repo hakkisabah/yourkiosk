@@ -68,7 +68,8 @@ journalctl --user -u yourkiosk-nobetci -f
 |---|---|---|
 | Yoklama aralığı | `nobetci-kur.sh` içindeki `--aralik` | 15 sn |
 | Tur başına PR | `--limit` | 8 |
-| Oturum zaman aşımı | `--zaman-asimi` | 1200 sn |
+| Oturum zaman aşımı | `--zaman-asimi` | 1860 sn (tavan 120 × 15 sn + 60 sn; türetilir) |
+| Tur tavanı | `nobetci.py` `OTURUM_TUR_TAVANI` | 120 tur (bütçe darsa kısılır) |
 | Depo | `Environment=GITHUB_DEPO` | `hakkisabah/yourkiosk` |
 | Token | `~/.config/hermes-secrets/github-yourkiosk.token` | — |
 

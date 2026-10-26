@@ -52,6 +52,41 @@ SORUN_ETIKETI = "guvenlik/sorun"
 # hızlı olduğu için birkaç PR'ı birlikte işler. Kalanlar bir sonraki turda (aralık 15 sn) alınır.
 OTURUM_BASI_PR = {"i5": 1, "i3": 3}
 
+# TUR TAVANI (2026-10-25): 60 tur, derin incelemeye YETMİYOR. Günlükte 19:58–20:49 arası
+# oturumlar "⚠ Iteration budget reached (60/60) — response may be incomplete" ile bitti ve
+# PR'lara YENİ karar yazılmadı: #86/#84/#83 aynı head'lerle kuyrukta dönüp durdu (i3'ün
+# "dal güncellenmeli" yorumları i5 kararı gelmediği için birikiyordu). Sebep: inceleme
+# 120+ araç çağrısı sürüyor (testler 50-60 sn, çok dosya okuma).
+OTURUM_TUR_TAVANI = 120
+
+# TUR ↔ DUVAR SAATİ TUTARLILIĞI (25 Ekim i3 bulgusu): tavan 120'ye çıkarken bütçe sabit kalırsa
+# tur başına ~9 sn düşer ve inceleme yine yarıda kesilir. Bu yüzden varsayılan zaman aşımı TÜRETİLİR:
+# tavan × tur payı + kapanış payı. Tek sayı değişince diğerleri kendiliğinden uyar.
+TUR_SURE_PAYI_S = 15          # tur başına beklenen duvar saati (araç çağrısı + model)
+KAPANIS_PAYI_S = 60           # özet/karar yazımı için ayrılan pay
+VARSAYILAN_ZAMAN_ASIMI = OTURUM_TUR_TAVANI * TUR_SURE_PAYI_S + KAPANIS_PAYI_S  # 1860 sn
+#: Tur başına KABUL EDİLEBİLİR en az duvar saati. Altına inerse tur tavanı anlamsızlaşır
+#: (araç çağrısı + model yanıtı yetişmez) → tavan bütçeye göre KISILIR (duvar saati aşılmaz).
+EN_AZ_TUR_SURESI_S = 10
+
+
+def butce_hesapla(zaman_asimi: int) -> dict[str, int]:
+    """`--zaman-asimi` → {butce, tur, tur_basi_sn, yeterli} — TEK KAYNAK.
+
+    Kural: duvar saati aşılmaz AMA tavan sessizce yalan söylemez. Bütçe tur başına
+    `EN_AZ_TUR_SURESI_S`'den az düşerse etkin tur sayısı kısılır ve bu görünür olur
+    (`--tani` + günlük). Böylece `--max-turns 120` yazıp 9,5 sn/tur'a mahkûm olmak bitiyor
+    (25 Ekim i3 bulgusu: 1140 sn bütçe / 120 tur).
+    """
+    butce = max(120, int(zaman_asimi) - KAPANIS_PAYI_S)
+    tur = max(1, min(OTURUM_TUR_TAVANI, butce // EN_AZ_TUR_SURESI_S))
+    return {
+        "butce": butce,
+        "tur": tur,
+        "tur_basi_sn": butce // tur,
+        "yeterli": tur >= OTURUM_TUR_TAVANI,
+    }
+
 
 def simdi() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -224,6 +259,14 @@ def gorev_metni(rol: str, depo: Path, is_listesi: list[dict]) -> str:
     return "\n".join(satirlar) + "\n"
 
 
+def hermes_komutu(depo: Path, gorev: Path, zaman_asimi: int) -> list[str]:
+    """Nöbetçi oturumunun komut satırı (test edilebilir tek nokta)."""
+    b = butce_hesapla(zaman_asimi)
+    return ["hermes", "chat", "--query-file", str(gorev), "--oneshot",
+            "--max-turns", str(b["tur"]), "--run-budget", str(b["butce"]),
+            "--in", str(depo), "--source", "nobetci"]
+
+
 def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bool) -> tuple[int, str]:
     if kuru:
         print("\n--- ÇALIŞTIRILACAK GÖREV ---")
@@ -232,9 +275,7 @@ def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bo
     gorev = DURUM_KLASORU / f"gorev-{rol}.md"
     gorev.parent.mkdir(parents=True, exist_ok=True)
     gorev.write_text(metin, encoding="utf-8")
-    komut = ["hermes", "chat", "--query-file", str(gorev), "--oneshot",
-             "--max-turns", "60", "--run-budget", str(max(120, zaman_asimi - 60)),
-             "--in", str(depo), "--source", "nobetci"]
+    komut = hermes_komutu(depo, gorev, zaman_asimi)
     try:
         sonuc = subprocess.run(komut, capture_output=True, text=True, timeout=zaman_asimi)
         return sonuc.returncode, (sonuc.stdout or "") + (sonuc.stderr or "")
@@ -280,21 +321,35 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
         is_listesi = sirada
     gunluk(gunluk_yolu, f"{rol}: {len(is_listesi)} iş → oturum açılıyor: "
                         + ", ".join(f"#{i['pr']}" for i in is_listesi))
+    b = butce_hesapla(zaman_asimi)
+    if not b["yeterli"]:
+        gunluk(gunluk_yolu, f"UYARI: --zaman-asimi {zaman_asimi} sn → tur tavanı "
+                            f"{OTURUM_TUR_TAVANI} yerine {b['tur']} tur uygulanıyor "
+                            f"({b['tur_basi_sn']} sn/tur). Varsayılan: {VARSAYILAN_ZAMAN_ASIMI} sn")
     kod, cikti = hermes_calistir(depo, gorev_metni(rol, depo, is_listesi), rol, zaman_asimi, kuru)
     gunluk(gunluk_yolu, f"{rol}: oturum bitti (çıkış {kod})")
 
     # Sonuç: iş listesi hâlâ aynı PR'ları içeriyorsa karar YAZILAMAMIŞ demektir → beklemeyi artır.
     if not kuru:
         kalan = {anahtar(x["pr"], x["sha"]) for x in isler(gh, rol, limit)}
+        yazilmayan: list[int] = []
         for is_ in is_listesi:
             k = anahtar(is_["pr"], is_["sha"])
             if k in kalan:
+                yazilmayan.append(is_["pr"])
                 kayit = gh.denemeler.get(k, {"sayi": 0})
                 kayit["sayi"] = int(kayit.get("sayi", 0)) + 1
                 kayit["son"] = time.time()
                 gh.denemeler[k] = kayit
             else:
                 gh.denemeler.pop(k, None)
+        if yazilmayan:
+            # GÖRÜNÜRLÜK: oturum "çıkış 0" ile bitse bile karar yazılmamış olabilir (tur/ömür
+            # bütçesi). Bu satır olmadan günlük "her şey yolunda" gibi okunuyordu (2026-10-25).
+            gunluk(gunluk_yolu, f"{rol}: KARAR YAZILMADI — " + ", ".join(f"#{p}" for p in yazilmayan)
+                                + f" (çıkış {kod}); aynı head tekrar denenecek, bekleme artıyor"
+                                + ("" if kod != 0 else " · tur/bütçe tavanı yetmedi mi? (OTURUM_TUR_TAVANI="
+                                   f"{OTURUM_TUR_TAVANI})"))
         gh.gunluk[bugun] = bugun_sayi + 1
         for g in list(gh.gunluk):
             if g != bugun:
@@ -395,8 +450,9 @@ def main() -> int:
     ayar.add_argument("--tani", action="store_true", help="iş listesi + bekleyenler + günlük oturum sayısı")
     ayar.add_argument("--kendini-denetle", action="store_true",
                       help="kontrol noktaları: kalan cron / servis / linger / oturum sayısı (değiştirmez)")
-    ayar.add_argument("--zaman-asimi", type=int, default=1800,
-                      help="oturum zaman aşımı sn (tek PR incelemesi ~15 dk sürüyor)")
+    ayar.add_argument("--zaman-asimi", type=int, default=VARSAYILAN_ZAMAN_ASIMI,
+                      help=f"oturum zaman aşımı sn (varsayılan {VARSAYILAN_ZAMAN_ASIMI} = "
+                           f"tavan {OTURUM_TUR_TAVANI} × {TUR_SURE_PAYI_S} sn + {KAPANIS_PAYI_S} sn)")
     ayar.add_argument("--depo", type=Path, default=DEPO_VARSAYILAN)
     ayar.add_argument("--token", type=Path, default=TOKEN_VARSAYILAN)
     ayar.add_argument("--log", type=Path, default=None)
@@ -428,6 +484,10 @@ def main() -> int:
         bugun = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         print(f"nöbetçi tanı · rol={secim.rol}")
         print(f"  bugün açılan oturum : {gh.gunluk.get(bugun, 0)} (tavan {GUNLUK_OTURUM_TAVANI})")
+        b = butce_hesapla(secim.zaman_asimi)
+        print(f"  oturum bütçesi      : {b['butce']} sn · {b['tur']} tur × {b['tur_basi_sn']} sn"
+              + ("" if b["yeterli"] else f" · ⚠ BÜTÇE DAR: tavan {OTURUM_TUR_TAVANI} turdan "
+                                          f"{b['tur']} tura kısıldı"))
         print(f"  iş listesi          : {len(hepsi)} PR")
         for is_ in hepsi:
             bekle, kalan = beklemeli_mi(gh.denemeler, is_["pr"], is_["sha"], an)
