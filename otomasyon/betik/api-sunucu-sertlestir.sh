@@ -161,7 +161,7 @@ kod_al() {  # kod_al <url> [anahtar]
   fi
 }
 
-dinlenen() { ss -tlnH "sport = :$PORT" 2>/dev/null | awk '{print $4}' | head -1; }
+dinlenen() { ss -tlnH "sport = :$PORT" 2>/dev/null | awk '{print $4}' | head -1 || true; }
 
 # ---------------------------------------------------------------- --kontrol
 if [ "$KIP" = "kontrol" ]; then

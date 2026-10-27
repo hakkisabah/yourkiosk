@@ -154,5 +154,47 @@ class UnitTesti(unittest.TestCase):
         self.assertLess(kaynak.index("reset-failed"), kaynak.index('systemctl --user start'))
 
 
+class PipefailSIGPIPETesti(unittest.TestCase):
+    """`set -o pipefail` + `| head` = SESSİZ BAŞARISIZLIK.
+
+    27 Ekim i5: `nobetci-kur.sh` son satırda `systemctl status | head -10` çalıştırıyordu; head
+    okumayı bırakınca systemctl SIGPIPE (141) aldı, pipefail bunu script'in çıkış kodu yaptı →
+    "=== kuruldu ===" yazdıktan SONRA "✗ birim kurulumu başarısız". Kullanıcı kurulumun
+    başarısız olduğunu sandı. Kural: pipefail açıkken boruyu `head`/`tail` ile kapatan her
+    KOMUT SATIRI `|| true` (veya `|| :`) ile korunur. Komut yerine koyma `$( … )` ve atamalar
+    kapsam dışı (orada çıkış kodu script'i düşürmez).
+    """
+
+    KOK = Path(__file__).resolve().parents[3]
+
+    def _betikler(self):
+        for yol in sorted(self.KOK.glob("otomasyon/**/*.sh")):
+            metin = yol.read_text(encoding="utf-8")
+            if "pipefail" in metin:
+                yield yol, metin
+
+    def test_pipefail_acikken_head_tail_borulari_korunur(self):
+        ihlaller = []
+        for yol, metin in self._betikler():
+            for no, satir in enumerate(metin.splitlines(), 1):
+                s = satir.strip()
+                if s.startswith("#") or "|" not in s:
+                    continue
+                if not re.search(r"\|\s*(head|tail)\b", s):
+                    continue
+                if "$(" in s or "|| true" in s or "|| :" in s:
+                    continue
+                ihlaller.append(f"{yol.relative_to(self.KOK)}:{no}: {s}")
+        self.assertEqual(ihlaller, [],
+                         "pipefail açıkken `| head`/`| tail` korumasız (SIGPIPE → sahte hata):\n"
+                         + "\n".join(ihlaller))
+
+    def test_kurulum_sonu_status_hatasi_kurulumu_dusurmez(self):
+        kaynak = BETIK.read_text(encoding="utf-8")
+        for satir in kaynak.splitlines():
+            if "systemctl" in satir and re.search(r"\|\s*head\b", satir) and not satir.strip().startswith("#"):
+                self.assertIn("|| true", satir, f"korunmasız boru: {satir}")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
