@@ -79,18 +79,24 @@ class MakineKimligiKurTesti(unittest.TestCase):
             self.assertNotIn("✓ kimlik geçerli", s.stdout)
 
     def test_depo_kodu_calistirmaz(self):
-        """ROOT ayrıcalığıyla çalışan betik depodaki kodu ÇAĞIRMAZ (26 Ekim i5, orta).
+        """ROOT ayrıcalığıyla çalışan yol depodaki kodu ÇAĞIRMAZ (26 Ekim i5, orta).
 
-        Yorum satırları sayılmaz: yasak, KODDA python/importlib çağrısı ya da yaz.py yolunun
-        hesaplanmasıdır.
+        Kural 27 Ekim'de NETLEŞTİRİLDİ: `--kaydet` yolu (machine-id eşlemesi) sudo GEREKTİRMEZ ve
+        root olarak çalışmayı reddeder; JSON birleştirmesi için sistem `python3`'ünü kullanır.
+        Bu yüzden yasak yalnız ROOT yolunda geçerlidir: yasaklı sözcükler `kaydet()` gövdesinin
+        DIŞINDA bulunamaz, `kaydet()` de root iken durmak zorundadır.
         """
-        kod = [s for s in KUR.read_text(encoding="utf-8").splitlines()
-               if s.strip() and not s.lstrip().startswith("#")]
-        metin = "\n".join(kod)
+        metin = "\n".join(s for s in KUR.read_text(encoding="utf-8").splitlines()
+                          if s.strip() and not s.lstrip().startswith("#"))
+        bas = metin.index("kaydet() {")
+        son = metin.index("\n}\n", bas) + 3
+        kaydet_govde = metin[bas:son]
+        root_yolu = metin[:bas] + metin[son:]
         for yasak in ("python3", "importlib", "spec_from_file_location", "yaz_py"):
-            self.assertNotIn(yasak, metin,
-                             f"betik depo koduna bağlı: '{yasak}' kodda geçiyor (root olarak çalışır)")
-        self.assertNotIn("/yaz.py", metin)
+            self.assertNotIn(yasak, root_yolu,
+                             f"ROOT yolunda depo kodu: '{yasak}' geçiyor (root olarak çalışır)")
+        self.assertNotIn("/yaz.py", root_yolu)
+        self.assertIn("--kaydet root olarak çalıştırılmaz", kaydet_govde)
 
     def test_rol_listesi_yaz_py_ile_ayni(self):
         """Betiğin kabul ettiği roller `yaz.py` MAKINE_AYARI ile aynı olmalı (kural ayrışmasın)."""

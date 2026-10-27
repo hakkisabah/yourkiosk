@@ -86,12 +86,15 @@ def makine_kimligi_kontrolu(rol: str, depo: Path | None) -> None:
               "depo eksik/bozuk: git -C <depo> fetch origin && git -C <depo> reset --hard origin/main")
         return
     kimlik, neden = modul.makine_kimligi_denetle()
+    mod = getattr(modul, "kimlik_modu", lambda: "?")()
     if not kimlik:
-        satir(False, "makine kimliği", neden,
+        satir(False, "makine kimliği", f"{neden} (kaynak: {mod})",
+              f"SUDO GEREKMEYEN yol: bash otomasyon/betik/makine-kimligi-kur.sh --kaydet {rol} --yaz "
+              f"→ commit + PR (eşleme git'te temiz olmalı). Alternatif: "
               f"sudo sh -c 'printf {rol} > {modul.KIMLIK_VARSAYILAN}' && "
-              f"sudo chmod 0644 {modul.KIMLIK_VARSAYILAN}   (yalnız operatör; ajan kendi rolünü seçemez)")
+              f"sudo chmod 0644 {modul.KIMLIK_VARSAYILAN}")
         return
-    satir(kimlik == rol, "makine kimliği", f"{kimlik} ({modul.KIMLIK_VARSAYILAN})",
+    satir(kimlik == rol, "makine kimliği", f"{kimlik} (kaynak: {mod})",
           f"bu makine {kimlik!r} olarak kurulu ama --rol {rol!r} istendi; doğru makinede çalıştırın "
           f"ya da kimliği operatör değiştirsin")
 
