@@ -453,5 +453,59 @@ class BakimHataGorunurluguTesti(unittest.TestCase):
                 self.assertIn("geçersiz --dal", s.stderr)
 
 
+class BakimServisTesti(BakimHataGorunurluguTesti):
+    """Kurulum sonrası servis GERÇEKTEN yeni koddan kalkmalı.
+
+    27 Ekim: bakım betiği yalnız birim dosyasını yazıyordu; eski ExecStart (insan deposu, tavansız)
+    çalışmaya devam ediyor, OOM döngüsü sürüyordu. Artık `reset-failed` + `restart` yapılır ve
+    servis ayağa kalkmazsa çıkış 9 + journal/status çıktısı verilir. systemd'ye dokunmamak için
+    `systemctl`/`loginctl` sahte (stub) — gerçek makinede hiçbir birim değişmez.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.stub = self.kok / "stub"
+        self.stub.mkdir()
+        self.kayit = self.kok / "systemctl.log"
+        (self.stub / "systemctl").write_text(
+            "#!/usr/bin/env bash\n"
+            'echo "$*" >> "' + str(self.kayit) + '"\n'
+            'for a in "$@"; do\n'
+            '  if [ "$a" = "is-active" ]; then\n'
+            '    if [ "${STUB_AKTIF:-0}" = "1" ]; then echo active; exit 0; fi\n'
+            '    echo inactive; exit 3\n'
+            '  fi\n'
+            "done\n"
+            "exit 0\n", encoding="utf-8")
+        (self.stub / "loginctl").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        for ad in ("systemctl", "loginctl"):
+            (self.stub / ad).chmod(0o755)
+
+    def _calistir(self, *ek: str, atla: bool = False, aktif: bool = True) -> subprocess.CompletedProcess:
+        ortam = {**os.environ, **GIT_ENV, "HOME": str(self.ev),
+                 "NOBETCI_UZAK": str(self.kurulum.origin),
+                 "NOBETCI_KOD_DEPO": str(self.kod_depo),
+                 "PATH": f"{self.stub}:{os.environ.get('PATH', '')}",
+                 "STUB_AKTIF": "1" if aktif else "0"}
+        if atla:
+            ortam["NOBETCI_SISTEMD_ATLA"] = "1"
+        return subprocess.run(["bash", str(self.kaynak / "otomasyon" / "betik" / "nobetci-bakim.sh"),
+                               "i5", *ek], capture_output=True, text=True, timeout=180, env=ortam)
+
+    def test_kurulum_sonrasi_servis_yeniden_baslatilir(self):
+        s = self._calistir()
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        kayit = self.kayit.read_text(encoding="utf-8")
+        self.assertIn("reset-failed", kayit, "OOM döngüsü start limitini sıfırlamadan restart olmaz")
+        self.assertIn("restart", kayit)
+        self.assertIn("aktif", s.stdout)
+
+    def test_servis_ayaga_kalkmazsa_hata_verir(self):
+        s = self._calistir(aktif=False)
+        self.assertEqual(s.returncode, 9, s.stdout + s.stderr)
+        self.assertIn("servis başlatılamadı", s.stderr)
+        self.assertIn("journalctl --user -u", s.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -221,29 +221,38 @@ if systemctl --user is-active "$UNIT_ADI" >/dev/null 2>&1; then
   fi
 fi
 
-# ── 5) Yeniden başlatma: oturum içindeysek GECİKMELİ, dışındaysak hemen ──────────────────────
+# ── 5) Yeniden başlatma: oturum içindeysek GECİKMELİ, dışındaysak HEMEN ──────────────────────
+# 27 Ekim dersi: yalnız birim dosyasını yazmak yetmiyordu. Eski ExecStart (insan deposu, bellek
+# tavanı yok) çalışmaya devam ediyor ve OOM döngüsü sürüyordu; kullanıcı "kurdum" sanıyordu.
+# Artık birim yeniden başlatılır: `reset-failed` (start limiti) + `restart` (yeni kod + tavanlar).
 icinde=0
 if grep -qs "$UNIT_ADI" /proc/self/cgroup 2>/dev/null; then icinde=1; fi
-if [ "$YENIDEN" -eq 1 ]; then
-  if [ "$icinde" -eq 1 ]; then
+if [ "$icinde" -eq 1 ]; then
+  # Bu kabuk birimin İÇİNDE: hemen restart kendi oturumumuzu öldürür → gecikmeli devralma.
+  if [ "$YENIDEN" -eq 1 ]; then
     hata "bu kabuk nöbetçi biriminin içinde → hemen restart oturumu öldürür; gecikmeli kuruluyor"
-    YENIDEN=0
   fi
-  systemctl --user restart "$UNIT_ADI" && soyle "servis      : yeniden başlatıldı"
+  if command -v systemd-run >/dev/null 2>&1 && \
+     systemd-run --user --collect --on-active="${GECIKME}s" \
+       --unit="yourkiosk-nobetci-devralma-$(date +%s)" \
+       systemctl --user restart "$UNIT_ADI" >/dev/null 2>&1; then
+    soyle "servis      : ${GECIKME}s sonra yeni koddan yeniden başlayacak (gecikmeli devralma)"
+  else
+    soyle "servis      : yeniden başlatma kurulamadı → elle: systemctl --user restart $UNIT_ADI"
+  fi
 else
-  # Yeni ExecStart (klon yolu) bir sonraki yeniden başlatmada devreye girer. Oturum içindeysek
-  # systemd-run ile GECİKMELİ devralma kurarız: oturum biter, sonra servis yeni koddan kalkar.
-  if [ "$icinde" -eq 1 ]; then
-    if command -v systemd-run >/dev/null 2>&1 && \
-       systemd-run --user --collect --on-active="${GECIKME}s" \
-         --unit="yourkiosk-nobetci-devralma-$(date +%s)" \
-         systemctl --user restart "$UNIT_ADI" >/dev/null 2>&1; then
-      soyle "servis      : ${GECIKME}s sonra yeni koddan yeniden başlayacak (gecikmeli devralma)"
+  systemctl --user reset-failed "$UNIT_ADI" >/dev/null 2>&1 || true   # OOM döngüsü start limitini doldurur
+  if systemctl --user restart "$UNIT_ADI" >/dev/null 2>&1; then
+    sleep 2
+    if systemctl --user is-active "$UNIT_ADI" >/dev/null 2>&1; then
+      soyle "servis      : yeni koddan yeniden başlatıldı (aktif)"
     else
-      soyle "servis      : yeniden başlatma kurulamadı → elle: systemctl --user restart $UNIT_ADI"
+      hata "servis başlatılamadı — günlük: journalctl --user -u $UNIT_ADI -n 30 --no-pager"
+      systemctl --user --no-pager status "$UNIT_ADI" 2>&1 | sed 's/^/    /' | head -20 >&2 || true
+      exit 9
     fi
   else
-    soyle "servis      : birim dosyası güncellendi (etkin olması için: systemctl --user restart $UNIT_ADI)"
+    soyle "servis      : yeniden başlatılamadı (birim yok mu? kurulum çıktısına bak)"
   fi
 fi
 
