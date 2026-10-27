@@ -8,6 +8,8 @@
 #   ./otomasyon/nobetci-kur.sh i5 --denetle       # kontrol noktaları: cron/servis/linger/oturum
 #   ./otomasyon/nobetci-kur.sh i5 --durum         # servis durumu
 #   ./otomasyon/nobetci-kur.sh i5 --kaldir        # servisi durdur + sil
+#   ./otomasyon/nobetci-kur.sh i5 --klon <yol>    # servis bu KLONDAN çalışsın (makine kopyası)
+#   ./otomasyon/nobetci-kur.sh i5 --bakim         # nobetci-bakim.sh: klonu kur/güncelle + tavanlar
 set -euo pipefail
 
 ROL="${1:-}"; shift || true
@@ -18,6 +20,7 @@ fi
 KIP="kur"
 CRON_KALDIR=0
 PROFIL="${NOBETCI_PROFIL:-}"
+KLON="${NOBETCI_KOD_DEPO:-}"
 for a in "$@"; do
   case "$a" in
     # --cron-kaldir EK bir işlemdir: servisi kurmayı ENGELLEMEZ (ilk sürümde engelliyordu)
@@ -27,13 +30,21 @@ for a in "$@"; do
     --durum) KIP="durum" ;;
     --kaldir) KIP="kaldir" ;;
     --kuru) KIP="kuru" ;;
+    --bakim) KIP="bakim" ;;
+    --klon=*) KLON="${a#--klon=}" ;;
     --profil=*) PROFIL="${a#--profil=}" ;;
   esac
 done
-# --profil <ad> (ayrı boşluklu biçim)
+# --profil <ad> / --klon <yol> (ayrı boşluklu biçim)
 for ((i = 1; i <= $#; i++)); do
   if [ "${!i}" = "--profil" ]; then j=$((i + 1)); PROFIL="${!j:-}"; fi
+  if [ "${!i}" = "--klon" ]; then j=$((i + 1)); KLON="${!j:-}"; fi
 done
+if [ -n "${KLON:-}" ] && [ ! -d "$KLON/.git" ]; then
+  echo "✗ --klon bir git deposu olmalı: $KLON" >&2
+  echo "  (makine kopyasını nobetci-bakim.sh kurar: otomasyon/betik/nobetci-bakim.sh $ROL)" >&2
+  exit 2
+fi
 if [ -n "$PROFIL" ] && [ "$PROFIL" = "$ROL" ]; then
   echo "✗ --profil değeri rol adıyla aynı olamaz ($ROL)" >&2; exit 2
 fi
@@ -66,6 +77,11 @@ cron_kaldir() {
 }
 
 DEPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# ── SERVİSİN ÇALIŞTIRDIĞI KOD DEPOSU ──────────────────────────────────────────────────────────
+# 26 Ekim dersi: servis İNSAN deposundan çalışınca kod güncellemesi insanın `git pull` yapmasına
+# bağlıydı; i5'te pull çalışmadığı için makine eski kodu (bellek tavanı olmayan sürümü) koştu ve
+# node OOM'uyla core dump üretti. Servis artık makineye ait klondan çalışır: `--klon <yol>`.
+KOD_DEPO="${KLON:-$DEPO}"
 # ── BELLEK TAVANI (26 Ekim dersi: `node-MainThread` V8 FatalProcessOutOfMemory core dump) ────────
 # i5'te birim cgroup'unda node abort etti; makinede ~3,8 GB RAM var. V8 tavanı makine RAM'inden
 # bağımsız kurulduğunda (Hermes TUI 8 GB ister) takas dolar ve süreç "ölümcül OOM" ile düşer.
@@ -111,7 +127,7 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-WorkingDirectory=$DEPO
+WorkingDirectory=$KOD_DEPO
 Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=GITHUB_DEPO=hakkisabah/yourkiosk
 # Node çocukları (vitest/vue-tsc/vite) ÖLÇÜLÜ V8 tavanı devralır: makine RAM'inin 1/4'ü
@@ -130,7 +146,9 @@ MemoryMax=${MEM_MAX_MB}M
 TasksMax=1024
 OOMPolicy=stop
 TimeoutStopSec=30
-ExecStart=$PYTHON $DEPO/otomasyon/betik/nobetci.py --rol $ROL --aralik 15${PROFIL:+ --profil $PROFIL}
+# KOD KAYNAĞI: $KOD_DEPO (makine kopyası) — insan deposu değil. `--guncelle` nöbetçinin kendini
+# origin/main'e çekmesini sağlar; değişiklik varsa süreç çıkar, Restart=always yeni kodu yükler.
+ExecStart=$PYTHON $KOD_DEPO/otomasyon/betik/nobetci.py --rol $ROL --aralik 15 --depo $KOD_DEPO --guncelle${PROFIL:+ --profil $PROFIL}
 Restart=always
 RestartSec=5
 StandardOutput=append:$HOME/.local/state/yourkiosk-otomasyon/nobetci-$ROL.log
@@ -145,7 +163,7 @@ case "$KIP" in
   durum)
     systemctl --user status "$UNIT_ADI" --no-pager | head -12 || true
     echo; echo "--- nöbetçi durum dosyası ---"
-    "$PYTHON" "$DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --durum || true
+    "$PYTHON" "$KOD_DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --depo "$KOD_DEPO" --durum || true
     ;;
   kaldir)
     systemctl --user disable --now "$UNIT_ADI" 2>/dev/null || true
@@ -154,6 +172,9 @@ case "$KIP" in
     ;;
   kuru)
     echo "--- $UNIT_YOL ---"; unit_metni
+    ;;
+  bakim)
+    exec bash "$DEPO/otomasyon/betik/nobetci-bakim.sh" "$ROL"
     ;;
   kur)
     if [ -n "$PROFIL" ] && ! "$HERMES" profile list 2>/dev/null | grep -qw "$PROFIL"; then
@@ -165,13 +186,29 @@ case "$KIP" in
     fi
     mkdir -p "$HOME/.config/systemd/user" "$HOME/.local/state/yourkiosk-otomasyon"
     unit_metni > "$UNIT_YOL"
+    # Ölçülen tavanları dosyaya yaz: nobetci-bakim.sh çalışan birime `set-property` ile uygular
+    # (tek kaynak: burada ölçülen değerler; bakım betiği yeniden hesaplamaz).
+    {
+      echo "# nobetci-kur.sh tarafından üretildi (RAM ${RAM_MB} MB)"
+      echo "MEM_HIGH_MB=$MEM_HIGH_MB"
+      echo "MEM_MAX_MB=$MEM_MAX_MB"
+      echo "NODE_HEAP_MB=$NODE_HEAP_MB"
+    } > "$HOME/.local/state/yourkiosk-otomasyon/bellek.env"
     systemctl --user daemon-reload
-    systemctl --user enable --now "$UNIT_ADI"
+    # ÇALIŞAN OTURUMU ÖLDÜRME: `enable --now` zaten aktif bir birimi yeniden başlatmaz; yine de
+    # niyeti açık yazıyoruz — aktifse yalnız `enable`, değilse `start`.
+    systemctl --user enable "$UNIT_ADI"
+    if ! systemctl --user is-active "$UNIT_ADI" >/dev/null 2>&1; then
+      systemctl --user start "$UNIT_ADI"
+    else
+      echo "not: servis zaten çalışıyor; yeni ExecStart bir sonraki yeniden başlatmada etkin olur"
+    fi
     loginctl enable-linger "$USER" 2>/dev/null || echo "UYARI: loginctl enable-linger başarısız (oturum kapanınca durabilir)"
     sleep 2
     echo
     echo "=== kuruldu ==="
     echo "bellek tavanı: RAM ${RAM_MB} MB → MemoryHigh ${MEM_HIGH_MB} MB · MemoryMax ${MEM_MAX_MB} MB · NODE_OPTIONS heap ${NODE_HEAP_MB} MB"
+    echo "kod deposu   : $KOD_DEPO$([ -n "${KLON:-}" ] && echo ' (makine kopyası)' || echo ' (insan deposu — nobetci-bakim.sh önerilir)')"
     systemctl --user --no-pager status "$UNIT_ADI" | head -10
     echo
     echo "canlı günlük: journalctl --user -u $UNIT_ADI -f"
@@ -179,6 +216,6 @@ case "$KIP" in
     if [ "$CRON_KALDIR" -eq 1 ]; then cron_kaldir; else echo "cron'u kaldırmak için: $0 $ROL --cron-kaldir"; fi
     echo
     echo "=== kontrol noktaları ==="
-    "$PYTHON" "$DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --kendini-denetle || echo "(denetim uyarı verdi — yukarıya bak)"
+    "$PYTHON" "$KOD_DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --depo "$KOD_DEPO" --kendini-denetle || echo "(denetim uyarı verdi — yukarıya bak)"
     ;;
 esac

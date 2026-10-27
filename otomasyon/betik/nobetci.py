@@ -43,6 +43,16 @@ DEPO_VARSAYILAN = Path(__file__).resolve().parents[2]
 DURUM_KLASORU = Path.home() / ".local" / "state" / "yourkiosk-otomasyon"
 TOKEN_VARSAYILAN = Path.home() / ".config" / "hermes-secrets" / "github-yourkiosk.token"
 
+# ── KOD KAYNAĞI (26 Ekim dersi: servis insan deposundan çalışıyordu) ────────────────────────────
+# i5'te `git pull` çalışmıyordu (.git/config'te onlarca [branch] bölümü, izlenen dal başka dala
+# bakıyor) → bellek tavanlı yeni kod makineye HİÇ ulaşmadı, eski kod node OOM'uyla core dump üretti.
+# Artık servis makineye ait ayrı klondan çalışır ve kendini origin/main'e çeker. İnsan deposu
+# (worktree'si kirli, dalı başka) bu işin DIŞINDADIR: orada yalnız `merge --ff-only` denenir.
+KOD_DEPO_VARSAYILAN = Path.home() / ".local" / "share" / "yourkiosk-nobetci" / "depo"
+KOPYA_ISARETI = "yourkiosk-nobetci-kopya"
+#: Kodu güncellerken yeniden başlatma isteği (systemd `Restart=always` yeni kodu yükler)
+CIKIS_YENIDEN_BASLAT = 75
+
 ZORUNLU = ("guvenlik/inceleme", "guvenlik/karar")
 ONAY_ETIKETI = "guvenlik/onay"
 
@@ -116,6 +126,62 @@ NOBETCI_PROFIL = os.environ.get("NOBETCI_PROFIL", "").strip()
 
 def simdi() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def kod_sha(depo: Path) -> str:
+    """Depodaki kodun kısa sha'sı (git yoksa '?')."""
+    try:
+        s = subprocess.run(["git", "-C", str(depo), "rev-parse", "--short=10", "HEAD"],
+                           capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return "?"
+    return s.stdout.strip() if s.returncode == 0 and s.stdout.strip() else "?"
+
+
+def kopya_mi(depo: Path) -> bool:
+    """Bu depo MAKİNEYE AİT kopya mı (nobetci-bakim.sh'ın kurduğu klon)?
+
+    Ayrım kritik: makine kopyasında `reset --hard` güvenlidir (kimsenin işi yok); insan deposunda
+    yalnız `merge --ff-only` denenir — kirli ağaçta kimsenin commit'ini ezmeyiz.
+    """
+    return (Path(depo) / ".git" / KOPYA_ISARETI).exists()
+
+
+def depo_guncelle(depo: Path, gunluk_yolu: Path | None = None, dal: str = "main") -> tuple[str, str]:
+    """Kodu `origin/<dal>`e çek. Döner: (durum, ayrıntı).
+
+    durum: `ayni` (değişmedi) · `guncellendi` (yeni kod → yeniden başlat) · `atlandi` (insan deposu
+    ileri/geri gitmiş) · `hata` (ağ/anahtar/eksik depo).
+    """
+    depo = Path(depo)
+    if not (depo / ".git").exists():
+        return "hata", f"git deposu değil: {depo}"
+
+    def git(*arguman: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(depo), *arguman],
+                              capture_output=True, text=True, timeout=180)
+
+    eski = kod_sha(depo)
+    try:
+        if git("fetch", "--prune", "origin", dal).returncode != 0:
+            return "hata", f"fetch başarısız (origin/{dal}) — ağ/SSH anahtarı"
+        if kopya_mi(depo):
+            if git("reset", "--hard", f"origin/{dal}").returncode != 0:
+                return "hata", f"reset --hard origin/{dal} başarısız"
+        else:
+            s = git("merge", "--ff-only", f"origin/{dal}")
+            if s.returncode != 0:
+                return "atlandi", ("insan deposu (kopya değil) ileri/geri gitmiş → güncelleme "
+                                   "atlandı; `nobetci-bakim.sh` makine kopyasını kurar")
+    except (OSError, subprocess.SubprocessError) as hata:
+        return "hata", f"{type(hata).__name__}: {hata}"
+
+    yeni = kod_sha(depo)
+    durum = "guncellendi" if yeni != eski else "ayni"
+    if durum == "guncellendi":
+        gunluk(gunluk_yolu, f"kod: {eski} → {yeni} "
+                            f"({'makine kopyası' if kopya_mi(depo) else 'insan deposu'})")
+    return durum, f"{eski}→{yeni}"
 
 
 def gunluk(yol: Path | None, mesaj: str) -> None:
@@ -659,6 +725,29 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
     satir(agir.is_file() and os.access(agir, os.X_OK), "ağır komut koşucusu",
           str(agir) if agir.is_file() else f"yok: {agir}")
 
+    # 13-14) KOD TAZELİĞİ — 26 Ekim arızasının kökü: makine ESKİ kodu çalıştırıyordu ve bunu
+    # gösteren hiçbir kontrol yoktu. Bellek tavanı birime yazılmış ama kod güncellenmemişse nöbetçi
+    # yine tavansız sürümü koşar. Bu iki satır onu görünür yapar.
+    kod = kod_sha(DEPO_VARSAYILAN)
+    kopya = kopya_mi(DEPO_VARSAYILAN)
+    uzak_sha = ""
+    try:
+        ls = subprocess.run(["git", "-C", str(DEPO_VARSAYILAN), "ls-remote", "--heads", "origin", "main"],
+                            capture_output=True, text=True, timeout=25)
+        if ls.returncode == 0 and ls.stdout.split():
+            uzak_sha = ls.stdout.split()[0][:10]
+    except (OSError, subprocess.SubprocessError):
+        uzak_sha = ""
+    if uzak_sha:
+        satir(kod == uzak_sha, "kod origin/main ile aynı",
+              f"{kod} · uzak {uzak_sha}" + ("" if kod == uzak_sha else " → nobetci-bakim.sh"))
+    else:
+        # Ağ yoksa kontrol sessizce "temiz" SAYILMAZ: ✗ de sayılmaz ama görünür olur.
+        print(f"⚠ kod origin/main ile aynı  okunamadı (git ls-remote) · yerel {kod}")
+    satir(kopya, "kod deposu makine kopyası",
+          str(DEPO_VARSAYILAN) if kopya else
+          f"insan deposu: {DEPO_VARSAYILAN} → nobetci-bakim.sh (pull sorunu biter)")
+
     print(f"\n{'✓ tüm kontrol noktaları temiz' if sorun == 0 else f'✗ {sorun} kontrol noktası sorunlu'}")
     return 0 if sorun == 0 else 1
 
@@ -683,6 +772,10 @@ def main() -> int:
     ayar.add_argument("--profil", default=None,
                       help="nöbetçi oturumunun Hermes profili (varsayılan: NOBETCI_PROFIL env; "
                            "boşsa varsayılan profil). Open WebUI yükünü ayırmak için 'guvenlik'.")
+    ayar.add_argument("--guncelle", action="store_true",
+                      help="döngüde kodu origin/main'e çek; değiştiyse yeniden başla (birim kullanır)")
+    ayar.add_argument("--guncelle-aralik", type=int, default=300,
+                      help="kod güncelleme kontrolü arası sn (varsayılan 300)")
 
     secim = ayar.parse_args()
     global NOBETCI_PROFIL
@@ -699,6 +792,8 @@ def main() -> int:
             return 1
         veri = json.loads(durum_yolu.read_text(encoding="utf-8"))
         print(f"nöbetçi durumu · {secim.rol} · {durum_yolu}")
+        print(f"  kod            : {kod_sha(secim.depo)}"
+              f" ({'makine kopyası' if kopya_mi(secim.depo) else 'insan deposu'})")
         for alan, deger in veri.items():
             if alan == "etag":
                 print(f"  etag önbelleği : {len(deger)} adres")
@@ -714,6 +809,9 @@ def main() -> int:
         bugun = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         print(f"nöbetçi tanı · rol={secim.rol}")
         print(f"  hermes profili      : {NOBETCI_PROFIL or '(varsayılan — Open WebUI ile paylaşılır)'}")
+        print(f"  kod                 : {kod_sha(secim.depo)}"
+              f" ({'makine kopyası' if kopya_mi(secim.depo) else 'insan deposu'})"
+              f" · kendini güncelleme: {'açık' if secim.guncelle else 'kapalı'}")
         print(f"  bugün açılan oturum : {gh.gunluk.get(bugun, 0)} (tavan {GUNLUK_OTURUM_TAVANI})")
         b = butce_hesapla(secim.zaman_asimi)
         print(f"  oturum bütçesi      : {b['butce']} sn · {b['tur']} tur × {b['tur_basi_sn']} sn"
@@ -745,13 +843,29 @@ def main() -> int:
         return 3
 
     gh = Github(token, depo_adi, durum_yolu, gunluk_yolu)
-    gunluk(gunluk_yolu, f"nöbetçi başladı · rol={secim.rol} · aralık={secim.aralik}s · depo={depo_adi}")
+    gunluk(gunluk_yolu, f"nöbetçi başladı · rol={secim.rol} · aralık={secim.aralik}s · depo={depo_adi}"
+                        f" · kod={kod_sha(secim.depo)}"
+                        f" ({'makine kopyası' if kopya_mi(secim.depo) else 'insan deposu'})")
 
     if secim.bir_kez:
         return tek_tur(gh, secim.depo, secim.rol, secim.limit, secim.kuru, secim.zaman_asimi, gunluk_yolu)
 
     hata_sayaci = 0
+    son_guncelleme = 0.0
     while True:
+        # KENDİNİ GÜNCELLEME: kod origin/main'de değiştiyse TUR ARASINDA çek ve süreci bitir;
+        # `Restart=always` yeni kodu yükler. Tur arasında yapılır ki açık bir inceleme kesilmesin.
+        if secim.guncelle:
+            an = time.time()
+            if an - son_guncelleme >= max(30, secim.guncelle_aralik):
+                son_guncelleme = an
+                durum, ayrinti = depo_guncelle(secim.depo, gunluk_yolu)
+                if durum == "guncellendi":
+                    gunluk(gunluk_yolu, f"kod güncellendi ({ayrinti}) → yeniden başlatılıyor "
+                                        f"(çıkış {CIKIS_YENIDEN_BASLAT}); Restart=always yeni kodu yükler")
+                    return CIKIS_YENIDEN_BASLAT
+                if durum in ("hata", "atlandi"):
+                    gunluk(gunluk_yolu, f"UYARI: kod güncellenemedi — {ayrinti}")
         try:
             kod = tek_tur(gh, secim.depo, secim.rol, secim.limit, secim.kuru, secim.zaman_asimi, gunluk_yolu)
             hata_sayaci = 0 if kod == 0 else hata_sayaci + 1
