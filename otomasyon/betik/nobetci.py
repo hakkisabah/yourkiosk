@@ -742,14 +742,17 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
         vt = Path.home() / ".hermes" / "state.db"
         if vt.is_file():
             c = sqlite3.connect(f"file:{vt}?mode=ro", uri=True)
-            gece = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+            # 27 Ekim dersi: 26 Ekim'deki OOM çökme döngüsü TEK GÜNDE 50+ oturum bıraktı; günlük
+            # sayım yeni düzeltmeden SONRA da kırmızı kalıyor ve gerçek fırtınayı gizliyordu.
+            # Ölçüt artık SON 6 SAAT: "şu an oturum fırtınası var mı?" sorusuna cevap verir.
+            gece = datetime.now(timezone.utc).timestamp() - 6 * 3600
             adet = c.execute(
                 "select count(*) from sessions where started_at >= ? and coalesce(created_source, source) = 'nobetci'",
                 (gece,),
             ).fetchone()[0]
     except (OSError, sqlite3.Error):
         pass
-    satir(0 <= adet <= 24, "bugünkü oturum ≤ 24", f"{adet}" if adet >= 0 else "okunamadı")
+    satir(0 <= adet <= 12, "son 6s oturum ≤ 12", f"{adet}" if adet >= 0 else "okunamadı")
 
     # 6) KUYRUK TIKANIKLIĞI: en eski iş ne kadar bekledi? (25 Ekim: #83/#84 → 10 saat görünmez)
     if token_yolu.exists():
@@ -770,7 +773,10 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
         satir(False, "token dosyası", f"yok: {token_yolu}")
 
     # 7-8) GÜNLÜKTEN: son 24 saatte zaman aşımı ve karar kapısı reddi (sessiz kalmış hatalar)
-    sinir = time.time() - 86400
+    # 6 saat: eski (düzeltilmiş) arızaların artıkları denetimi sürekli kırmızı tutmasın — ölçüt
+    # "şu an sorun var mı?" olmalı. Zaman aşımı sayımı 24 saatte kalır (nadir, gürültüsüz olay).
+    sinir = time.time() - 6 * 3600
+    zaman_asimi_sinir = time.time() - 86400
     zaman_asimi = kapi_red = 0
     gunluk_dosya = DURUM_KLASORU / f"nobetci-{rol}.log"
     if gunluk_dosya.is_file():
@@ -782,7 +788,7 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
                 an = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
             except ValueError:
                 continue
-            if an < sinir:
+            if an < zaman_asimi_sinir:
                 continue
             if "çıkış 124" in satirl or "zaman aşımı" in satirl:
                 zaman_asimi += 1
@@ -806,7 +812,7 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
                 son_kapi_nedeni = str(hatalar[0]) if hatalar else str(kayit.get("olay", ""))
 
     satir(zaman_asimi == 0, "son 24s zaman aşımı yok", f"{zaman_asimi} olay")
-    satir(kapi_red < 3, "karar kapısı reddi < 3",
+    satir(kapi_red < 3, "son 6s karar kapısı reddi < 3",
           f"{kapi_red} olay → {kapi_dosya}"
           + (f" · son neden: {son_kapi_nedeni[:160]}" if son_kapi_nedeni else ""))
 
