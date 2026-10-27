@@ -203,3 +203,59 @@ def test_dogrulama_testleri_basarisiz_aboneyi_yesil_saymaz() -> None:
     assert re.search(r"RC=0;\s*wait|RC=0\s*\n\s*wait", metin) or "|| RC=$?" in metin, (
         "`wait` çıkış kodu `set -e` yüzünden okunamıyor olabilir (RC değişkeni koşullu bağlanmalı)"
     )
+
+
+def test_tls_kontrolu_alan_adini_da_dogrular() -> None:
+    """27 Ekim i5 bulgusu: `-brief` çıktısındaki "Verification: OK" YALNIZ zinciri doğrular.
+
+    Ölçüm: `openssl s_client -connect wrong.host.badssl.com:443 -brief` → sertifika `*.badssl.com`
+    (hedefi KAPSAMIYOR) ama çıktıda "Verification: OK" var. Betik yalnız bu dizeye baktığı için
+    yanlış uca/yanlış ada kurulmuş sertifikayı ✓ sayıyordu. Alan adı doğrulaması zorunlu:
+    ad hedefi (`-verify_hostname`) ya da IP hedefi (`-verify_ip`) verilmeli ve sonuç kodu aranmalı.
+    """
+    metin = _metin(DOGRULA)
+    assert "-verify_hostname" in metin and "-verify_ip" in metin, (
+        "dogrula.sh TLS kontrolünde alan adı/IP doğrulaması yok — yanlış ada kurulmuş sertifika "
+        "kontrolü geçer (i5 bulgusu)"
+    )
+    # IP hedefi ayrı bayrak ister: `-verify_hostname 10.0.0.5` eşleşmez.
+    assert re.search(r"\^\[0-9\]\{1,3\}", metin), "IP hedefi ayrılmıyor (verify_ip dalı yok)"
+    assert re.search(r"Verify return code: 0", metin), (
+        "ad eşleşmesini kanıtlayan 'Verify return code: 0' aranmıyor"
+    )
+
+
+def _yorumsuz(metin: str) -> str:
+    """Açıklama yorumlarını ayıklar (i5 ölçütü: dize YALNIZ 'kullanılmıyor' açıklamasında geçebilir)."""
+    metin = re.sub(r"/\*.*?\*/", "", metin, flags=re.DOTALL)
+    metin = re.sub(r"<!--.*?-->", "", metin, flags=re.DOTALL)
+    return "\n".join(re.sub(r"//.*$", "", satir) for satir in metin.splitlines())
+
+
+def test_panel_paketine_yayin_parolasi_gomulmez() -> None:
+    """YÜKSEK (27 Ekim i5 bulgusu): panel paketi CloudFront'tan kimlik doğrulamasız indirilir.
+
+    `VITE_*` derleme değişkenleri JS paketine LİTERAL yazılır → derleme zamanı parola = herkese
+    açık parola. Panel kaynak kodunda yayın parolası `import.meta.env`ten OKUNMAMALI; parola
+    çalışma anında `yayinKimligi` (sessionStorage) üzerinden alınmalı. Açıklama yorumlarındaki
+    "VITE_MQTT_PAROLA KULLANILMAZ" cümlesi ihlal DEĞİLDİR (yorumlar ayıklanır).
+    """
+    panel = KOK / "panel" / "src"
+    kod_dosyalari = [
+        p for p in panel.rglob("*")
+        if p.suffix in {".ts", ".vue", ".js"} and not p.name.endswith((".test.ts", ".spec.ts"))
+    ]
+    assert kod_dosyalari, "panel kaynağı bulunamadı"
+
+    ihlal: list[str] = []
+    for dosya in kod_dosyalari:
+        for no, satir in enumerate(_yorumsuz(dosya.read_text(encoding="utf-8")).splitlines(), 1):
+            if "VITE_MQTT_PAROLA" in satir:
+                ihlal.append(f"{dosya.relative_to(KOK)}:{no}")
+    assert not ihlal, f"yayın parolası derleme değişkeninden okunuyor: {ihlal}"
+
+    # Olumlu taraf: kimlik çalışma anında, yalnız oturumda tutulur.
+    kimlik = (panel / "domain" / "yayinKimligi.ts").read_text(encoding="utf-8")
+    assert "sessionStorage" in kimlik and "localStorage" not in kimlik, (
+        "yayın kimliği oturum deposunda tutulmuyor (localStorage'a yazılırsa cihazda kalır)"
+    )

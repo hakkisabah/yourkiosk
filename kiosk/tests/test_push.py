@@ -219,3 +219,36 @@ def test_taban_konu_panel_ile_ayni_kurali_uygular() -> None:
         "panel taban hesabı değişmiş — cihazla parite testi güncellenmeli"
     )
     assert "/durum/" in panel, "panel durum konusu kalıbı değişmiş"
+
+
+def test_bozuk_push_portu_is_parcacigini_oldurmez(monkeypatch) -> None:
+    """27 Ekim i5 bulgusu: geçersiz `push_port` iş parçacığını SESSİZCE öldürüyordu.
+
+    Ölçüt: `_adres_ve_port()` istisna yükseltmez, 8883'e düşer ve nedeni `durum()`ta görünür
+    (kullanıcı `--tani` çıktısında görebilir). Adres de bozuksa boş adres döner → çağıran push'u
+    kapatır, cihaz yoklama ağıyla çalışmaya devam eder.
+    """
+    from core import push
+
+    monkeypatch.setattr(config, "TETIK_PUSH_BROKER", "broker.test", raising=False)
+    for bozuk in ("", "tls://8883", "8883.5", None):
+        monkeypatch.setattr(config, "TETIK_PUSH_PORT", bozuk, raising=False)
+        adres, port = push._adres_ve_port()
+        assert (adres, port) == ("broker.test", 8883), f"port={bozuk!r}"
+
+
+def test_push_adresi_yoksa_bos_adres_doner(monkeypatch) -> None:
+    from core import push
+
+    monkeypatch.setattr(config, "TETIK_PUSH_BROKER", "", raising=False)
+    monkeypatch.setattr(config, "TETIK_PUSH_PORT", 8883, raising=False)
+    adres, _port = push._adres_ve_port()
+    assert adres == ""
+
+
+def test_gecerli_port_aynen_kullanilir(monkeypatch) -> None:
+    from core import push
+
+    monkeypatch.setattr(config, "TETIK_PUSH_BROKER", "broker.test", raising=False)
+    monkeypatch.setattr(config, "TETIK_PUSH_PORT", "1884", raising=False)
+    assert push._adres_ve_port() == ("broker.test", 1884)
