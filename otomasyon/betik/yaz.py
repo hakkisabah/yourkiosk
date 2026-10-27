@@ -63,6 +63,12 @@ KIMLIK_ESLEME_DOSYASI = "otomasyon/makine-kimlikleri.json"
 #: ayraç yalnız alan ayrımı içindir (aynı değerin başka amaçla kullanılan özetleriyle karışmasın).
 KIMLIK_OZET_AYRACI = "yourkiosk-makine-kimligi-v1|"
 
+#: Yabancı-commit denetiminde commit listesi okunacak açık PR sayısı üst sınırı.
+#: Neden sınır: her PR için bir API çağrısı gerekir; 600 cihazlık depoda açık PR sayısı
+#: arttığında birleştirme turu saatlik kotayı (5000) yakmasın. 20 PR × 1 çağrı + PR listesi
+#: tek birleştirmede ~21 çağrı; sıradaki PR'lar bir sonraki turda denetlenir.
+_YABANCI_PRLER = 20
+
 
 def kimlik_ozeti(machine_id: str) -> str:
     """machine-id → depoda yayınlanan özet (ham değer asla depoya yazılmaz)."""
@@ -278,17 +284,29 @@ def _yabanci_commitler(depo: str, token: str, pr_no: int) -> tuple[list[str], st
     FAIL-CLOSED (26 Ekim i5 bulgusu): API 200 dışı kod dönerse (429 kota, 403, 0 ağ hatası) eski
     sürüm BOŞ liste dönüyordu → denetim sessizce atlanıyordu. Artık her başarısız çağrı hata
     döndürür; `birlestir()` bu durumda birleştirmez ve gerekçeyi PR yorumuna yazar.
+
+    27 Ekim i5 bulgusu (düşük): yalnız diğer PR'ların HEAD sha'sı toplanıyordu. Bir dal, başka bir
+    açık PR'ın artık head OLMAYAN commit'ini (üzerine yeni commit atılmış onaysız iş) taşıyabilir
+    ve denetim görmezdi. Artık her açık PR'ın TÜM commit listesi toplanır (istek sayısı
+    `_YABANCI_PRLER` ile sınırlı, kota koruması).
     """
     kod, digerleri = istek(f"/repos/{depo}/pulls?state=open&per_page=100", token)
     if kod != 200 or not isinstance(digerleri, list):
         return [], f"açık PR listesi denetlenemedi (HTTP {kod})"
     baska: dict[str, int] = {}
-    for p in digerleri:
+    for p in digerleri[:_YABANCI_PRLER]:
         if not isinstance(p, dict) or p.get("number") == pr_no:
             continue
+        no = p.get("number", 0)
         sha = ((p.get("head") or {}).get("sha") or "").strip()
         if sha:
-            baska[sha] = p.get("number", 0)
+            baska[sha] = no
+        kod_p, commitler_p = istek(f"/repos/{depo}/pulls/{no}/commits?per_page=100", token)
+        if kod_p != 200 or not isinstance(commitler_p, list):
+            return [], f"#{no} commit listesi denetlenemedi (HTTP {kod_p})"
+        for c in commitler_p:
+            if isinstance(c, dict) and c.get("sha"):
+                baska[str(c["sha"]).strip()] = no
     if not baska:
         return [], ""
     kod, commitler = istek(f"/repos/{depo}/pulls/{pr_no}/commits?per_page=100", token)
@@ -560,18 +578,50 @@ def makine_id_oku(yol: Path | None = None, *, sahip_denetimi=None) -> tuple[str,
     return ham, ""
 
 
-def _yayinlanmis_esleme(depo: Path, dal: str = "") -> tuple[bytes, str]:
-    """Eşleme dosyasının YAYINLANMIŞ (uzak-izleme dalındaki) baytları → (bayt, ref).
+def _uzak_dallar(depo: Path, uzak: str = "origin") -> tuple[dict[str, str], str]:
+    """`git ls-remote --heads <uzak>` → ({dal: sha}, hata). Ağ yoksa HATA (fail-closed).
+
+    Neden gerekli (27 Ekim i5 bulgusu E bölgesi): eşleme "yayınlanmış" diye YEREL uzak-izleme
+    ref'inden okunuyordu. Yerel commit atıp `update-ref refs/remotes/origin/main <kendi commit'i>`
+    yazabilen bir ajan kendini yayınlanmış saydırabiliyor, yani çift kapı tek makinede çöküyordu.
+    Artık her aday için yerel ref sha'sı UZAKTAKİ gerçek sha ile birebir eşleşmek zorunda.
+    """
+    try:
+        s = subprocess.run(["git", "-C", str(depo), "ls-remote", "--heads", uzak],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as hata:
+        return {}, f"uzak dal listesi okunamadı: {type(hata).__name__}"
+    if s.returncode != 0:
+        return {}, f"uzak dal listesi okunamadı (git ls-remote çıkış {s.returncode})"
+    dallar: dict[str, str] = {}
+    for satir in s.stdout.splitlines():
+        parca = satir.split("\t")
+        if len(parca) != 2 or not parca[1].startswith("refs/heads/"):
+            continue
+        sha, ad = parca[0].strip().lower(), parca[1][len("refs/heads/"):].strip()
+        if len(sha) == 40 and ad:
+            dallar[ad] = sha
+    if not dallar:
+        return {}, "uzakta dal bulunamadı"
+    return dallar, ""
+
+
+def _yayinlanmis_esleme(depo: Path, dal: str = "", *,
+                        uzak_oku=None) -> tuple[bytes, str]:
+    """Eşleme dosyasının YAYINLANMIŞ (uzaktaki) baytları → (bayt, ref).
 
     27 Ekim i5 bulgusu (yüksek): tek denetim `git status --porcelain` idi, yani yalnız ÇALIŞMA
     AĞACI temizliğine bakıyordu. Yerel commit atabilen bir ajan eşlemeyi kendi machine-id'sine
-    çevirip i5 iken i3 kimliği alabiliyordu → iki kapılı düzen tek makinede çöküyordu. Artık rol
-    YAYINLANMIŞ içerikten okunur: yerel dosya ile uzak-izleme dalındaki blob BAYT BAYT eşit
-    olmalı. Yayınlanmış sürüm yalnız PR birleşmesiyle değişebilir.
+    çevirip i5 iken i3 kimliği alabiliyordu → iki kapılı düzen tek makinede çöküyordu.
+
+    27 Ekim i5 bulgusu (orta, bu tur): çapa hâlâ YEREL ref'ti (`origin/<dal>`), ağdan doğrulama
+    yoktu; `update-ref refs/remotes/origin/main …` ile taklit mümkündü. Artık üç koşul birlikte
+    aranır: (1) `git ls-remote` uzak sha'sı, (2) yerel uzak-izleme ref'inin sha'sı bununla AYNI,
+    (3) blob o sha'dan okunur (ref'ten değil → TOCTOU yok). Biri tutmazsa o aday atlanır.
     """
     adaylar: list[str] = []
     if dal:
-        adaylar.append(f"origin/{dal}")
+        adaylar.append(dal.strip().lstrip("/"))
     else:
         try:
             durum_dal = (Path.home() / ".local" / "state" / "yourkiosk-otomasyon" /
@@ -579,13 +629,29 @@ def _yayinlanmis_esleme(depo: Path, dal: str = "") -> tuple[bytes, str]:
         except OSError:
             durum_dal = ""
         if durum_dal:
-            adaylar.append(f"origin/{durum_dal}")
-    adaylar += ["origin/main", "origin/HEAD"]
-    for ref in adaylar:
-        s = subprocess.run(["git", "-C", str(depo), "show", f"{ref}:{KIMLIK_ESLEME_DOSYASI}"],
+            adaylar.append(durum_dal.strip().lstrip("/"))
+    if "main" not in adaylar:
+        adaylar.append("main")
+    oku = uzak_oku if uzak_oku is not None else _uzak_dallar
+    uzak, _hata = oku(depo)
+    if not uzak:
+        return b"", ""
+    for ad in adaylar:
+        if not ad:
+            continue
+        uzak_sha = str(uzak.get(ad, "")).strip().lower()
+        if len(uzak_sha) != 40:
+            continue
+        yerel = subprocess.run(["git", "-C", str(depo), "rev-parse", "--verify", "-q",
+                                f"refs/remotes/origin/{ad}"],
+                               capture_output=True, text=True, timeout=60)
+        if yerel.returncode != 0 or yerel.stdout.strip().lower() != uzak_sha:
+            # Yerel ref bayat ya da oynanmış → yayınlanmış sayılmaz (fetch gerekir).
+            continue
+        s = subprocess.run(["git", "-C", str(depo), "show", f"{uzak_sha}:{KIMLIK_ESLEME_DOSYASI}"],
                            capture_output=True, timeout=60)
         if s.returncode == 0 and s.stdout:
-            return s.stdout, ref
+            return s.stdout, f"origin/{ad}"
     return b"", ""
 
 
@@ -621,8 +687,9 @@ def kimlik_eslemesi(depo: Path | None = None, *,
     oku = yayin_oku if yayin_oku is not None else _yayinlanmis_esleme
     yayin, ref = oku(kok)
     if not yayin:
-        return {}, (f"kimlik eşlemesi YAYINLANMIŞ sürümden doğrulanamadı ({kok}) — "
-                    f"fetch gerekli: git -C {kok} fetch origin")
+        return {}, (f"kimlik eşlemesi YAYINLANMIŞ sürümden doğrulanamadı ({kok}) — yerel "
+                    f"uzak-izleme ref'i `git ls-remote origin` ile eşleşmiyor ya da fetch eksik: "
+                    f"git -C {kok} fetch origin")
     if yayin != yerel:
         return {}, (f"kimlik eşlemesi yayınlanmış sürümden FARKLI (yerel ≠ {ref}) — yerel commit "
                     f"rol taklidi sayılır; değişiklik PR ile birleşmeli")

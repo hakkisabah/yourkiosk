@@ -230,5 +230,77 @@ class KaydetBetigiTesti(unittest.TestCase):
         self.assertEqual(s.returncode, 2)
 
 
+class UzakCapaTesti(unittest.TestCase):
+    """27 Ekim i5 bulgusu: kimlik çapası YEREL ref'ten okunuyordu → `update-ref` ile taklit.
+
+    Kapanış ölçütü: yerel `origin/<dal>` sha'sı `git ls-remote` ile birebir eşleşmiyorsa eşleme
+    YAYINLANMIŞ sayılmaz (boş döner, kimlik reddedilir).
+    """
+
+    def setUp(self):
+        self.dizin = tempfile.TemporaryDirectory()
+        self.kok = Path(self.dizin.name)
+        self.depo = self.kok / "depo"
+        self.depo.mkdir()
+        self._git("init", "--initial-branch=main")
+        self.esleme = self.depo / "otomasyon" / "makine-kimlikleri.json"
+        self.esleme.parent.mkdir(parents=True)
+        self.esleme.write_text(json.dumps({"i5": {"hostname": "casperi5",
+                                                  "kimlik_ozet": OZET_I5}}, indent=2) + "\n",
+                               encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-m", "esleme")
+        self.sha = self._git("rev-parse", "HEAD").stdout.strip()
+        # gerçek uzağın yerel aynası: origin/main bu commit'i gösteriyor
+        self._git("update-ref", "refs/remotes/origin/main", self.sha)
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def _git(self, *arg: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(self.depo), *arg], capture_output=True,
+                              text=True, env={**os.environ, **GIT_ENV}, timeout=60)
+
+    def _uzak(self, sha: str | None = None):
+        return lambda depo: ({("main" if sha is None else "main"): (sha or self.sha)}, "")
+
+    def test_uzak_sha_ile_eslesen_ref_yayinlanmis_sayilir(self):
+        bayt, ref = yaz._yayinlanmis_esleme(self.depo, "main", uzak_oku=self._uzak())
+        self.assertEqual(bayt, self.esleme.read_bytes())
+        self.assertEqual(ref, "origin/main")
+
+    def test_oynanmis_yerel_ref_yayinlanmis_sayilmaz(self):
+        """Ajan `update-ref refs/remotes/origin/main <kendi commit'i>` yazarsa çapa çöker."""
+        self._git("checkout", "-b", "sahte")
+        self.esleme.write_text(json.dumps({"i3": {"kimlik_ozet": OZET_I3}}) + "\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-m", "taklit")
+        taklit = self._git("rev-parse", "HEAD").stdout.strip()
+        self._git("update-ref", "refs/remotes/origin/main", taklit)
+        bayt, ref = yaz._yayinlanmis_esleme(self.depo, "main", uzak_oku=self._uzak())
+        self.assertEqual(bayt, b"", "uzak sha ile eşleşmeyen yerel ref kabul edilmemeli")
+        self.assertEqual(ref, "")
+
+    def test_uzak_okunamazsa_fail_closed(self):
+        bayt, ref = yaz._yayinlanmis_esleme(self.depo, "main",
+                                            uzak_oku=lambda depo: ({}, "ağ yok"))
+        self.assertEqual((bayt, ref), (b"", ""))
+
+    def test_bayat_ref_icin_fetch_onerilir(self):
+        """Uzak ilerlemiş (yerel ref bayat) → yayınlanmış sayılmaz; kimlik reddi fetch önerir."""
+        ileri = "f" * 40
+        bayt, ref = yaz._yayinlanmis_esleme(self.depo, "main",
+                                            uzak_oku=lambda depo: ({"main": ileri}, ""))
+        self.assertEqual((bayt, ref), (b"", ""))
+        with mock.patch.object(yaz, "KIMLIK_VARSAYILAN", self.depo / "yok"), \
+             mock.patch.object(yaz, "_yayinlanmis_esleme",
+                               lambda depo, dal="": (b"", "")):
+            kimlik, neden = yaz.makine_kimligi_denetle(
+                makine_id=Path("/etc/machine-id"), depo=self.depo,
+                sahip_denetimi=lambda st: True, dizin_denetimi=lambda st: True)
+        self.assertEqual(kimlik, "")
+        self.assertIn("git ls-remote", neden)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
