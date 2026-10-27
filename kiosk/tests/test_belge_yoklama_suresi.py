@@ -385,7 +385,7 @@ def test_damga_yoklamasi_anlatilan_belgeler_iki_degeri_de_yazar():
         assert "30 sn" in metin, ad
 
 
-def test_komut_gecikmesi_dogru_anlatilir():
+def test_komut_gecikmesi_dogru_anlatilir() -> None:
     """Komut yolu 10 turda bir çalışır: en çok 20 dk (push bağlı) / 5 dk (kopuk).
 
     i5 bulgusu: KOMUTLAR.md komut gecikmesini ~10 kat küçük gösteriyordu ("DAMGA_KONTROL_MS
@@ -395,6 +395,56 @@ def test_komut_gecikmesi_dogru_anlatilir():
     assert "10 tur" in metin or "10 yoklama turunda" in metin
     assert "20 dakika" in metin
     assert "5 dakika" in metin
+
+
+def test_komut_capraz_kontrolu_belgede_gerekcelendirilmis() -> None:
+    """Komut çapraz kontrolünün `tetik.aktif` kapısından ÖNCE olması belgede yazılmalı.
+
+    27 Ekim i5 bulgusu (BİLGİ): çağrı `otomatik_acik("qt")` kapısının önüne alındı; davranış
+    bilinçli, belgede fail-closed katmanın adı ve nedeni açıkça yazmalı (davranış değişmez).
+    """
+    metin = (KIOSK / "KOMUTLAR.md").read_text(encoding="utf-8")
+    assert 'otomatik_acik("qt")' in metin, "kapının adı yazılmıyor"
+    assert "tetik.aktif=false" in metin or "tetik.aktif = false" in metin, (
+        "kapalı otomatik tetiklemeli cihazda komutun uygulandığı yazılmıyor")
+    assert "fail-closed" in metin, "güvenlik katmanının (fail-closed) adı yazılmıyor"
+    assert "HMAC" in metin and "imza" in metin.lower(), "imza denetimi gerekçesi yazılmıyor"
+    assert "bilinçli" in metin.lower(), "tasarım kararı olduğu belirtilmiyor"
+
+
+# --- tarayıcı modu: sabit 120 sn (bağlantıya göre seçim YOK) — 27 Ekim i5 bulgusu -----------
+def test_tarayici_modu_sabit_damga_araligi_belgede_dogru() -> None:
+    """Tarayıcı modu `DAMGA_KONTROL_MS`i SABİT kullanır (push bağlı/kopuk seçimi yok).
+
+    27 Ekim i5 bulgusu: `web/CALISTIRMA.md` "push bağlı 120 sn · push kapalı 30 sn" diyordu;
+    oysa bu ikili Qt yoluna aittir (`pharmacy_app.yoklama_araligi`). Tarayıcıda aralık sabittir
+    (`web/src/kiosk.ts` → `sabit('DAMGA_KONTROL_MS', …)`, değer `yerlesim.json`dan gelir).
+    Bu test değeri `web/src/veri/yerlesim.json`dan okur ve web belgelerinde niteliksiz
+    "kopuk 30 sn" iddiasını kırmızıya çevirir.
+    """
+    import json
+
+    yerlesim = json.loads((KOK / "web" / "src" / "veri" / "yerlesim.json").read_text(encoding="utf-8"))
+    sabit_sn = int(yerlesim["sabitler"]["DAMGA_KONTROL_MS"]) // 1000
+    assert sabit_sn == config.DAMGA_KONTROL_MS // 1000, "web sabiti Qt sabitinden koptu"
+
+    calistirma = (KOK / "web" / "CALISTIRMA.md").read_text(encoding="utf-8")
+    assert f"tarayıcı: sabit {sabit_sn} sn" in calistirma, (
+        f"web/CALISTIRMA.md tarayıcı modunun SABİT {sabit_sn} sn aralığını yazmıyor")
+
+    kacak: list[str] = []
+    for md in sorted((KOK / "web").rglob("*.md")):
+        if "node_modules" in md.parts:
+            continue
+        for no, satir in enumerate(md.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            kucuk = satir.lower()
+            if "30 sn" not in kucuk or not ("yoklama" in kucuk or "damga" in kucuk):
+                continue
+            # 30 sn YALNIZ Qt yoluna açıkça atfedilerek yazılabilir.
+            if "qt" not in kucuk:
+                kacak.append(f"{md.relative_to(KOK)}:{no}: {_kisa(satir)}")
+    assert not kacak, ("web/ belgelerinde niteliksiz '30 sn' yoklama iddiası "
+                       "(Qt'ye atıf yok):\n" + "\n".join(kacak))
 
 
 # --- menü adı / dosya adı ayrımı (kullanıcı geri bildirimi) ---------------------

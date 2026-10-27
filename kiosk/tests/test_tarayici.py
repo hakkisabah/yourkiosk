@@ -135,15 +135,21 @@ def sunucu(monkeypatch):
     fixture `pytest.skip` yapıyordu → yerel HTTP sunucusunun GÜVENLİK testleri (kök dışına çıkma,
     beyaz liste, SSRF/görsel köprüsü) hiçbir standart koşuda çalışmıyordu. Artık derlenmiş
     arayüz beklenmez: geçici bir "dist" kökü üretilir ve `derlenmis_kok()` ona yönlendirilir.
-    Test edilen şey sunucunun yol/whitelist davranışıdır, gerçek paket içeriği değil.
+    Test edilen şey sunucunun yol/whitelist davranışıdır, gerçek paket içeriği değil (GERÇEK
+    paketi denetleyen iki test `gercek_sunucu` fixture'ını kullanır).
 
-    Dizin depo kökünde açılır (nokta içeren `$TMPDIR` yolları sunucunun "gizli klasör" kuralınca
-    403 alır) ve test sonunda silinir.
+    27 Ekim i5 bulgusu: dizin eskiden "nokta içeren `$TMPDIR` yolları 403 alır" gerekçesiyle DEPO
+    KÖKÜNDE açılıyordu. Gizli-parça denetimi köke GÖRELİ parçalara çevrildiği için gerekçe
+    geçersiz; ayrıca test depoda artefakt bırakma riski taşıyordu. Artık varsayılan `$TMPDIR`
+    kullanılır ve kökün depo dışında olduğu burada doğrulanır.
     """
     import shutil
     import tempfile
 
-    kok = Path(tempfile.mkdtemp(prefix="test-dist-", dir=str(tarayici.KOK.parent)))
+    kok = Path(tempfile.mkdtemp(prefix="test-dist-"))
+    assert not kok.resolve().is_relative_to(tarayici.KOK.resolve()), (
+        "test kökü depo içine açıldı → test koşusu depoda artefakt bırakır"
+    )
     (kok / "index.html").write_text(
         "<!doctype html><meta charset='utf-8'><title>yourkiosk</title>"
         "<div id='app'>yourkiosk kiosk</div>\n", encoding="utf-8")
@@ -158,6 +164,29 @@ def sunucu(monkeypatch):
             s.server_close()
     finally:
         shutil.rmtree(kok, ignore_errors=True)
+
+
+@pytest.fixture()
+def gercek_sunucu():
+    """GERÇEK `web/dist` paketini sunar (derlenmemişse SKIP — gerekçede doğru yol yazar).
+
+    `sunucu` fixture'ı `derlenmis_kok()`u geçici bir köke yönlendirdiği için GERÇEK paketin
+    içeriğini denetleyen testler bu fixture'ı kullanmalıdır (27 Ekim i5 bulgusu: eski
+    `_gercek_derlenmis()` bir seviye yanlış yola baktığı için bu testler derleme VARken bile
+    sessizce atlanıyordu).
+    """
+    if not tarayici.derlenmis_mi():
+        pytest.skip(
+            f"{tarayici.derlenmis_kok()}/index.html yok → web/dist derlenmemiş "
+            "(cd web && npm install --include=dev && npm run build)"
+        )
+    tarayici._IstekIsleyici.gunluk.clear()
+    s, port, _ = tarayici.sunucu_baslat("127.0.0.1", 0)
+    try:
+        yield port
+    finally:
+        s.shutdown()
+        s.server_close()
 
 
 def _indir(port: int, yol: str) -> tuple[int, bytes, dict]:
@@ -199,6 +228,57 @@ def test_tasarim_gorselleri_qt_dosyalarindan_sunulur(sunucu: int) -> None:
 def test_cihaz_kimligi_sunulmaz(sunucu: int) -> None:
     """`makinebilgileri.json` (clientID) arayüze HİÇ verilmez: kimlik URL'de gelir."""
     assert _indir(sunucu, "/makinebilgileri.json")[0] == 403
+
+
+def test_sunulan_kokte_gizli_dosya_ve_dizin_403(sunucu: int) -> None:
+    """Sunulan ağaçta nokta ile başlayan dosya/dizin ASLA verilmez (403).
+
+    27 Ekim i5 bulgusu: gizli-parça denetimi mutlak yoldan köke-göreli parçalara çevrildi ama
+    kuralı doğrulayan test yoktu. Bu test kuralı doğrudan kilitler.
+    """
+    import shutil
+
+    gizli_dizin = tarayici.web_kok() / ".gizli"
+    gizli_dizin.mkdir(exist_ok=True)
+    (gizli_dizin / "sir.json").write_text('{"sir": "x"}', encoding="utf-8")
+    (tarayici.web_kok() / ".gizli-dosya.json").write_text('{"x": 1}', encoding="utf-8")
+    try:
+        assert _indir(sunucu, "/.gizli/sir.json")[0] == 403
+        assert _indir(sunucu, "/.gizli-dosya.json")[0] == 403
+        # aynı ada gizli OLMAYAN yolla erişim de 403 kalmalı (kural adda değil, köke göreli
+        # parçada): üst dizin gizliyse altındaki her şey gizlidir
+        assert _indir(sunucu, "/.gizli/../.gizli/sir.json")[0] in (403, 404)
+    finally:
+        shutil.rmtree(gizli_dizin, ignore_errors=True)
+        (tarayici.web_kok() / ".gizli-dosya.json").unlink(missing_ok=True)
+
+
+def test_nokta_iceren_kok_altinda_arayuz_sunulur(monkeypatch) -> None:
+    """Servis edilen kök nokta içeren bir dizin altındaysa dosyalar 403 OLMAMALI.
+
+    27 Ekim i5 bulgusunun ASIL regresyonu: gizli-parça denetimi mutlak yola bakarken depo kökü
+    (`~/.hermes/…`) nokta içerdiği için sunulabilecek HER dosya 403 alıyordu. Kök kasten noktalı
+    bir dizin altında kurulur; `/index.html` ve normal bir varlık 200 dönmelidir.
+    """
+    import shutil
+    import tempfile
+
+    ust = Path(tempfile.mkdtemp(prefix="kok-noktali-"))
+    kok = ust / ".gizli-ust" / "dist"
+    kok.mkdir(parents=True)
+    (kok / "index.html").write_text(
+        "<!doctype html><title>yourkiosk</title><div id='app'>yourkiosk</div>\n", encoding="utf-8")
+    (kok / "saglik.json").write_text('{"ok": true}', encoding="utf-8")
+    monkeypatch.setattr(tarayici, "derlenmis_kok", lambda: kok)
+    tarayici._IstekIsleyici.gunluk.clear()
+    s, port, _ = tarayici.sunucu_baslat("127.0.0.1", 0)
+    try:
+        assert _indir(port, "/index.html")[0] == 200, "noktalı kök altında arayüz 403 aldı (regresyon)"
+        assert _indir(port, "/saglik.json")[0] == 200
+    finally:
+        s.shutdown()
+        s.server_close()
+        shutil.rmtree(ust, ignore_errors=True)
 
 
 def test_kok_disina_cikma_engellenir(sunucu: int) -> None:
@@ -571,28 +651,37 @@ def test_tetik_oku_bozuk_dosyayi_yok_sayar(monkeypatch) -> None:
 
 
 # ------------------------------------------------------------------ derlenmiş arayüz
-def _gercek_derlenmis() -> bool:
-    """GERÇEK `web/dist` derlenmiş mi? (fixture `derlenmis_kok`'u monkeypatch eder → bakma.)"""
-    return (tarayici.web_kaynak_kok().parent / "dist" / "index.html").is_file()
+def test_derlenmis_kok_yolu_web_dist() -> None:
+    """`derlenmis_kok()` = `<depo>/web/dist` (27 Ekim i5 bulgusu: testte bir seviye kaymıştı).
+
+    Eski `_gercek_derlenmis()` `web_kaynak_kok().parent / "dist"` diyordu → `<depo>/dist`.
+    Bu test yolu doğrudan kilitler; kayarsa gerçek-paket testleri sessizce SKIP olur.
+    """
+    assert tarayici.derlenmis_kok() == tarayici.web_kaynak_kok() / "dist"
+    assert tarayici.derlenmis_kok().parent == tarayici.web_kaynak_kok()
+    assert tarayici.derlenmis_mi() == (tarayici.derlenmis_kok() / "index.html").is_file()
 
 
 def test_derlenmis_arayuz_sunulur() -> None:
     """Tarayıcıya KAYNAK değil DERLENMİŞ arayüz sunulur (kaynakta `.ts` → beyaz ekran)."""
     if not tarayici.derlenmis_mi():
-        pytest.skip("web/dist yok (temiz klon): cd web && npm install --include=dev && npm run build")
+        pytest.skip(
+            f"{tarayici.derlenmis_kok()}/index.html yok → web/dist derlenmemiş "
+            "(cd web && npm install --include=dev && npm run build)"
+        )
     assert tarayici.web_kok() == tarayici.derlenmis_kok()
     assert tarayici.web_kok() != tarayici.web_kaynak_kok()
 
 
-def test_derlenmis_html_tarayicida_calisir(sunucu: int) -> None:
+def test_derlenmis_html_tarayicida_calisir(gercek_sunucu: int) -> None:
     """Sunulan index.html YALNIZCA derlenmiş varlıklara başvurur (`.ts` istemez).
 
-    GERÇEK paketin içeriğini denetler → derlenmiş arayüz yoksa (temiz klon) atlanır. Diğer
-    sunucu testleri artık atlanmaz: fixture geçici bir kök üretir (26 Ekim i5 bulgusu).
+    GERÇEK paketin içeriğini denetler → derlenmiş arayüz yoksa (temiz klon) `gercek_sunucu`
+    fixture'ı SKIP eder. Diğer sunucu testleri artık atlanmaz: `sunucu` fixture'ı geçici bir
+    kök üretir (26 Ekim i5 bulgusu). 27 Ekim i5 bulgusu: eskiden yanlış yola bakan
+    `_gercek_derlenmis()` yüzünden bu testler derleme VARken de sessizce atlanıyordu.
     """
-    if not _gercek_derlenmis():
-        pytest.skip("web/dist yok (temiz klon): cd web && npm install --include=dev && npm run build")
-    kod, govde, _ = _indir(sunucu, "/index.html")
+    kod, govde, _ = _indir(gercek_sunucu, "/index.html")
     assert kod == 200
     metin = govde.decode("utf-8")
     assert "yourkiosk" in metin.lower()  # port algılama işareti
@@ -602,16 +691,14 @@ def test_derlenmis_html_tarayicida_calisir(sunucu: int) -> None:
     for yol in [p for p in metin.split('"') if "assets/" in p and p.endswith((".js", ".css"))][:2]:
         tam = yol.split("?")[0]
         tam = tam if tam.startswith("/") else f"/{tam.lstrip('./')}"
-        kod_v, govde_v, basliklar = _indir(sunucu, tam)
+        kod_v, govde_v, basliklar = _indir(gercek_sunucu, tam)
         assert kod_v == 200 and len(govde_v) > 100, f"{tam} sunulmadı"
         assert "javascript" in basliklar.get("Content-Type", "") or "css" in basliklar.get("Content-Type", "")
 
 
-def test_derlenmis_arayuzde_hata_guvenlik_agi_var(sunucu: int) -> None:
+def test_derlenmis_arayuzde_hata_guvenlik_agi_var(gercek_sunucu: int) -> None:
     """Boş ekran yerine hata kartı çizen bağımsız güvenlik ağı derlemede bulunmalı."""
-    if not _gercek_derlenmis():
-        pytest.skip("web/dist yok (temiz klon): cd web && npm install --include=dev && npm run build")
-    kod, govde, _ = _indir(sunucu, "/index.html")
+    kod, govde, _ = _indir(gercek_sunucu, "/index.html")
     assert kod == 200
     metin = govde.decode("utf-8")
     assert "__kioskKart" in metin, "hata güvenlik ağı derlemede yok"

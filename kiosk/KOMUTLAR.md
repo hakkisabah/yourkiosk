@@ -15,6 +15,14 @@ Nöbet tetikleyicisi (`tetikle.json`) ile **aynı** taşıma yolu kullanılır �
 çalıştırılmadan önce imza denetiminden geçmesidir. Panel `durum.json`a komut işareti yazmaya
 başlarsa gecikme `DAMGA_KONTROL_MS`'e (120/30 sn) iner.
 
+**Neden `tetik.aktif` kapısının ÖNÜNDE?** Komut çapraz kontrolü `otomatik_acik("qt")` kapısının
+önünde ve ondan bağımsız çalışır: `tetik.aktif=false` olan cihazda da uzaktan komut uygulanır.
+Bu **bilinçli bir tasarım kararıdır** — komut ayrı bir özelliktir, otomatik tetikleme kapalıysa
+da operatörün cihazı uzaktan yeniden başlatabilmesi gerekir. Komutun güvenliği o kapıya değil
+**fail-closed** katmanlara dayanır: HMAC **imza denetimi** (anahtar yoksa ya da imza
+doğrulanamazsa komut REDDEDİLİR — `core/komut.py`), beyaz liste (sabit argv, kabuk yok), hedef
+cihaz eşleşmesi ve tek seferlik uygulama. Yani kapı açık olsa da imzasız komut çalışmaz.
+
 ---
 
 ## 1. Hangi komutlar var?
