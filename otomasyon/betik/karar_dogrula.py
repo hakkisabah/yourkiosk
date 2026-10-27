@@ -391,8 +391,26 @@ def main() -> int:
     except OSError:
         token = None
 
-    sonuc = dogrula_karar(karar, a.makine, token=token, depo=a.depo_adresi,
-                          kanit=not a.kanit_yok)
+    # 27 Ekim i5 bulgusu (düşük): `--kanit-yok` HİÇBİR operatör koruması olmadan kanıt katmanını
+    # kapatıyor ve "✓ karar kapısı: geçti" yazıyordu (yaz.py'de aynı bayrak bilet+anahtar isterken).
+    # Artık aynı kapı: operatör anahtarı + root sahipli TTL'li bilet yoksa kanıt denetimi KAPATILAMAZ.
+    kanit = True
+    if a.kanit_yok:
+        try:
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import yaz as _yaz
+            izin, ret_uzun, _ret_kisa = _yaz.operator_izi_denetle()
+        except Exception as hata:  # noqa: BLE001 — kapı açılamıyorsa kanıt denetimi KAPALI kalmaz
+            izin, ret_uzun = False, f"operatör kapısı yüklenemedi: {hata}"
+        if not izin:
+            print(f"✗ kanıt denetimi YAPILAMADI — --kanit-yok reddedildi: {ret_uzun}", file=sys.stderr)
+            print("  Kanıt katmanını kapatmak operatör anahtarı (YAZ_KAPI_ATLA_ONAY=1) + TTL'li bilet "
+                  "ister; ajan tek başına kapatamaz.", file=sys.stderr)
+            return 1
+        kanit = False
+
+    sonuc = dogrula_karar(karar, a.makine, token=token, depo=a.depo_adresi, kanit=kanit)
     if a.json:
         print(json.dumps({"gecti": sonuc.gecti, "hatalar": sonuc.hatalar,
                           "uyarilar": sonuc.uyarilar}, ensure_ascii=False, indent=1))

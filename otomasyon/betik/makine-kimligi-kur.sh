@@ -134,11 +134,15 @@ kaydet() {
     ""|*[!0-9a-f]*) echo "✗ /etc/machine-id biçimi beklenmedik: '$mid'" >&2; return 4 ;;
   esac
   host="$(cat /etc/hostname 2>/dev/null || hostname 2>/dev/null || echo '?')"
+  # HAM machine-id DEPOYA YAZILMAZ (depo herkese açık; machine-id kalıcı cihaz tanımlayıcısıdır).
+  # Depoda yalnız ayrımlı sha256 özeti tutulur (yaz.py KIMLIK_OZET_AYRACI ile AYNI olmalı).
+  ozet="$(printf '%s%s' 'yourkiosk-makine-kimligi-v1|' "$mid" | sha256sum | cut -d' ' -f1)"
   echo "  rol         : $rol"
-  echo "  machine-id  : $mid"
+  echo "  machine-id  : $mid (yalnız YERELDE gösterilir, depoya yazılmaz)"
+  echo "  kimlik_ozet : $ozet"
   echo "  hostname    : $host"
   echo "  eşleme satırı (otomasyon/makine-kimlikleri.json):"
-  printf '    "%s": {"hostname": "%s", "machine_id": "%s"}\n' "$rol" "$host" "$mid"
+  printf '    "%s": {"hostname": "%s", "kimlik_ozet": "%s"}\n' "$rol" "$host" "$ozet"
 
   if [ "$yaz" != "1" ]; then
     echo
@@ -149,16 +153,16 @@ kaydet() {
   kok="$(git -C "$(dirname "$0")/../.." rev-parse --show-toplevel 2>/dev/null || true)"
   [ -n "$kok" ] || { echo "✗ depo bulunamadı — --yaz yalnız depo içinde çalışır" >&2; return 4; }
   hedef="$kok/otomasyon/makine-kimlikleri.json"
-  python3 - "$hedef" "$rol" "$host" "$mid" <<'PYEOF'
+  python3 - "$hedef" "$rol" "$host" "$ozet" <<'PYEOF'
 import json, os, sys, tempfile
-hedef, rol, host, mid = sys.argv[1:5]
+hedef, rol, host, ozet = sys.argv[1:5]
 veri = {}
 if os.path.exists(hedef):
     with open(hedef, encoding="utf-8") as f:
         veri = json.load(f) or {}
 if not isinstance(veri, dict):
     sys.exit("var olan eşleme sözlük değil")
-veri[rol] = {"hostname": host, "machine_id": mid}
+veri[rol] = {"hostname": host, "kimlik_ozet": ozet}
 dizin = os.path.dirname(hedef)
 fd, gecici = tempfile.mkstemp(dir=dizin, prefix=".makine-kimlikleri.")
 with os.fdopen(fd, "w", encoding="utf-8") as f:
