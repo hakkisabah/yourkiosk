@@ -92,9 +92,29 @@ i3'te aynı komut `i3` argümanıyla. Bakım betiği şunları yapar (hepsi idem
 |---|---|
 | 1 | Klon yoksa `git clone --branch main`, varsa `fetch` + `reset --hard origin/main` (makine kopyası) |
 | 2 | Bellek tavanlarını **drop-in** olarak yazar: `yourkiosk-nobetci.service.d/50-bellek.conf` (RAM'den ölçülür) |
-| 3 | Birimi klon yolundan üretir: `--depo <klon> --guncelle` |
+| 3 | Birimi klon yolundan üretir: `--depo <klon> --dal <dal> --guncelle` |
 | 4 | Çalışan birime tavanı `set-property` ile **canlı** uygular (oturumu öldürmez) |
 | 5 | Oturum içinden çağrıldıysa restart'ı `systemd-run --on-active` ile **geciktirir** |
+
+**Hata görünürlüğü:** bakım betiği artık klondaki `nobetci-kur.sh`ın çıktısını yutmaz. Klondaki kod
+makine kopyası + kendini güncelleme biçimini desteklemiyorsa **çıkış 8** ile `DESTEKLEMİYOR` der ve
+çözüm komutunu yazar; gerçek kurulum patlarsa alttaki komutun çıktısı **aynen** gösterilir (çıkış 7).
+(27 Ekim: `✗ birim kurulumu başarısız` deyip neden yazmıyordu.)
+
+### Düzeltme dalından çalıştırma — `--dal` (kilitlenme çözümü)
+
+Şu kilitlenme gerçek: servis ölü → i5 inceleme yapamıyor → PR'lar birleşemiyor → düzeltme `main`e
+giremiyor → servis ölü kalıyor. Bu yüzden bakım betiği **istenen dalı** izleyebilir:
+
+```bash
+# düzeltmeyi taşıyan daldan kur (main'e merge edilmeden makine yeni kodu koşar)
+git -C ~/projeler/yourkiosk fetch origin <duzeltme-dali> && \
+  git -C ~/projeler/yourkiosk show FETCH_HEAD:otomasyon/betik/nobetci-bakim.sh | bash -s -- i5 --dal <duzeltme-dali>
+```
+
+İzlenen dal `~/.local/state/yourkiosk-otomasyon/nobetci-dal` dosyasına yazılır; birim `--dal <dal>`
+alır; `--guncelle` ve kontrol noktası 13 bu dalı kullanır. **Merge sonrası normale dönmek için**
+`bash otomasyon/betik/nobetci-bakim.sh i5` (dal varsayılan `main`).
 
 Sonrasında doğrulama ve günlük:
 
@@ -181,7 +201,7 @@ Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce v
 | 10 | **Boş RAM / takas** | ≥ 500 MB boş · takas <%50 |
 | 11 | **Son 24s OOM / core dump izi** | 0 (`journalctl --user -u …`) |
 | 12 | Ağır komut koşucusu (`agir-komut.sh`) | var + çalıştırılabilir |
-| 13 | **Kod `origin/main` ile aynı** (eski kod = eski hata) | eşit sha |
+| 13 | **Kod `origin/<izlenen dal>` ile aynı** (eski kod = eski hata) | eşit sha |
 | 14 | **Kod deposu makine kopyası** (insan deposu değil) | klon işareti var |
 
 ## Bellek tavanı (26 Ekim dersi — node core dump)
