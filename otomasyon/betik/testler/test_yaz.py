@@ -598,6 +598,31 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
             self.assertIn("--tek-onay için --gerekce", s.stderr)
 
 
+class YuksekBulguKapisiTesti(unittest.TestCase):
+    """27 Ekim i5 bulgusu: `--kanit-yok`/`--kapi-atla` yalnız `bulgular` alanını tarıyordu.
+
+    i3 kararlarında aynı liste `eksikler` adıyla geliyor → 'yüksek' önemde bir bulgu varken iki
+    kaçış yolu da sessizce geçebiliyordu. Kapı artık üç alanı birlikte tarar.
+    """
+
+    def test_bulgular_alaninda_yuksek(self):
+        karar = {"bulgular": [{"onem": "yuksek", "aciklama": "x"}]}
+        self.assertEqual(len(yaz._yuksek_bulgular(karar)), 1)
+
+    def test_eksikler_alaninda_yuksek(self):
+        karar = {"eksikler": [{"onem": "yüksek", "aciklama": "x"}]}
+        self.assertEqual(len(yaz._yuksek_bulgular(karar)), 1)
+
+    def test_sorunlar_alaninda_kritik(self):
+        karar = {"sorunlar": [{"onem": "kritik", "aciklama": "x"}]}
+        self.assertEqual(len(yaz._yuksek_bulgular(karar)), 1)
+
+    def test_dusuk_ve_orta_sayilmaz(self):
+        karar = {"bulgular": [{"onem": "dusuk"}, {"onem": "orta"}],
+                 "eksikler": [{"onem": "orta"}]}
+        self.assertEqual(yaz._yuksek_bulgular(karar), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

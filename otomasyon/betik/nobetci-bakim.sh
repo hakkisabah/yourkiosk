@@ -270,8 +270,29 @@ fi
 # 27 Ekim dersi: yalnız birim dosyasını yazmak yetmiyordu. Eski ExecStart (insan deposu, bellek
 # tavanı yok) çalışmaya devam ediyor ve OOM döngüsü sürüyordu; kullanıcı "kurdum" sanıyordu.
 # Artık birim yeniden başlatılır: `reset-failed` (start limiti) + `restart` (yeni kod + tavanlar).
+# 27 Ekim i5 bulgusu: `grep -qs $UNIT_ADI /proc/self/cgroup` YANLIŞ ölçüt. Birimin cgroup'u
+# ALTINDA koşan her süreç (i5'in kendi otomasyon testleri dâhil) "içeride" sayılıyordu; testler
+# gecikmeli devralma dalına düşüp düşüyordu ve reset-failed atlanıyordu. Doğru ölçüt: bu kabuk
+# birimin ANA SÜRECİNİN (MainPID) kendisi mi ya da onun soyundan mı?
+birim_icinde() {
+  local main pid i
+  main="$(systemctl --user show "$UNIT_ADI" -p MainPID --value 2>/dev/null || true)"
+  case "${main:-}" in ''|*[!0-9]*) return 1 ;; esac
+  # MainPID 0/1 = birimin çalışan ana süreci YOK (birim durmuş) → "içeride" sayılmaz.
+  [ "$main" -gt 1 ] || return 1
+  pid=$$
+  i=0
+  while [ "$i" -lt 16 ]; do
+    [ "$pid" = "$main" ] && return 0
+    [ "$pid" -le 1 ] && return 1
+    pid="$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null || true)"
+    case "${pid:-}" in ''|*[!0-9]*) return 1 ;; esac
+    i=$(( i + 1 ))
+  done
+  return 1
+}
 icinde=0
-if grep -qs "$UNIT_ADI" /proc/self/cgroup 2>/dev/null; then icinde=1; fi
+if birim_icinde; then icinde=1; fi
 if [ "$icinde" -eq 1 ]; then
   # Bu kabuk birimin İÇİNDE: hemen restart kendi oturumumuzu öldürür → gecikmeli devralma.
   if [ "$YENIDEN" -eq 1 ]; then

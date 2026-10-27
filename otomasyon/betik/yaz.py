@@ -344,9 +344,20 @@ def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay
 
 
 def _yuksek_bulgular(karar: dict) -> list[dict]:
-    """'yüksek'/'kritik' önemdeki bulgular — kapı atlama yolları bunlar varken kapalıdır."""
-    return [b for b in (karar.get("bulgular") or []) if isinstance(b, dict)
-            and str(b.get("onem", "")).lower() in {"yuksek", "yüksek", "kritik"}]
+    """'yüksek'/'kritik' önemdeki bulgular — kapı atlama yolları bunlar varken kapalıdır.
+
+    27 Ekim i5 bulgusu: yalnız `bulgular` alanı taranıyordu; i3 kararlarında aynı liste `eksikler`
+    adıyla geliyor → 'yüksek' bulgu varken `--kanit-yok`/`--kapi-atla` sessizce geçebiliyordu.
+    Her iki alan (ve varsa `sorunlar`) birlikte taranır.
+    """
+    kayitlar: list = []
+    for alan in ("bulgular", "eksikler", "sorunlar"):
+        deger = karar.get(alan)
+        if isinstance(deger, list):
+            kayitlar.extend(deger)
+    return [b for b in kayitlar if isinstance(b, dict)
+            and str(b.get("onem", b.get("onem_derecesi", ""))).lower()
+            in {"yuksek", "yüksek", "kritik", "critical", "high"}]
 
 
 def bilet_yolu() -> Path:

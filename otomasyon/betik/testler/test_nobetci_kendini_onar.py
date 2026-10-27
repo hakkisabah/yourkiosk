@@ -531,6 +531,10 @@ class BakimServisTesti(BakimHataGorunurluguTesti):
         (self.stub / "systemctl").write_text(
             "#!/usr/bin/env bash\n"
             'echo "$*" >> "' + str(self.kayit) + '"\n'
+            # `show -p MainPID --value`: birimin ANA SÜRECİ. Testler `STUB_MAINPID` ile
+            # "bu kabuk birimin içinde mi" sorusunu DENETLENEBİLİR hâle getirir (27 Ekim i5 bulgusu:
+            # eski ölçüt cgroup metniydi → birim altında koşan her test "içeride" sayılıyordu).
+            'case "$*" in *"MainPID"*) echo "${STUB_MAINPID:-999999}"; exit 0 ;; esac\n'
             'for a in "$@"; do\n'
             '  if [ "$a" = "is-active" ]; then\n'
             '    if [ "${STUB_AKTIF:-0}" = "1" ]; then echo active; exit 0; fi\n'
@@ -539,15 +543,22 @@ class BakimServisTesti(BakimHataGorunurluguTesti):
             "done\n"
             "exit 0\n", encoding="utf-8")
         (self.stub / "loginctl").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-        for ad in ("systemctl", "loginctl"):
+        (self.stub / "systemd-run").write_text(
+            "#!/usr/bin/env bash\n"
+            'echo "systemd-run $*" >> "' + str(self.kayit) + '"\n'
+            "exit 0\n", encoding="utf-8")
+        for ad in ("systemctl", "loginctl", "systemd-run"):
             (self.stub / ad).chmod(0o755)
 
-    def _calistir(self, *ek: str, atla: bool = False, aktif: bool = True) -> subprocess.CompletedProcess:
+    def _calistir(self, *ek: str, atla: bool = False, aktif: bool = True,
+                  mainpid: int | None = None) -> subprocess.CompletedProcess:
         ortam = {**os.environ, **GIT_ENV, "HOME": str(self.ev),
                  "NOBETCI_UZAK": str(self.kurulum.origin),
                  "NOBETCI_KOD_DEPO": str(self.kod_depo),
                  "PATH": f"{self.stub}:{os.environ.get('PATH', '')}",
                  "STUB_AKTIF": "1" if aktif else "0"}
+        if mainpid is not None:
+            ortam["STUB_MAINPID"] = str(mainpid)
         if atla:
             ortam["NOBETCI_SISTEMD_ATLA"] = "1"
         return subprocess.run(["bash", str(self.kaynak / "otomasyon" / "betik" / "nobetci-bakim.sh"),
@@ -566,6 +577,27 @@ class BakimServisTesti(BakimHataGorunurluguTesti):
         self.assertEqual(s.returncode, 9, s.stdout + s.stderr)
         self.assertIn("servis başlatılamadı", s.stderr)
         self.assertIn("journalctl --user -u", s.stderr)
+
+    def test_birim_icindeysek_gecikmeli_devralma(self):
+        """MainPID soy ağacımızda ise hemen restart KENDİMİZİ öldürür → gecikmeli devralma.
+
+        27 Ekim i5 bulgusu: 'içeride miyim' ölçütü cgroup METNİNDE birim adını aramaktı; birim
+        altında koşan HER süreç (i5'in otomasyon testleri) 'içeride' sayılıyordu. Yeni ölçüt:
+        MainPID soy ağacında mı? Bu test MainPID'i test sürecinin kendisi verir → atalarında.
+        """
+        s = self._calistir(mainpid=os.getpid())
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertIn("gecikmeli devralma", s.stdout)
+        kayit = self.kayit.read_text(encoding="utf-8")
+        self.assertNotIn(" reset-failed", kayit, "içerideyken hemen restart denenmemeli")
+        self.assertIn("systemd-run", kayit)
+
+    def test_birim_disindaysak_hemen_restart(self):
+        """MainPID soy ağacımızda DEĞİLSE (terminalden çalıştırma) hemen restart edilir."""
+        s = self._calistir(mainpid=999999)
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertIn("yeni koddan yeniden başlatıldı", s.stdout)
+        self.assertNotIn("gecikmeli devralma", s.stdout)
 
 
 if __name__ == "__main__":
