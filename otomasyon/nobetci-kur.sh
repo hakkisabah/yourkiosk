@@ -21,6 +21,7 @@ KIP="kur"
 CRON_KALDIR=0
 PROFIL="${NOBETCI_PROFIL:-}"
 KLON="${NOBETCI_KOD_DEPO:-}"
+DAL="${NOBETCI_DAL:-main}"
 for a in "$@"; do
   case "$a" in
     # --cron-kaldir EK bir işlemdir: servisi kurmayı ENGELLEMEZ (ilk sürümde engelliyordu)
@@ -33,13 +34,28 @@ for a in "$@"; do
     --bakim) KIP="bakim" ;;
     --klon=*) KLON="${a#--klon=}" ;;
     --profil=*) PROFIL="${a#--profil=}" ;;
+    --dal=*) DAL="${a#--dal=}" ;;
   esac
 done
-# --profil <ad> / --klon <yol> (ayrı boşluklu biçim)
+# --profil <ad> / --klon <yol> / --dal <ad> (ayrı boşluklu biçim)
 for ((i = 1; i <= $#; i++)); do
   if [ "${!i}" = "--profil" ]; then j=$((i + 1)); PROFIL="${!j:-}"; fi
   if [ "${!i}" = "--klon" ]; then j=$((i + 1)); KLON="${!j:-}"; fi
+  if [ "${!i}" = "--dal" ]; then j=$((i + 1)); DAL="${!j:-}"; fi
 done
+# 27 Ekim: dal adı git komutuna VE birim metnine yazılıyor → aynı kapıdan geçer.
+dal_gecerli() {
+  local d="$1"
+  [ -n "$d" ] && [ "${#d}" -le 120 ] || return 1
+  case "$d" in -*) return 1 ;; */) return 1 ;; *..*) return 1 ;; *//*) return 1 ;; esac
+  case "$d" in *[!A-Za-z0-9._/-]*) return 1 ;; esac
+  return 0
+}
+if ! dal_gecerli "$DAL"; then
+  echo "✗ geçersiz --dal değeri: '$DAL'" >&2
+  echo "  İzinli biçim: harf/rakam/._/- (ör. main, ozellik/karar-kapisi-adil-kuyruk)" >&2
+  exit 2
+fi
 if [ -n "${KLON:-}" ] && [ ! -d "$KLON/.git" ]; then
   echo "✗ --klon bir git deposu olmalı: $KLON" >&2
   echo "  (makine kopyasını nobetci-bakim.sh kurar: otomasyon/betik/nobetci-bakim.sh $ROL)" >&2
@@ -107,7 +123,7 @@ if [ "$CRON_KALDIR" -eq 2 ]; then
 fi
 # --denetle: kontrol noktaları (hiçbir şeyi değiştirmez)
 if [ "$KIP" = "denetle" ]; then
-  exec "$(command -v python3)" "$DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --kendini-denetle
+  exec "$(command -v python3)" "$DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --kendini-denetle --dal "$DAL"
 fi
 UNIT_ADI="yourkiosk-nobetci.service"
 UNIT_YOL="$HOME/.config/systemd/user/$UNIT_ADI"
@@ -146,9 +162,10 @@ MemoryMax=${MEM_MAX_MB}M
 TasksMax=1024
 OOMPolicy=stop
 TimeoutStopSec=30
-# KOD KAYNAĞI: $KOD_DEPO (makine kopyası) — insan deposu değil. `--guncelle` nöbetçinin kendini
-# origin/main'e çekmesini sağlar; değişiklik varsa süreç çıkar, Restart=always yeni kodu yükler.
-ExecStart=$PYTHON $KOD_DEPO/otomasyon/betik/nobetci.py --rol $ROL --aralik 15 --depo $KOD_DEPO --guncelle${PROFIL:+ --profil $PROFIL}
+# KOD KAYNAĞI: $KOD_DEPO (makine kopyası) — insan deposu değil. --guncelle nöbetçinin kendini
+# origin/<dal>'a çekmesini sağlar; değişiklik varsa süreç çıkar, Restart=always yeni kodu yükler.
+# DAL: main (varsayılan) ya da düzeltme dalı — main'e merge edilmeden de makine yeni kodu koşabilsin.
+ExecStart=$PYTHON $KOD_DEPO/otomasyon/betik/nobetci.py --rol $ROL --aralik 15 --depo $KOD_DEPO --dal $DAL --guncelle${PROFIL:+ --profil $PROFIL}
 Restart=always
 RestartSec=5
 StandardOutput=append:$HOME/.local/state/yourkiosk-otomasyon/nobetci-$ROL.log
@@ -163,7 +180,7 @@ case "$KIP" in
   durum)
     systemctl --user status "$UNIT_ADI" --no-pager | head -12 || true
     echo; echo "--- nöbetçi durum dosyası ---"
-    "$PYTHON" "$KOD_DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --depo "$KOD_DEPO" --durum || true
+    "$PYTHON" "$KOD_DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --depo "$KOD_DEPO" --dal "$DAL" --durum || true
     ;;
   kaldir)
     systemctl --user disable --now "$UNIT_ADI" 2>/dev/null || true
@@ -194,6 +211,8 @@ case "$KIP" in
       echo "MEM_MAX_MB=$MEM_MAX_MB"
       echo "NODE_HEAP_MB=$NODE_HEAP_MB"
     } > "$HOME/.local/state/yourkiosk-otomasyon/bellek.env"
+    # İzlenen dal tek yerde yazılı olsun: nobetci.py --guncelle ve --kendini-denetle bu dosyayı okur.
+    printf '%s\n' "$DAL" > "$HOME/.local/state/yourkiosk-otomasyon/nobetci-dal"
     systemctl --user daemon-reload
     # ÇALIŞAN OTURUMU ÖLDÜRME: `enable --now` zaten aktif bir birimi yeniden başlatmaz; yine de
     # niyeti açık yazıyoruz — aktifse yalnız `enable`, değilse `start`.
@@ -209,6 +228,7 @@ case "$KIP" in
     echo "=== kuruldu ==="
     echo "bellek tavanı: RAM ${RAM_MB} MB → MemoryHigh ${MEM_HIGH_MB} MB · MemoryMax ${MEM_MAX_MB} MB · NODE_OPTIONS heap ${NODE_HEAP_MB} MB"
     echo "kod deposu   : $KOD_DEPO$([ -n "${KLON:-}" ] && echo ' (makine kopyası)' || echo ' (insan deposu — nobetci-bakim.sh önerilir)')"
+    echo "izlenen dal  : $DAL$([ "$DAL" = "main" ] && echo '' || echo '  (düzeltme dalı — merge sonrası --dal main ile normale dönün)')"
     systemctl --user --no-pager status "$UNIT_ADI" | head -10
     echo
     echo "canlı günlük: journalctl --user -u $UNIT_ADI -f"
@@ -216,6 +236,6 @@ case "$KIP" in
     if [ "$CRON_KALDIR" -eq 1 ]; then cron_kaldir; else echo "cron'u kaldırmak için: $0 $ROL --cron-kaldir"; fi
     echo
     echo "=== kontrol noktaları ==="
-    "$PYTHON" "$KOD_DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --depo "$KOD_DEPO" --kendini-denetle || echo "(denetim uyarı verdi — yukarıya bak)"
+    "$PYTHON" "$KOD_DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --depo "$KOD_DEPO" --dal "$DAL" --kendini-denetle || echo "(denetim uyarı verdi — yukarıya bak)"
     ;;
 esac

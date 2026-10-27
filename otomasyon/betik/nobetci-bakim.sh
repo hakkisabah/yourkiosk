@@ -17,6 +17,7 @@
 # KULLANIM
 #   bash otomasyon/betik/nobetci-bakim.sh i5                 # kur/onar + canlı bellek tavanı
 #   bash otomasyon/betik/nobetci-bakim.sh i3 --kuru          # ne yapacağını göster (değiştirmez)
+#   bash otomasyon/betik/nobetci-bakim.sh i5 --dal <dal>      # İZLENEN DAL (varsayılan main)
 #   bash otomasyon/betik/nobetci-bakim.sh i5 --yeniden-baslat # ayrıca servisi hemen yeniden başlat
 #   bash otomasyon/betik/nobetci-bakim.sh i5 --sessiz        # ajan oturumundan: kısa çıktı
 #
@@ -38,16 +39,33 @@ if [ "$ROL" = "i5" ] || [ "$ROL" = "i3" ]; then shift; else
 fi
 
 KURU=0; YENIDEN=0; SESSIZ=0; GECIKME=900
-for a in "$@"; do
-  case "$a" in
+# Seçenekler TEK geçişte okunur: `--dal <ad>` değeri bir sonraki sözcüktür, "bilinmeyen seçenek"
+# sayılmamalı (27 Ekim: iki geçişli ilk sürüm `--dal duzeltme/dal` biçimini reddediyordu).
+while [ $# -gt 0 ]; do
+  case "$1" in
     --kuru) KURU=1 ;;
     --yeniden-baslat) YENIDEN=1 ;;
     --sessiz) SESSIZ=1 ;;
-    --gecikme=*) GECIKME="${a#--gecikme=}" ;;
-    *) echo "✗ bilinmeyen seçenek: $a" >&2; exit 2 ;;
+    --dal) shift; DAL="${1:-}" ;;
+    --dal=*) DAL="${1#--dal=}" ;;
+    --gecikme=*) GECIKME="${1#--gecikme=}" ;;
+    *) echo "✗ bilinmeyen seçenek: $1" >&2; exit 2 ;;
   esac
+  shift
 done
 case "$GECIKME" in ''|*[!0-9]*) echo "✗ --gecikme sayı olmalı" >&2; exit 2 ;; esac
+dal_gecerli() {
+  local d="$1"
+  [ -n "$d" ] && [ "${#d}" -le 120 ] || return 1
+  case "$d" in -*) return 1 ;; */) return 1 ;; *..*) return 1 ;; *//*) return 1 ;; esac
+  case "$d" in *[!A-Za-z0-9._/-]*) return 1 ;; esac
+  return 0
+}
+if ! dal_gecerli "$DAL"; then
+  echo "✗ geçersiz --dal değeri: '$DAL'" >&2
+  echo "  İzinli biçim: harf/rakam/._/- (ör. main, ozellik/karar-kapisi-adil-kuyruk)" >&2
+  exit 2
+fi
 
 # Bu betiğin bulunduğu depo (kaynak): <depo>/otomasyon/betik/nobetci-bakim.sh
 # `git show … | bash -s --` ile (boru hattı) çalıştırılırsa dosya yolu YOKTUR: o durumda kaynak
@@ -77,6 +95,7 @@ if [ "$KURU" -eq 1 ]; then
     soyle "kuru: klon var → fetch + reset --hard origin/$DAL"
   else
     soyle "kuru: klon yok → git clone --branch $DAL --single-branch $UZAK $KOD_DEPO"
+    soyle "kuru: izlenen dal dosyası → $DURUM_KLASORU/nobetci-dal ($DAL)"
   fi
   soyle "kuru: bellek tavanı → $HOME/.config/systemd/user/$UNIT_ADI.d/50-bellek.conf (drop-in)"
   soyle "kuru: sonra → bash <klon>/otomasyon/nobetci-kur.sh $ROL --klon $KOD_DEPO"
@@ -93,14 +112,18 @@ if [ ! -d "$KOD_DEPO/.git" ]; then
   fi
   soyle "→ klon oluşturuluyor"
   git clone --branch "$DAL" --single-branch "$UZAK" "$KOD_DEPO" >/dev/null 2>&1 || {
-    hata "klon başarısız: $UZAK"
+    hata "klon başarısız: $UZAK (dal: $DAL)"
     hata "  SSH anahtarı yetkili mi?  ssh -T git@github.com"
+    hata "  Dal uzakta var mı?        git ls-remote --heads $UZAK $DAL"
     exit 5
   }
 fi
 # Makineye ait kopya işareti: nobetci.py bu işareti görürse `reset --hard` ile günceller.
 # İşaret yoksa (insan deposu) nöbetçi yalnız `merge --ff-only` dener → kimsenin işini ezmez.
 touch "$KOD_DEPO/.git/yourkiosk-nobetci-kopya"
+# İzlenen dal TEK kaynaktan okunsun: servis, --guncelle ve --kendini-denetle bu dosyaya bakar.
+mkdir -p "$DURUM_KLASORU"
+printf '%s\n' "$DAL" > "$DURUM_KLASORU/nobetci-dal"
 
 ESKI_SHA="$(git -C "$KOD_DEPO" rev-parse --short=10 HEAD 2>/dev/null || echo '?')"
 git -C "$KOD_DEPO" fetch --prune origin "$DAL" >/dev/null 2>&1 || {
@@ -149,13 +172,44 @@ KUR="$KOD_DEPO/otomasyon/nobetci-kur.sh"
 soyle "→ birim yazılıyor (klon yolu, çökme freni)"
 # TEST/KURU KANCASI: systemd'ye dokunmadan birim metnini üretmek için (testler ve systemd'siz
 # makineler). Üretimde tanımlı değildir → gerçek kurulum yapılır.
+# KOD UYUM KAPISI (27 Ekim i5 arızası): ilk sürüm burada klonun `nobetci-kur.sh`ını çağırıyor ve
+# çıktısını `>/dev/null` ile YUTUYORDU. i5'te klon origin/main'e çekildiği için ESKİ kur.sh çalıştı;
+# o sürüm `--klon` bilmiyor, birimi insan deposu gibi yazıyor ve hata verince tek görünen şey
+# "✗ birim kurulumu başarısız" oldu — neden yok. Artık: (1) klondaki kodun bu kurulum biçimini
+# destekleyip desteklemediği ÖLÇÜLÜR, (2) gerçek kurulumun çıktısı hatada AYNEN gösterilir.
+KUR_LOG="$(mktemp -t yourkiosk-bakim-XXXXXX.log)"
+trap 'rm -f "$KUR_LOG"' EXIT
+if ! bash "$KUR" "$ROL" --kuru --klon "$KOD_DEPO" --dal "$DAL" >"$KUR_LOG" 2>&1; then
+  hata "birim üretimi başarısız (klon kodu: $YENI_SHA) — çıktı:"
+  sed 's/^/    /' "$KUR_LOG" | tail -20 >&2
+  exit 7
+fi
+eksik=""
+grep -q "^WorkingDirectory=$KOD_DEPO$" "$KUR_LOG" || eksik="WorkingDirectory=$KOD_DEPO"
+grep -q -- "--guncelle" "$KUR_LOG" || eksik="${eksik:+$eksik, }--guncelle"
+# --dal desteği yalnız main DIŞI bir dal istenirken ZORUNLU: eski kod (main) zaten main'i izler.
+if [ "$DAL" != "main" ]; then
+  grep -q -- "--dal $DAL" "$KUR_LOG" || eksik="${eksik:+$eksik, }--dal $DAL"
+fi
+if [ -n "$eksik" ]; then
+  hata "klondaki kod ($DAL @ $YENI_SHA) makine kopyası + kendini güncelleme biçimini DESTEKLEMİYOR"
+  hata "  eksik: $eksik"
+  hata "  sebep: origin/$DAL henüz bu düzeltmeleri içermiyor (düzeltme bir PR dalında olabilir)."
+  hata "  çözüm: düzeltmeyi taşıyan daldan kur →  $0 $ROL --dal <düzeltme-dalı>"
+  hata "  (main'e merge edildikten sonra: $0 $ROL   → dal yine main olur)"
+  exit 8
+fi
 if [ "${NOBETCI_SISTEMD_ATLA:-0}" = "1" ]; then
-  bash "$KUR" "$ROL" --kuru --klon "$KOD_DEPO" >/dev/null || { hata "birim üretimi başarısız"; exit 7; }
   soyle "sistemd     : atlandı (NOBETCI_SISTEMD_ATLA=1) — birim yazılmadı"
-  soyle "kod         : $KOD_DEPO @ $YENI_SHA"
+  soyle "kod         : $KOD_DEPO @ $YENI_SHA ($DAL)"
   exit 0
 fi
-bash "$KUR" "$ROL" --klon "$KOD_DEPO" >/dev/null || { hata "birim kurulumu başarısız"; exit 7; }
+if ! bash "$KUR" "$ROL" --klon "$KOD_DEPO" --dal "$DAL" >>"$KUR_LOG" 2>&1; then
+  hata "birim kurulumu başarısız (klon kodu: $YENI_SHA) — komut çıktısı:"
+  sed 's/^/    /' "$KUR_LOG" | tail -25 >&2
+  hata "  günlük: journalctl --user -u $UNIT_ADI -n 30 --no-pager"
+  exit 7
+fi
 
 # ── 5) CANLI bellek tavanı: çalışan birimi yeniden başlatmadan uygula ────────────────────────
 # (Oturum içinden `systemctl restart` yapılırsa o oturumun kendisi ölür — bu yüzden set-property.)
@@ -196,7 +250,7 @@ fi
 # ── 6) Özet + tek doğrulama komutu ───────────────────────────────────────────────────────────
 soyle ""
 soyle "=== bakım bitti ==="
-soyle "kod         : $KOD_DEPO @ $YENI_SHA"
-soyle "doğrula     : (cd $KOD_DEPO && python3 otomasyon/betik/nobetci.py --rol $ROL --kendini-denetle)"
+soyle "kod         : $KOD_DEPO @ $YENI_SHA ($DAL)"
+soyle "doğrula     : (cd $KOD_DEPO && python3 otomasyon/betik/nobetci.py --rol $ROL --dal $DAL --kendini-denetle)"
 soyle "günlük      : tail -f $DURUM_KLASORU/nobetci-$ROL.log"
 exit 0

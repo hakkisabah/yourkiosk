@@ -118,6 +118,32 @@ class UnitTesti(unittest.TestCase):
         self.assertIn("TasksMax=", metin)
         self.assertIn("TimeoutStopSec=", metin)
 
+    # ── İZLENEN DAL (27 Ekim kilitlenmesi) ──────────────────────────────────────────────────
+    def test_varsayilan_dal_main_birimde_gorunur(self):
+        metin = unit_uret(home=self.home)
+        self.assertIn("--dal main", metin)
+        self.assertIn("--guncelle", metin)
+
+    def test_dal_argumani_birime_yazilir(self):
+        metin = unit_uret("--dal", "duzeltme/nobetci-fix", home=self.home)
+        self.assertIn("--dal duzeltme/nobetci-fix", metin)
+
+    def test_gecersiz_dal_reddedilir(self):
+        for kotu in ("a..b", "a b", "-x", "a;rm"):
+            with self.subTest(kotu=kotu):
+                s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--dal", kotu],
+                                   capture_output=True, text=True, timeout=60,
+                                   env={**os.environ, "HOME": self.home})
+                self.assertEqual(s.returncode, 2, s.stdout)
+                self.assertIn("geçersiz --dal", s.stderr)
+
+    def test_birim_metninde_backtick_yok(self):
+        """Birim heredoc'u tırnaksız: backtick komut ÇALIŞTIRIR (sessiz bozulma)."""
+        metin = unit_uret(home=self.home)
+        for satir in metin.splitlines():
+            if satir.startswith("#"):
+                self.assertNotIn("`", satir, f"yorum satırında backtick: {satir}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

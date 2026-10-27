@@ -53,6 +53,40 @@ KOPYA_ISARETI = "yourkiosk-nobetci-kopya"
 #: Kodu güncellerken yeniden başlatma isteği (systemd `Restart=always` yeni kodu yükler)
 CIKIS_YENIDEN_BASLAT = 75
 
+# ── İZLENEN DAL (27 Ekim dersi: "main" tek seçenek olunca kilitlenme) ──────────────────────────
+# Düzeltme main'e girmeden makineye ulaşamıyordu, main'e girmesi için de i5'in ayakta olması
+# gerekiyordu: ölü servis → inceleme yok → merge yok → düzeltme yok. Nöbetçi artık İSTENEN dalı
+# izleyebilir (`--dal`, `NOBETCI_DAL` ya da nobetci-bakim.sh'ın yazdığı dosya). Böylece düzeltme
+# dalından çalışıp PR'ları inceleyebilir; merge sonrası `--dal main` ile normale dönülür.
+DAL_VARSAYILAN = "main"
+DAL_DOSYASI = DURUM_KLASORU / "nobetci-dal"
+
+
+def dal_gecerli(dal: str) -> bool:
+    """git dal adı olarak güvenli mi? (birim metnine ve git komutuna giden değer)"""
+    if not dal or len(dal) > 120:
+        return False
+    if dal.startswith("-") or dal.endswith("/") or ".." in dal or "//" in dal:
+        return False
+    return re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", dal) is not None
+
+
+def dal_coz(explicit: str | None = None) -> str:
+    """İzlenecek dalı sırayla çöz: açık argüman → NOBETCI_DAL → durum dosyası → main."""
+    for aday in (explicit, os.environ.get("NOBETCI_DAL")):
+        if aday and aday.strip():
+            dal = aday.strip()
+            if not dal_gecerli(dal):
+                raise SystemExit(f"✗ geçersiz dal adı: {dal!r}")
+            return dal
+    try:
+        yazili = DAL_DOSYASI.read_text(encoding="utf-8").strip()
+    except OSError:
+        yazili = ""
+    if yazili and dal_gecerli(yazili):
+        return yazili
+    return DAL_VARSAYILAN
+
 ZORUNLU = ("guvenlik/inceleme", "guvenlik/karar")
 ONAY_ETIKETI = "guvenlik/onay"
 
@@ -546,7 +580,8 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
     return kod
 
 
-def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 8) -> int:
+def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 8,
+                    dal: str = DAL_VARSAYILAN) -> int:
     """KONTROL NOKTALARI — 'neden hâlâ oturum açılıyor / neden PR bekliyor?' sorusunu tek
     komutta yanıtlar.
 
@@ -732,18 +767,18 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
     kopya = kopya_mi(DEPO_VARSAYILAN)
     uzak_sha = ""
     try:
-        ls = subprocess.run(["git", "-C", str(DEPO_VARSAYILAN), "ls-remote", "--heads", "origin", "main"],
+        ls = subprocess.run(["git", "-C", str(DEPO_VARSAYILAN), "ls-remote", "--heads", "origin", dal],
                             capture_output=True, text=True, timeout=25)
         if ls.returncode == 0 and ls.stdout.split():
             uzak_sha = ls.stdout.split()[0][:10]
     except (OSError, subprocess.SubprocessError):
         uzak_sha = ""
     if uzak_sha:
-        satir(kod == uzak_sha, "kod origin/main ile aynı",
+        satir(kod == uzak_sha, f"kod origin/{dal} ile aynı",
               f"{kod} · uzak {uzak_sha}" + ("" if kod == uzak_sha else " → nobetci-bakim.sh"))
     else:
         # Ağ yoksa kontrol sessizce "temiz" SAYILMAZ: ✗ de sayılmaz ama görünür olur.
-        print(f"⚠ kod origin/main ile aynı  okunamadı (git ls-remote) · yerel {kod}")
+        print(f"⚠ kod origin/{dal} ile aynı  okunamadı (git ls-remote) · yerel {kod}")
     satir(kopya, "kod deposu makine kopyası",
           str(DEPO_VARSAYILAN) if kopya else
           f"insan deposu: {DEPO_VARSAYILAN} → nobetci-bakim.sh (pull sorunu biter)")
@@ -773,16 +808,20 @@ def main() -> int:
                       help="nöbetçi oturumunun Hermes profili (varsayılan: NOBETCI_PROFIL env; "
                            "boşsa varsayılan profil). Open WebUI yükünü ayırmak için 'guvenlik'.")
     ayar.add_argument("--guncelle", action="store_true",
-                      help="döngüde kodu origin/main'e çek; değiştiyse yeniden başla (birim kullanır)")
+                      help="döngüde kodu origin/<dal>'a çek; değiştiyse yeniden başla (birim kullanır)")
     ayar.add_argument("--guncelle-aralik", type=int, default=300,
                       help="kod güncelleme kontrolü arası sn (varsayılan 300)")
+    ayar.add_argument("--dal", default=None,
+                      help=f"izlenecek dal (varsayılan: NOBETCI_DAL → durum dosyası → {DAL_VARSAYILAN}). "
+                           "Düzeltme main'e girmeden makineye ulaşsın diye.")
 
     secim = ayar.parse_args()
+    dal = dal_coz(secim.dal)
     global NOBETCI_PROFIL
     if secim.profil is not None:
         NOBETCI_PROFIL = secim.profil.strip()
     if secim.kendini_denetle:  # kilit gerekmez, hiçbir şeyi değiştirmez
-        return kendini_denetle(secim.rol, secim.token, secim.limit)
+        return kendini_denetle(secim.rol, secim.token, secim.limit, dal)
     durum_yolu = DURUM_KLASORU / f"nobetci-{secim.rol}.json"
     gunluk_yolu = secim.log or (DURUM_KLASORU / f"nobetci-{secim.rol}.log")
 
@@ -793,7 +832,7 @@ def main() -> int:
         veri = json.loads(durum_yolu.read_text(encoding="utf-8"))
         print(f"nöbetçi durumu · {secim.rol} · {durum_yolu}")
         print(f"  kod            : {kod_sha(secim.depo)}"
-              f" ({'makine kopyası' if kopya_mi(secim.depo) else 'insan deposu'})")
+              f" ({'makine kopyası' if kopya_mi(secim.depo) else 'insan deposu'}) · dal {dal}")
         for alan, deger in veri.items():
             if alan == "etag":
                 print(f"  etag önbelleği : {len(deger)} adres")
@@ -811,7 +850,7 @@ def main() -> int:
         print(f"  hermes profili      : {NOBETCI_PROFIL or '(varsayılan — Open WebUI ile paylaşılır)'}")
         print(f"  kod                 : {kod_sha(secim.depo)}"
               f" ({'makine kopyası' if kopya_mi(secim.depo) else 'insan deposu'})"
-              f" · kendini güncelleme: {'açık' if secim.guncelle else 'kapalı'}")
+              f" · dal {dal} · kendini güncelleme: {'açık' if secim.guncelle else 'kapalı'}")
         print(f"  bugün açılan oturum : {gh.gunluk.get(bugun, 0)} (tavan {GUNLUK_OTURUM_TAVANI})")
         b = butce_hesapla(secim.zaman_asimi)
         print(f"  oturum bütçesi      : {b['butce']} sn · {b['tur']} tur × {b['tur_basi_sn']} sn"
@@ -859,7 +898,7 @@ def main() -> int:
             an = time.time()
             if an - son_guncelleme >= max(30, secim.guncelle_aralik):
                 son_guncelleme = an
-                durum, ayrinti = depo_guncelle(secim.depo, gunluk_yolu)
+                durum, ayrinti = depo_guncelle(secim.depo, gunluk_yolu, dal)
                 if durum == "guncellendi":
                     gunluk(gunluk_yolu, f"kod güncellendi ({ayrinti}) → yeniden başlatılıyor "
                                         f"(çıkış {CIKIS_YENIDEN_BASLAT}); Restart=always yeni kodu yükler")

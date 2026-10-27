@@ -293,10 +293,164 @@ class KontrolNoktasiTesti(unittest.TestCase):
 
     def test_kod_tazeligi_kontrolleri_var(self):
         kaynak = (BETIK_DIZINI / "nobetci.py").read_text(encoding="utf-8")
-        self.assertIn("kod origin/main ile aynı", kaynak)
+        # 27 Ekim: kontrol artık İZLENEN DALA bağlı (main'e merge edilmemiş düzeltme dalı da olabilir)
+        self.assertIn("kod origin/{dal} ile aynı", kaynak)
         self.assertIn("kod deposu makine kopyası", kaynak)
         # ağ yoksa kontrol "temiz" sayılmamalı, uyarı olarak görünmeli
-        self.assertIn("⚠ kod origin/main ile aynı", kaynak)
+        self.assertIn("⚠ kod origin/{dal} ile aynı", kaynak)
+
+
+class DalTesti(unittest.TestCase):
+    """İzlenen dal çözümü — 27 Ekim kilitlenmesi: düzeltme main'e girmeden makineye ulaşamıyordu."""
+
+    def setUp(self):
+        self.dizin = tempfile.TemporaryDirectory()
+        self.kok = Path(self.dizin.name)
+        self.dal_dosyasi = self.kok / "nobetci-dal"
+        self._eski_dosya = nobetci.DAL_DOSYASI
+        nobetci.DAL_DOSYASI = self.dal_dosyasi
+        self._eski_env = os.environ.pop("NOBETCI_DAL", None)
+
+    def tearDown(self):
+        nobetci.DAL_DOSYASI = self._eski_dosya
+        os.environ.pop("NOBETCI_DAL", None)
+        if self._eski_env is not None:
+            os.environ["NOBETCI_DAL"] = self._eski_env
+        self.dizin.cleanup()
+
+    def test_varsayilan_main(self):
+        self.assertEqual(nobetci.dal_coz(), "main")
+
+    def test_dosyadan_okunur(self):
+        self.dal_dosyasi.write_text("duzeltme/dal\n", encoding="utf-8")
+        self.assertEqual(nobetci.dal_coz(), "duzeltme/dal")
+
+    def test_ortam_degiskeni_dosyayi_ezer(self):
+        self.dal_dosyasi.write_text("duzeltme/dal\n", encoding="utf-8")
+        os.environ["NOBETCI_DAL"] = "ozellik/baska"
+        self.assertEqual(nobetci.dal_coz(), "ozellik/baska")
+
+    def test_acik_arguman_hepsini_ezer(self):
+        self.dal_dosyasi.write_text("duzeltme/dal\n", encoding="utf-8")
+        os.environ["NOBETCI_DAL"] = "ozellik/baska"
+        self.assertEqual(nobetci.dal_coz("main"), "main")
+
+    def test_gecersiz_dal_reddedilir(self):
+        for kotu in ("-x", "a..b", "a//b", "a b", "a;rm", "a\nb"):
+            with self.subTest(kotu=kotu):
+                with self.assertRaises(SystemExit):
+                    nobetci.dal_coz(kotu)
+
+    def test_depo_guncelle_verilen_dali_izler(self):
+        kurulum = DepoKurulumu(self.kok)
+        klon = self.kok / "kopya"
+        git("clone", "--branch", "main", str(kurulum.origin), str(klon), cwd=self.kok)
+        (klon / ".git" / nobetci.KOPYA_ISARETI).touch()
+        # uzakta düzeltme dalı: main'den ayrı commit
+        git("checkout", "-b", "duzeltme/dal", cwd=kurulum.tohum)
+        (kurulum.tohum / "otomasyon" / "betik" / "surum.txt").write_text("dal-v1\n", encoding="utf-8")
+        git("add", "-A", cwd=kurulum.tohum)
+        git("commit", "-m", "dal-v1", cwd=kurulum.tohum)
+        self.assertEqual(git("push", "origin", "duzeltme/dal", cwd=kurulum.tohum).returncode, 0)
+        durum, ayrinti = nobetci.depo_guncelle(klon, None, "duzeltme/dal")
+        self.assertEqual(durum, "guncellendi", ayrinti)
+        self.assertEqual((klon / "otomasyon" / "betik" / "surum.txt").read_text(encoding="utf-8"),
+                         "dal-v1\n")
+
+
+class BakimHataGorunurluguTesti(unittest.TestCase):
+    """27 Ekim i5 arızası: `✗ birim kurulumu başarısız` — NEDEN yazmıyordu (çıktı yutuluyordu).
+
+    İki sözleşme:
+      1) Klondaki kod makine kopyası + kendini güncelleme biçimini desteklemiyorsa AÇIK hata (çıkış 8)
+         ve çözüm komutu yazılır — "başarısız" deyip susmak yok.
+      2) Gerçek kurulum patlarsa alttaki komutun çıktısı AYNEN gösterilir (çıkış 7).
+    """
+
+    def setUp(self):
+        self.dizin = tempfile.TemporaryDirectory()
+        self.kok = Path(self.dizin.name)
+        self.kurulum = DepoKurulumu(self.kok)
+        self.kaynak = self.kok / "insan-deposu"
+        git("clone", "--branch", "main", str(self.kurulum.origin), str(self.kaynak), cwd=self.kok)
+        (self.kaynak / "otomasyon" / "betik").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(BETIK_DIZINI / "nobetci-bakim.sh", self.kaynak / "otomasyon" / "betik" / "nobetci-bakim.sh")
+        shutil.copy2(KOK / "otomasyon" / "nobetci-kur.sh", self.kaynak / "otomasyon" / "nobetci-kur.sh")
+        git("add", "-A", cwd=self.kaynak)
+        git("commit", "-m", "iskelet", cwd=self.kaynak)
+        git("push", "origin", "main", cwd=self.kaynak)
+        self.kod_depo = self.kok / "makine-kopyasi" / "depo"
+        self.ev = self.kok / "ev"
+        (self.ev / ".local" / "state").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def _calistir(self, *ek: str, atla: bool = False) -> subprocess.CompletedProcess:
+        ortam = {**os.environ, **GIT_ENV, "HOME": str(self.ev),
+                 "NOBETCI_UZAK": str(self.kurulum.origin),
+                 "NOBETCI_KOD_DEPO": str(self.kod_depo)}
+        if atla:
+            ortam["NOBETCI_SISTEMD_ATLA"] = "1"
+        return subprocess.run(["bash", str(self.kaynak / "otomasyon" / "betik" / "nobetci-bakim.sh"),
+                               "i5", *ek], capture_output=True, text=True, timeout=180, env=ortam)
+
+    def _kur_stub(self, metin: str) -> None:
+        (self.kaynak / "otomasyon" / "nobetci-kur.sh").write_text(metin, encoding="utf-8")
+        git("add", "-A", cwd=self.kaynak)
+        git("commit", "-m", "stub", cwd=self.kaynak)
+        self.assertEqual(git("push", "origin", "main", cwd=self.kaynak).returncode, 0)
+
+    def test_eski_kod_acik_hata_verir(self):
+        # main'deki ESKİ kur.sh: --klon/--dal bilmiyor (i5'in 26 Ekim durumu)
+        self._kur_stub("#!/usr/bin/env bash\n"
+                       "echo '--- birim ---'\n"
+                       "echo '[Service]'\n"
+                       "echo 'WorkingDirectory=/eski/yol'\n"
+                       "echo 'ExecStart=/usr/bin/python3 /eski/yol/otomasyon/betik/nobetci.py --rol i5'\n")
+        s = self._calistir()
+        self.assertEqual(s.returncode, 8, s.stdout + s.stderr)
+        self.assertIn("DESTEKLEMİYOR", s.stderr)
+        self.assertIn("--dal <düzeltme-dalı>", s.stderr)
+        self.assertIn("origin/main", s.stderr)
+
+    def test_kurulum_hatasinin_ciktisi_gosterilir(self):
+        self._kur_stub(
+            "#!/usr/bin/env bash\n"
+            "klon=''; dal=''\n"
+            "for a in \"$@\"; do [ \"$a\" = \"--kuru\" ] && kuru=1; done\n"
+            "if [ -n \"${kuru:-}\" ]; then\n"
+            "  echo '[Service]'\n"
+            "  echo 'WorkingDirectory='${NOBETCI_KOD_DEPO}\n"
+            "  echo 'ExecStart=/usr/bin/python3 x --depo y --dal main --guncelle'\n"
+            "  exit 0\n"
+            "fi\n"
+            "echo 'SAHTE HATA: birim yazılamadı (disk dolu)' >&2\n"
+            "exit 1\n")
+        s = self._calistir()
+        self.assertEqual(s.returncode, 7, s.stdout + s.stderr)
+        self.assertIn("SAHTE HATA: birim yazılamadı (disk dolu)", s.stderr,
+                      "alttaki komutun çıktısı gösterilmeli")
+
+    def test_dal_klondan_kurulur_ve_dosyaya_yazilir(self):
+        # uzakta düzeltme dalı
+        git("checkout", "-b", "duzeltme/dal", cwd=self.kaynak)
+        (self.kaynak / "DAL.txt").write_text("dal\n", encoding="utf-8")
+        git("add", "-A", cwd=self.kaynak)
+        git("commit", "-m", "dal", cwd=self.kaynak)
+        self.assertEqual(git("push", "origin", "duzeltme/dal", cwd=self.kaynak).returncode, 0)
+        s = self._calistir("--dal", "duzeltme/dal", "--sessiz", atla=True)
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertEqual((self.ev / ".local/state/yourkiosk-otomasyon/nobetci-dal")
+                         .read_text(encoding="utf-8").strip(), "duzeltme/dal")
+        self.assertTrue((self.kod_depo / "DAL.txt").is_file(), "klon düzeltme dalından olmalı")
+
+    def test_gecersiz_dal_reddedilir(self):
+        for kotu in ("a..b", "a b", "-x"):
+            with self.subTest(kotu=kotu):
+                s = self._calistir("--dal", kotu)
+                self.assertEqual(s.returncode, 2, s.stdout + s.stderr)
+                self.assertIn("geçersiz --dal", s.stderr)
 
 
 if __name__ == "__main__":
