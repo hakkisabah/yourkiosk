@@ -38,13 +38,14 @@ if [ "$ROL" = "i5" ] || [ "$ROL" = "i3" ]; then shift; else
   exit 2
 fi
 
-KURU=0; YENIDEN=0; SESSIZ=0; GECIKME=900
+KURU=0; YENIDEN=0; SESSIZ=0; GECIKME=900; ZORLA=0
 # Seçenekler TEK geçişte okunur: `--dal <ad>` değeri bir sonraki sözcüktür, "bilinmeyen seçenek"
 # sayılmamalı (27 Ekim: iki geçişli ilk sürüm `--dal duzeltme/dal` biçimini reddediyordu).
 while [ $# -gt 0 ]; do
   case "$1" in
     --kuru) KURU=1 ;;
     --yeniden-baslat) YENIDEN=1 ;;
+    --zorla) ZORLA=1 ;;
     --sessiz) SESSIZ=1 ;;
     --dal) shift; DAL="${1:-}" ;;
     --dal=*) DAL="${1#--dal=}" ;;
@@ -146,6 +147,31 @@ if [ ! -d "$KOD_DEPO/.git" ]; then
     soyle "uzak        : SSH okunamadı → HTTPS ile klonlandı ($YEDEK)"
   fi
 fi
+# 27 Ekim i5 bulgusu (orta): `reset --hard` ÖNCESİ kirli ağaç denetimi yoktu ve KOD_DEPO
+# NOBETCI_KOD_DEPO ile dışarıdan verilebiliyor → yanlışlıkla İNSAN deposuna yöneltilirse kişinin
+# commit'leri silinebilirdi. Kural: insan deposuyla aynıysa ya da ağaç kirliyse DUR (hiçbir şey
+# silinmez); `--zorla` ile açıkça istenirse devam edilir.
+INSAN_DEPO="$(cd "${KAYNAK:-/nonexistent}" 2>/dev/null && pwd -P || true)"
+KOD_GERCEK="$(cd "$KOD_DEPO" 2>/dev/null && pwd -P || true)"
+if [ -n "$INSAN_DEPO" ] && [ "$KOD_GERCEK" = "$INSAN_DEPO" ]; then
+  hata "kod deposu İNSAN deposuyla aynı: $KOD_DEPO"
+  hata "  nöbetçi makineye ait AYRI klondan çalışmalı; insan deposu ezilmez."
+  hata "  (yine de istiyorsanız: --zorla)"
+  [ "$ZORLA" -eq 1 ] || exit 4
+fi
+if [ -d "$KOD_DEPO/.git" ] && [ "$ZORLA" -ne 1 ]; then
+  # Yalnız İZLENEN dosyalardaki değişiklikler sayılır: `reset --hard` izlenmeyen dosyaları SİLMEZ
+  # (veri kaybı yok), ama makine klonunda test koşuları izlenmeyen artık bırakabilir → onları
+  # engel saymak bakımı gereksiz kilitlerdi.
+  KIRLI="$(git -C "$KOD_DEPO" status --porcelain --untracked-files=no 2>/dev/null || true)"
+  if [ -n "$KIRLI" ]; then
+    hata "kod deposu KİRLİ ($KOD_DEPO) → reset --hard yapılmadı, hiçbir şey silinmedi:"
+    printf '%s\n' "$KIRLI" | head -5 | sed 's/^/    /' >&2 || true
+    hata "  temizleyin (git -C \"$KOD_DEPO\" checkout -- .) ya da açıkça --zorla verin"
+    exit 4
+  fi
+fi
+
 # Makineye ait kopya işareti: nobetci.py bu işareti görürse `reset --hard` ile günceller.
 # İşaret yoksa (insan deposu) nöbetçi yalnız `merge --ff-only` dener → kimsenin işini ezmez.
 touch "$KOD_DEPO/.git/yourkiosk-nobetci-kopya"

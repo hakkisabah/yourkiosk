@@ -154,6 +154,31 @@ class UnitTesti(unittest.TestCase):
         self.assertLess(kaynak.index("reset-failed"), kaynak.index('systemctl --user start'))
 
 
+class KlonDegerKapiTesti(unittest.TestCase):
+    """27 Ekim i5 bulgusu (düşük): `--klon` değeri doğrulanmadan birim METNİNE yazılıyordu →
+    satır sonu taşıyan bir değer birime yeni yönerge enjekte edebiliyordu."""
+
+    def test_satir_sonu_tasiyan_klon_reddedilir(self):
+        s = subprocess.run(["bash", str(BETIK), "i5", "--kuru",
+                            "--klon", "/tmp/klon\nExecStartPre=/bin/sh -c true"],
+                           capture_output=True, text=True, timeout=60,
+                           env={**os.environ, "HOME": tempfile.mkdtemp()})
+        self.assertEqual(s.returncode, 2, s.stdout + s.stderr)
+        self.assertIn("geçersiz --klon", s.stderr)
+
+    def test_goreli_klon_yolu_reddedilir(self):
+        s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--klon", "goreli/yol"],
+                           capture_output=True, text=True, timeout=60,
+                           env={**os.environ, "HOME": tempfile.mkdtemp()})
+        self.assertEqual(s.returncode, 2)
+
+    def test_nokta_nokta_iceren_klon_reddedilir(self):
+        s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--klon", "/tmp/a/../../etc"],
+                           capture_output=True, text=True, timeout=60,
+                           env={**os.environ, "HOME": tempfile.mkdtemp()})
+        self.assertEqual(s.returncode, 2)
+
+
 class PipefailSIGPIPETesti(unittest.TestCase):
     """`set -o pipefail` + `| head` = SESSİZ BAŞARISIZLIK.
 

@@ -56,6 +56,23 @@ if ! dal_gecerli "$DAL"; then
   echo "  İzinli biçim: harf/rakam/._/- (ör. main, ozellik/karar-kapisi-adil-kuyruk)" >&2
   exit 2
 fi
+# 27 Ekim i5 bulgusu (düşük): --klon/NOBETCI_KOD_DEPO değeri doğrulanmadan birim METNİNE yazılıyordu
+# (ExecStart + WorkingDirectory) → satır sonu/sekme taşıyan bir değer birime yeni yönerge enjekte
+# edebiliyordu. Birim dosyasına giden her yol bu kapıdan geçer: mutlak, 1-256 karakter, kontrol
+# karakteri yok, '..' bileşeni yok.
+klon_gecerli() {
+  local k="$1"
+  [ -n "$k" ] && [ "${#k}" -le 256 ] || return 1
+  case "$k" in /*) ;; *) return 1 ;; esac
+  case "$k" in *[[:cntrl:]]*) return 1 ;; esac
+  case "/$k/" in */../*) return 1 ;; esac
+  return 0
+}
+if [ -n "${KLON:-}" ] && ! klon_gecerli "$KLON"; then
+  echo "✗ geçersiz --klon değeri: '$KLON'" >&2
+  echo "  Mutlak yol olmalı; kontrol karakteri/satır sonu ve '..' içeremez (1-256 karakter)." >&2
+  exit 2
+fi
 if [ -n "${KLON:-}" ] && [ ! -d "$KLON/.git" ]; then
   echo "✗ --klon bir git deposu olmalı: $KLON" >&2
   echo "  (makine kopyasını nobetci-bakim.sh kurar: otomasyon/betik/nobetci-bakim.sh $ROL)" >&2

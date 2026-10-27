@@ -262,6 +262,25 @@ class BakimBetigiTesti(unittest.TestCase):
         self.assertFalse((self.ev / ".config/systemd/user/yourkiosk-nobetci.service.d").exists(),
                          "--kuru hiçbir dosya yazmamalı")
 
+    def test_kirli_klonda_reset_yapilmaz(self):
+        """27 Ekim i5 bulgusu (orta): `reset --hard` öncesi kirli ağaç denetimi yoktu → kişinin
+        değişikliği sessizce silinebilirdi. Artık çıkış 4 ve hiçbir şey silinmez."""
+        self.assertEqual(self._calistir().returncode, 0)
+        hedef = self.kod_depo / "otomasyon" / "betik" / "surum.txt"
+        hedef.write_text("elle değişti\n", encoding="utf-8")
+        s = self._calistir()
+        self.assertEqual(s.returncode, 4, s.stdout + s.stderr)
+        self.assertIn("KİRLİ", s.stderr)
+        self.assertEqual(hedef.read_text(encoding="utf-8"), "elle değişti\n", "silinmemeli")
+
+    def test_zorla_kirli_agaci_sifirlar(self):
+        self.assertEqual(self._calistir().returncode, 0)
+        hedef = self.kod_depo / "otomasyon" / "betik" / "surum.txt"
+        hedef.write_text("elle değişti\n", encoding="utf-8")
+        s = self._calistir("--zorla")
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertEqual(hedef.read_text(encoding="utf-8"), "v1\n")
+
     def test_bilinmeyen_secenek_reddedilir(self):
         s = self._calistir("--yok-boyle-secenek", atla=False)
         self.assertEqual(s.returncode, 2)
