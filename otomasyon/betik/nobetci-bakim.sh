@@ -287,6 +287,15 @@ fi
 if systemctl --user is-active "$UNIT_ADI" >/dev/null 2>&1; then
   if systemctl --user set-property "$UNIT_ADI" "MemoryHigh=${MEM_HIGH_MB}M" "MemoryMax=${MEM_MAX_MB}M" 2>/dev/null; then
     soyle "bellek      : canlı tavan uygulandı (High ${MEM_HIGH_MB} MB · Max ${MEM_MAX_MB} MB)"
+    # set-property, user.control/<birim>.d/ altına AYRI drop-in yazar. İki kaynak kalırsa
+    # değerler ayrışır (27 Ekim: 2445279232 vs 2332M) ve "hangi tavan gerçek?" belirsizleşir.
+    # Tek doğru kaynak 50-bellek.conf → set-property kopyaları silinir (değerler aynı).
+    CONTROL_DIZIN="$HOME/.config/systemd/user.control/$UNIT_ADI.d"
+    if [ -d "$CONTROL_DIZIN" ]; then
+      rm -f "$CONTROL_DIZIN"/50-MemoryHigh.conf "$CONTROL_DIZIN"/50-MemoryMax.conf 2>/dev/null || true
+      rmdir "$CONTROL_DIZIN" 2>/dev/null || true
+      soyle "bellek      : set-property kopyaları silindi → tek kaynak 50-bellek.conf"
+    fi
   else
     soyle "bellek      : canlı uygulanamadı (birim yeniden başlayınca etkin olacak)"
   fi

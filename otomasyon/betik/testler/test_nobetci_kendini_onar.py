@@ -554,6 +554,13 @@ class BakimServisTesti(BakimHataGorunurluguTesti):
             # "bu kabuk birimin içinde mi" sorusunu DENETLENEBİLİR hâle getirir (27 Ekim i5 bulgusu:
             # eski ölçüt cgroup metniydi → birim altında koşan her test "içeride" sayılıyordu).
             'case "$*" in *"MainPID"*) echo "${STUB_MAINPID:-999999}"; exit 0 ;; esac\n'
+            # `set-property` GERÇEKTE user.control/<birim>.d/ altına ayrı drop-in yazar; taklit de
+            # yazsın ki "iki kaynak kalıyor mu" davranışı gerçekçi biçimde sınanabilsin.
+            'case "$*" in *set-property*)\n'
+            '  mkdir -p "$HOME/.config/systemd/user.control/yourkiosk-nobetci.service.d"\n'
+            '  printf "[Service]\\n" > "$HOME/.config/systemd/user.control/yourkiosk-nobetci.service.d/50-MemoryHigh.conf"\n'
+            '  printf "[Service]\\n" > "$HOME/.config/systemd/user.control/yourkiosk-nobetci.service.d/50-MemoryMax.conf"\n'
+            '  exit 0 ;; esac\n'
             'for a in "$@"; do\n'
             '  if [ "$a" = "is-active" ]; then\n'
             '    if [ "${STUB_AKTIF:-0}" = "1" ]; then echo active; exit 0; fi\n'
@@ -617,6 +624,22 @@ class BakimServisTesti(BakimHataGorunurluguTesti):
         self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
         self.assertIn("yeni koddan yeniden başlatıldı", s.stdout)
         self.assertNotIn("gecikmeli devralma", s.stdout)
+
+    def test_set_property_artigi_silinir_tek_kaynak(self):
+        """27 Ekim: `set-property` ayrı bir drop-in dizini yazdı → iki kaynak, ayrışan tavanlar.
+
+        Canlı uygulamadan sonra set-property kopyaları SİLİNİR: tek doğru kaynak 50-bellek.conf.
+        Aksi hâlde hangi tavanın etkin olduğu belirsizleşir ve OOM koruması denetlenemez.
+        """
+        s = self._calistir(mainpid=999999)
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        arti = (self.ev / ".config" / "systemd" / "user.control" /
+                "yourkiosk-nobetci.service.d")
+        self.assertFalse(arti.is_dir() and any(arti.glob("*.conf")),
+                         f"set-property artığı kaldı: {sorted(arti.glob('*.conf')) if arti.is_dir() else '-'}")
+        self.assertIn("tek kaynak", s.stdout)
+        self.assertTrue((self.ev / ".config" / "systemd" / "user" /
+                         "yourkiosk-nobetci.service.d" / "50-bellek.conf").is_file())
 
 
 if __name__ == "__main__":
