@@ -248,6 +248,25 @@ class GorevMetniTesti(unittest.TestCase):
         self.assertIn("10 saattir açık", metin)
         self.assertIn("bu sırayı DEĞİŞTİRME", metin)
 
+    def test_surum_sozlesmesi_isteme_yazilir(self):
+        """27 Ekim canlı kilit: ajan istemdeki 'aynı commit'e ikinci karar yazma' kuralına uyup
+        hiçbir şey yazmadan çıktı → PR'lar kilitlendi. Nöbetçi artık GEÇERLİ SÜRÜMÜ ve 'bayatsa
+        YAZ' kuralını isteme makineyle yazıyor; ajanın yorumuna bırakılmıyor."""
+        surum = nobetci.inceleme_surumu()
+        metin = nobetci.gorev_metni("i5", Path("/depo"), [
+            {"pr": 83, "sha": "a" * 40, "baslik": "x", "inceleme": "failure", "karar": None,
+             "yas_dk": 10, "inceleme_aciklama": "[v000] eski karar", "inceleme_surumu": surum}])
+        self.assertIn(f"v{surum}", metin)
+        self.assertIn("BAYATTIR", metin)
+        self.assertIn("#83", metin.split("Bayat karar taşıyan")[1])
+
+    def test_guncel_damgali_karar_bayat_sayilmaz(self):
+        surum = nobetci.inceleme_surumu()
+        metin = nobetci.gorev_metni("i5", Path("/depo"), [
+            {"pr": 91, "sha": "c" * 40, "baslik": "x", "inceleme": "failure", "karar": None,
+             "yas_dk": 1, "inceleme_aciklama": f"[v{surum}] sorun", "inceleme_surumu": surum}])
+        self.assertNotIn("Bayat karar taşıyan", metin)
+
     def _metin(self, baslik: str) -> str:
         return nobetci.gorev_metni("i5", Path("/depo"), [{"pr": 91, "sha": "b" * 40,
                                                          "baslik": baslik, "inceleme": None,

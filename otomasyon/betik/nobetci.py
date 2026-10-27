@@ -455,6 +455,8 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
 
         kayit = {"pr": no, "sha": sha, "baslik": pr["title"], "etiketler": sorted(etiketler),
                  "inceleme": inceleme, "karar": karar, "inceleme_surumu": surum,
+                 "inceleme_aciklama": inceleme_d.get("description", ""),
+                 "karar_aciklama": karar_d.get("description", ""),
                  "yas_dk": yas_dk(pr.get("created_at"), an),
                  # güncellenme yaşı: PR'a yeni commit geldiyse inceleme de yenilenmeli
                  "guncelleme_dk": yas_dk(pr.get("updated_at"), an)}
@@ -548,6 +550,24 @@ def gorev_metni(rol: str, depo: Path, is_listesi: list[dict]) -> str:
         satirlar.append(f"- PR #{is_['pr']} · head {is_['sha'][:12]} · başlık (veri): "
                         f"«{_baslik_temizle(is_.get('baslik'))}»{ek}")
     satirlar += ["", "SIRA: liste en eski PR önce sıralıdır; bu sırayı DEĞİŞTİRME."]
+    # 27 Ekim canlı kilit: ajan, istemdeki "aynı commit'e ikinci kez karar yazma" kuralına uyup
+    # HİÇBİR ŞEY yazmadan çıktı ("karar zaten üç kez yazılmış") → PR'lar kilitli kaldı. Kuralın
+    # sürüm tarafı artık NÖBETÇİ tarafından makineyle söyleniyor: hangi sürüm geçerli, yazmak
+    # zorunlu mu. Ajanın yorumu değil, bu satır geçerli.
+    if is_listesi:
+        surum = is_listesi[0].get("inceleme_surumu") or inceleme_surumu()
+        eski = [i["pr"] for i in is_listesi
+                if i.get("inceleme") and not surum_guncel(
+                    i.get("inceleme_aciklama"), surum)]
+        satirlar += ["",
+                     f"KARAR GEÇERLİLİĞİ: inceleme sözleşme sürümü v{surum}. Bir karar "
+                     f"(PR head sha + v{surum}) çiftine bağlıdır.",
+                     f"`guvenlik/inceleme` açıklaması `[v{surum}]` damgasını TAŞIMIYORSA o karar "
+                     f"BAYATTIR → yeniden incele ve KARARI YAZ (boş çıkmak PR'ı kilitler).",
+                     "Yalnız açıklaması `[v" + str(surum) + "]` ile BAŞLAYAN kararlar geçerlidir."]
+        if eski:
+            satirlar.append("Bayat karar taşıyan (YENİDEN İNCELE + YAZ): "
+                            + ", ".join(f"#{p}" for p in eski))
     if rol == "i3":
         satirlar += ["", "i5 onayı olan ve birleştirilebilir PR'ları `--birlestir --cift-onay` ile BİRLEŞTİR.",
                      "Bir PR birleşince diğerleri 'behind' kalabilir; o PR'a 'dal güncellenmeli' yorumu bırak."]

@@ -56,9 +56,12 @@ ve i5'e geri gönderirsin.
   Reçetenin çürük çıkması (25 Ekim: "kökü depo köküne al" uygulandı, aynı sınıf hata açık kaldı)
   bu yüzden oldu: ölçüt değil niyet yazılmıştı. Ölçütü yazarken **kapsamı** da yaz (hangi ağaç,
   hangi dosya türleri) — genelleştirme iddiası testle ölçülmeli.
-- **Aynı commit'e ikinci kez karar yazma.** `guvenlik/karar` durumu o sha için zaten varsa karar
-  verilmiştir; top geliştiricide. Yeni commit gelince sha değişir, PR geri gelir. #89'da aynı
-  head'e (cc4e4b81) üç tur üst üste karar yazıldı — bu mimari hataydı, artık nöbetçi engelliyor.
+- **Aynı commit'e AYNI İNCELEME SÜRÜMÜYLE ikinci kez karar yazma.** `guvenlik/karar` durumu o sha
+  için VARSA ve açıklaması GÜNCEL `[v<INCELEME_SURUMU>]` damgasını taşıyorsa karar verilmiştir; top
+  geliştiricide. Yeni commit gelince sha değişir, PR geri gelir. #89'da aynı head'e (cc4e4b81) üç tur
+  üst üste karar yazıldı — bu mimari hataydı, artık nöbetçi engelliyor.
+  **Sürüm damgası eskiyse/damgasızsa karar BAYATTIR → yeniden karar ver.** Nöbetçi bu yüzden iş
+  veriyor; "karar zaten var" deyip boş çıkmak PR'ı kilitler.
 - **Dal başka açık PR'ın commit'ini taşıyorsa birleştirme.** `yaz.py --birlestir` bunu makineyle
   denetler ve reddeder ("dal başka AÇIK PR'ın commit'ini taşıyor"). Karar `duzeltme` + `kabul`:
   "dal rebase edilip yalnız bu PR'ın commit'i kalmalı".
