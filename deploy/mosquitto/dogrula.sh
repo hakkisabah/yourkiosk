@@ -31,10 +31,23 @@ komut_var mosquitto_pub || exit 2
 komut_var mosquitto_sub || exit 2
 
 echo "=== 1) TLS sertifikası ($HOST:8883) ==="
-if openssl s_client -connect "$HOST:8883" -servername "$HOST" -brief </dev/null 2>&1 | grep -q "Verification: OK"; then
-  echo "  ✓ sertifika geçerli (CA doğrulandı)"
+# ALAN ADI DA DOĞRULANIR (27 Ekim i5 bulgusu): `-brief` çıktısındaki "Verification: OK" yalnız
+# ZİNCİRİ doğrular, sertifikanın $HOST'u KAPSADIĞINI doğrulamaz (ölçüm: wrong.host.badssl.com →
+# CN=*.badssl.com olmasına rağmen "Verification: OK"). Yanlış uca kurulmuş sertifika kontrolü
+# geçiyordu. Bu yüzden ya `-verify_hostname` ya (hedef IP ise) `-verify_ip` verilir; openssl ad
+# eşleşmezse "Verify return code" sıfırdan farklı olur.
+if printf '%s' "$HOST" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
+  AD_DOGRULA=(-verify_ip "$HOST")
+else
+  AD_DOGRULA=(-verify_hostname "$HOST")
+fi
+TLS_CIKTI="$(openssl s_client -connect "$HOST:8883" -servername "$HOST" "${AD_DOGRULA[@]}" -brief </dev/null 2>&1)"
+if printf '%s' "$TLS_CIKTI" | grep -q "Verification: OK" \
+   && printf '%s' "$TLS_CIKTI" | grep -qE "Verify return code: 0 \(ok\)"; then
+  echo "  ✓ sertifika geçerli (CA + alan adı doğrulandı: $HOST)"
 else
   echo "  ✗ TLS doğrulanamadı — sertifika/alan adı sorunu"
+  printf '%s\n' "$TLS_CIKTI" | sed 's/^/    /' | head -12
 fi
 
 echo "=== 2) panel yayın yapabiliyor mu ==="

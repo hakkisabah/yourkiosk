@@ -55,9 +55,12 @@ yoklama emniyet ağı çalışmaya devam eder).
 ```bash
 VITE_MQTT_URL=wss://broker.example:8084/mqtt
 VITE_MQTT_KONU=yourkiosk/yayin
-VITE_MQTT_KULLANICI=panel
-VITE_MQTT_PAROLA=…
 ```
+
+Parola ve kullanıcı `.env.local`e YAZILMAZ: Vite derleme değişkenleri JS paketine gömülür ve
+panel paketi CloudFront'tan kimlik doğrulaması olmadan indirilebilir (27 Ekim i5 bulgusu, yüksek).
+Panel yayın parolasını çalışma anında sorar, yalnız o sekmede tutar (`domain/yayinKimligi.ts`).
+Kimlik girilmezse yayın fail-closed'dır: broker'a bağlanılmaz, cihazlar yoklama ağıyla yenilenir.
 
 Tanımlı değilse panel sessizce atlar (cihazlar yoklamayla çalışır). `mqtt` paketi **dinamik**
 yüklenir; yapılandırma yoksa ana pakete girmez.

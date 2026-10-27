@@ -202,6 +202,33 @@ def tls_kur(istemci) -> None:
         istemci.tls_set(ca_certs=ca or None)  # sistem CA'sı / verilen CA
 
 
+def _adres_ve_port() -> tuple[str, int]:
+    """Broker adresi ve portu — BOZUK AYARDA ÇÖKMEZ (27 Ekim i5 bulgusu).
+
+    Eskiden `int(getattr(config, "TETIK_PUSH_PORT", 8883))` çağrısı `_dongu`nun ilk `try`
+    bloğunun DIŞINDAYDI: `push_port=""` ya da `"tls://8883"` gibi bir değer ValueError/TypeError
+    fırlatıyor, arka plan iş parçacığı `_durum["hata"]` bile yazamadan ölüyordu. Sonuç: cihaz
+    çalışmaya devam eder ama kalp atışı hiç gitmez, filo panelde kalıcı "bilinmiyor" görünür ve
+    log'da tek satır iz kalmaz (sessiz ölüm). Artık hata `_durum`a yazılır, port 8883'e düşülür;
+    adres de bozuksa boş adres döner (çağıran push'u kapatır).
+    """
+    try:
+        return broker(), int(getattr(config, "TETIK_PUSH_PORT", 8883))
+    except (TypeError, ValueError) as hata:
+        _durum["hata"] = f"push_port geçersiz: {hata}"[:200]
+        log.warning("MQTT push portu geçersiz (%s) → 8883'e düşülüyor", hata)
+    except Exception as hata:  # noqa: BLE001 - adres çözümü de bozuk olabilir
+        _durum["hata"] = f"push broker adresi geçersiz: {hata}"[:200]
+        log.warning("MQTT push broker adresi geçersiz (%s) → push kapalı", hata)
+        return "", 0
+    try:
+        return broker(), 8883
+    except Exception as hata:  # noqa: BLE001
+        _durum["hata"] = f"push broker adresi geçersiz: {hata}"[:200]
+        log.warning("MQTT push broker adresi geçersiz (%s) → push kapalı", hata)
+        return "", 0
+
+
 def _dongu(durdur: threading.Event) -> None:
     try:
         import paho.mqtt.client as mqtt  # type: ignore
@@ -210,7 +237,9 @@ def _dongu(durdur: threading.Event) -> None:
         log.warning("MQTT push etkin ama 'paho-mqtt' yok → yoklama modu kullanılacak")
         return
 
-    adres, port = broker(), int(getattr(config, "TETIK_PUSH_PORT", 8883))
+    adres, port = _adres_ve_port()
+    if not adres:
+        return
     # paho-mqtt 2.x CallbackAPIVersion'ı ZORUNLU tutar; 1.x'te yoktur → ikisini de destekle
     istemci_id = istemci_kimligi()
     if hasattr(mqtt, "CallbackAPIVersion"):
