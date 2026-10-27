@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -224,11 +225,33 @@ def depo_guncelle(depo: Path, gunluk_yolu: Path | None = None, dal: str = "main"
 
 def gunluk(yol: Path | None, mesaj: str) -> None:
     satir = f"[{simdi()}] {mesaj}"
-    print(satir, flush=True)
+    # DİKKAT (27 Ekim bulgusu): systemd biriminde stdout AYNI dosyaya yazılıyor
+    # (StandardOutput=append:<yol>). Koşulsuz print, her satırı dosyaya İKİ kez düşürüyordu
+    # (i5 günlüğü 2,5 MB, satırlar çift). Elle çalıştırmada (tty) ekrana da yaz.
+    if yol is None or sys.stdout.isatty():
+        print(satir, flush=True)
     if yol:
         yol.parent.mkdir(parents=True, exist_ok=True)
         with yol.open("a", encoding="utf-8") as f:
             f.write(satir + "\n")
+
+
+#: Aynı durum satırını her yoklamada (15-20 sn) yazmak günlüğü şişiriyordu → seyrek günlük.
+_SEYREK_SON: dict[tuple[str, str], float] = {}
+
+
+def gunluk_seyrek(yol: Path | None, anahtar: str, mesaj: str, ara_s: int = 1800) -> None:
+    """Aynı `anahtar` için en çok `ara_s` saniyede bir yaz (boşta günlük şişmesin).
+
+    Anahtar DOSYA YOLUYLA birlikte tutulur: aksi hâlde aynı süreçte farklı günlük dosyalarına
+    yazan çağrılar birbirini susturur (testte "dosya hiç oluşmadı" olarak görünür).
+    """
+    an = time.time()
+    k = (str(yol), anahtar)
+    if an - _SEYREK_SON.get(k, 0.0) < ara_s:
+        return
+    _SEYREK_SON[k] = an
+    gunluk(yol, mesaj)
 
 
 class Github:
@@ -264,6 +287,9 @@ class Github:
         gecici = self.durum_yolu.with_suffix(".tmp")
         gecici.write_text(json.dumps(veri, indent=2), encoding="utf-8")
         gecici.replace(self.durum_yolu)
+        # Aynı süreçte "durum değişti mi" karşılaştırması doğru olsun (boşta günlük şişmesin).
+        self._onceki_veri = {"son_karar": str(ek.get("son_karar", self._onceki_veri.get("son_karar", ""))),
+                             "zaman": veri["guncelleme"]}
 
     def al(self, yol: str) -> tuple[int, object | None]:
         url = f"https://api.github.com{yol}"
@@ -300,12 +326,60 @@ class Github:
 
 def birlesik_durumlar(gh: Github, sha: str) -> dict[str, str | None]:
     """commit'e yazılmış durum kontrolleri → {bağlam: durum}"""
+    return {b: d.get("state") for b, d in durum_ayrintili(gh, sha).items()}
+
+
+def durum_ayrintili(gh: Github, sha: str) -> dict[str, dict]:
+    """commit'e yazılmış durum kontrolleri → {bağlam: {state, description}}.
+
+    `description` gerekiyor çünkü kararın GEÇERLİLİĞİ inceleme sürümüne bağlı (bkz.
+    `inceleme_surumu`): yalnız `state` okununca, inceleyenin kendi hatası yüzünden yazılmış eski
+    bir "failure" sonsuza kadar "iş yok" sayılıyordu.
+    """
     kod, govde = gh.al(f"/repos/{gh.depo}/commits/{sha}/status")
     if kod in (0, 304) and not govde:
         return {}
     if not isinstance(govde, dict):
         return {}
-    return {s.get("context", "?"): s.get("state", "?") for s in govde.get("statuses", [])}
+    return {s.get("context", "?"): {"state": s.get("state", "?"),
+                                    "description": s.get("description") or ""}
+            for s in govde.get("statuses", [])}
+
+
+#: İNCELEME SÜRÜMÜ — bir karar, (PR head sha + inceleme sürümü) ÇİFTİNE bağlıdır.
+# Neden: kararlar yalnız commit sha'sına bağlanınca, İNCELEYEN hatalıysa (26 Ekim: node OOM'u
+# yüzünden yarım kalan tur, yanlış bulgu, eski istem) PR'lar sonsuza kadar "zaten karara bağlı"
+# kalıyordu. i5 susuyor, yeni commit gelmiyor, geliştirici de i5'in kendi hatasını düzeltemiyordu
+# (canlı kilit: #83/#84/#86/#90 hepsi failure + "yeni commit bekleniyor"). Sürüm, inceleyenin
+# KAYNAK KODUNDAN türetilir: inceleme mantığı/istem değişince sürüm değişir, eski kararlar BAYAT
+# sayılır ve PR'lar kendiliğinden yeniden incelemeye döner. Elle durum silmek/müdahale gerekmez.
+def inceleme_surumu() -> str:
+    """İnceleme mantığının sürümü (bu dosyanın içeriğinden 8 hex)."""
+    global _SURUM_ONBELLEK
+    if _SURUM_ONBELLEK is None:
+        try:
+            veri = Path(__file__).read_bytes()
+        except OSError:
+            veri = b""
+        _SURUM_ONBELLEK = hashlib.sha256(veri).hexdigest()[:8]
+    return _SURUM_ONBELLEK
+
+
+_SURUM_ONBELLEK: str | None = None
+
+#: Açıklamadaki sürüm damgası: `[v1a2b3c4d] ...` (GitHub açıklaması 140 karakterle sınırlı,
+#: bu yüzden damga BAŞTA durur; kırpma onu asla kesemez).
+SURUM_DAMGASI = re.compile(r"\[v([0-9a-f]{8})\]")
+
+
+def surum_guncel(aciklama: str | None, surum: str | None = None) -> bool:
+    """Yazılmış kararın sürümü güncel inceleme sürümüyle aynı mı?
+
+    Damgasız (eski) kararlar BAYAT sayılır: sürüm denetimi devreye girmeden önceki kararların
+    hangi mantıkla yazıldığı bilinmiyor. Bu yüzden ilk turda hepsi bir kez yeniden incelenir.
+    """
+    m = SURUM_DAMGASI.search(str(aciklama or ""))
+    return bool(m) and m.group(1) == (surum or inceleme_surumu())
 
 
 #: Aynı PR+commit için yeniden oturum açmadan önce beklenecek süre (sn). Üstel artar.
@@ -367,32 +441,42 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
         return []
 
     an = time.time()
+    surum = inceleme_surumu()
     cikti: list[dict] = []
     atlanan = 0  # bu sha için kararı zaten yazılmış PR'lar (top geliştiricide)
+    bayat = 0    # kararı eski inceleme sürümüyle yazılmış PR'lar (yeniden incelenecek)
     for pr in govde:
         if pr.get("draft"):
             continue
         no = pr["number"]
         sha = pr["head"]["sha"]
         etiketler = {e["name"] for e in pr.get("labels", [])}
-        durumlar = birlesik_durumlar(gh, sha)
-        inceleme = durumlar.get(ZORUNLU[0])
-        karar = durumlar.get(ZORUNLU[1])
+        durumlar = durum_ayrintili(gh, sha)
+        inceleme_d = durumlar.get(ZORUNLU[0]) or {}
+        karar_d = durumlar.get(ZORUNLU[1]) or {}
+        inceleme = inceleme_d.get("state")
+        karar = karar_d.get("state")
 
         kayit = {"pr": no, "sha": sha, "baslik": pr["title"], "etiketler": sorted(etiketler),
-                 "inceleme": inceleme, "karar": karar,
+                 "inceleme": inceleme, "karar": karar, "inceleme_surumu": surum,
                  "yas_dk": yas_dk(pr.get("created_at"), an),
                  # güncellenme yaşı: PR'a yeni commit geldiyse inceleme de yenilenmeli
                  "guncelleme_dk": yas_dk(pr.get("updated_at"), an)}
 
-        # ── AYNI SHA'YA İKİNCİ KEZ KARAR YAZILMAZ ─────────────────────────────────────────
+        # ── AYNI SHA'YA AYNI SÜRÜMLE İKİNCİ KEZ KARAR YAZILMAZ ───────────────────────────────
         # Durum kontrolleri COMMIT'e bağlıdır: yeni commit = yeni sha = durum yok. Yani "bu sha
         # için karar zaten yazılmış" demek, "yapılacak yeni bir şey yok, top geliştiricide" demek.
         # Bu kural olmadan 25 Ekim'de i3 aynı head'e (cc4e4b81) ÜÇ tur üst üste "düzeltme" yazdı
         # ve nöbetçi her turda boşuna oturum açtı; i5 de kendi "sorun" verdiği sha'yı sonsuz
         # yeniden inceliyordu. Geliştirici yeni commit atınca sha değişir → iş kendiliğinden döner.
+        # EK KURAL (27 Ekim canlı kilit): karar (sha + inceleme sürümü) çiftine bağlıdır. İnceleyen
+        # hatalıysa (OOM'lu yarım tur, yanlış bulgu, eski istem) eski karar BAYATTIR: yeni commit
+        # beklemek yerine yeniden incelenir. Aksi hâlde i5 susar, geliştirici de i5'i düzeltemez.
         if rol == "i5":
             if inceleme not in YAZILMIS_DURUMLAR:
+                cikti.append(kayit)
+            elif not surum_guncel(inceleme_d.get("description"), surum):
+                bayat += 1
                 cikti.append(kayit)
             else:
                 atlanan += 1  # karar yazılmış, düzeltme geliştiricide
@@ -400,16 +484,23 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
             if inceleme != "success":
                 continue
             etiketsiz_onay = karar == "success" and ONAY_ETIKETI not in etiketler  # yarım yazım: etiket eksik
-            if karar not in YAZILMIS_DURUMLAR or etiketsiz_onay:
+            if (karar not in YAZILMIS_DURUMLAR or etiketsiz_onay
+                    or not surum_guncel(karar_d.get("description"), surum)):
+                if karar in YAZILMIS_DURUMLAR and not etiketsiz_onay:
+                    bayat += 1
                 cikti.append(kayit)
             else:
                 atlanan += 1  # karar verilmiş (düzeltme/red), geliştiricide
 
     # yaş büyük = daha eski → başa. Eşitlikte PR numarası küçük olan (daha eski) önce.
     cikti.sort(key=lambda i: (-i["yas_dk"], i["pr"]))
+    if bayat:
+        gunluk_seyrek(getattr(gh, "gunluk_yolu", None), f"{rol}:bayat:{surum}",
+                      f"{rol}: {bayat} PR eski inceleme sürümünden → yeniden inceleme (v{surum})")
     if atlanan:
-        gunluk(getattr(gh, "gunluk_yolu", None), f"{rol}: {atlanan} PR bu commit için zaten karara bağlı "
-                                            f"→ yeni commit bekleniyor (yeniden karar yazılmaz)")
+        gunluk_seyrek(getattr(gh, "gunluk_yolu", None), f"{rol}:atlanan:{len(govde)}",
+                      f"{rol}: {atlanan} PR bu commit için zaten karara bağlı "
+                      f"→ yeni commit bekleniyor (yeniden karar yazılmaz)")
     return cikti[:limit]
 
 
@@ -528,7 +619,9 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
         if hepsi:
             gh.kaydet({"rol": rol, "is": len(hepsi), "son_karar": "beklemede"})
         else:
-            gunluk(gunluk_yolu, f"{rol}: iş yok (0 oturum)")
+            # Her yoklamada (15-20 sn) yazmak 2,5 MB'lık günlük üretiyordu → yalnız durum değişince.
+            if gh._onceki_veri.get("son_karar") != "bos":
+                gunluk(gunluk_yolu, f"{rol}: iş yok (0 oturum)")
             gh.kaydet({"rol": rol, "is": 0, "son_karar": "bos"})
         return 0
 
