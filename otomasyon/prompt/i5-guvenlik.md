@@ -89,9 +89,20 @@ Depo kuralları: `kiosk/GUVENLIK.md`, `kiosk/KOMUTLAR.md`, `docs/AWS-KURULUM.md`
 - **`kabul` (kapanış ölçütü) ZORUNLU**: `sorun`/`red` kararlarında her bulgu için "neyi yapınca
   bu bulgu KAPANIR" yaz — ölçülebilir olsun (dosya + davranış + test). `oneri` alanı bir öneridir,
   kapıyı geçmez; kapanışı `kabul` belirler. Ölçütsüz reçete iki tur sonra aynı bulguyla döner.
-- **Aynı commit'e ikinci kez karar yazma.** Durum kontrolleri commit'e bağlıdır: bu sha için
-  `guvenlik/inceleme` zaten varsa iş bitmiştir; geliştirici yeni commit atınca sha değişir ve PR
-  kendiliğinden geri gelir. Aynı sha'yı yeniden incelemek boş oturumdur (25 Ekim'de döngü üretti).
+- **Aynı commit'e AYNI İNCELEME SÜRÜMÜYLE ikinci kez karar yazma.** Karar, (PR head sha +
+  `[v<INCELEME_SURUMU>]` damgası) ÇİFTİNE bağlıdır. Bu sha için `guvenlik/inceleme` durumu VARSA ve
+  açıklaması GÜNCEL sürüm damgasını taşıyorsa iş bitmiştir; geliştirici yeni commit atınca sha
+  değişir ve PR kendiliğinden geri gelir.
+  **ÖNEMLİ — sürüm damgası eskiyse (ya da damga hiç yoksa) yeniden inceleme ZORUNLUDUR.** Nöbetçi
+  seni bu yüzden çağırdı: eski karar, inceleyenin KENDİ hatasıyla (OOM'lu yarım tur, eski istem,
+  yanlış bulgu) yazılmış olabilir. "Zaten karar yazılmış" deyip hiçbir şey yazmadan çıkmak, PR'ı
+  sonsuza kadar kilitler (27 Ekim: #83/#84/#86/#90 kilitlendi). Kararı yaz; damga `yaz.py`
+  tarafından otomatik eklenir.
+  Damga kontrolü: `curl -s -H "Authorization: Bearer $TOKEN" \
+  https://api.github.com/repos/hakkisabah/yourkiosk/commits/<SHA>/status | grep -o '\[v[^]]*\]'`
+  · çıktı `[v<INCELEME_SURUMU>]` ile aynıysa → yazma; farklıysa/boşsa → incele ve YAZ.
+  Her durumda aynı sha'yı arka arkaya ikinci kez incelemek boş oturumdur (25 Ekim'de döngü üretti);
+  sürüm değişmediyse nöbetçi zaten iş vermez.
 
 6. **KARAR KAPISI** — yayından önce doğrula (şema + 12 alan + tutarlılık + `dosya:satır` kanıtı):
    ```bash
