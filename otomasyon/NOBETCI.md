@@ -94,7 +94,7 @@ i3'te aynı komut `i3` argümanıyla. Bakım betiği şunları yapar (hepsi idem
 | 2 | Bellek tavanlarını **drop-in** olarak yazar: `yourkiosk-nobetci.service.d/50-bellek.conf` (RAM'den ölçülür) |
 | 3 | Birimi klon yolundan üretir: `--depo <klon> --dal <dal> --guncelle` |
 | 4 | Çalışan birime tavanı `set-property` ile **canlı** uygular (oturumu öldürmez) |
-| 5 | Oturum içinden çağrıldıysa restart'ı `systemd-run --on-active` ile **geciktirir** |
+| 5 | Servisi **yeni koddan yeniden başlatır**: `reset-failed` (OOM döngüsü start limitini doldurur) + `restart`; ayağa kalkmazsa **çıkış 9** + journal/status çıktısı. Oturum içinden çağrıldıysa restart `systemd-run --on-active` ile **geciktirilir** (kendini öldürmesin) |
 
 **Hata görünürlüğü:** bakım betiği artık klondaki `nobetci-kur.sh`ın çıktısını yutmaz. Klondaki kod
 makine kopyası + kendini güncelleme biçimini desteklemiyorsa **çıkış 8** ile `DESTEKLEMİYOR` der ve
