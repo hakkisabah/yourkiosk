@@ -51,6 +51,12 @@ KAPI_LOG = Path.home() / ".local" / "state" / "yourkiosk-otomasyon" / "kapi-red.
 #: dosyadan okunur, karar dosyasındaki değerle uyuşmazsa yazım reddedilir (çıkış 5).
 KIMLIK_VARSAYILAN = Path("/etc/yourkiosk-makine-kimligi")
 
+#: YEDEK kimlik kaynağı (27 Ekim): `/etc/machine-id` root sahipli ve makineye özgüdür, sudo
+#: GEREKTİRMEZ. Rol eşlemesi depoda tutulur (`otomasyon/makine-kimlikleri.json`) ve git'te temiz
+#: olmak zorundadır → kimlik uydurmak yine PR incelemesine bağlıdır.
+MAKINE_ID_YOLU = Path("/etc/machine-id")
+KIMLIK_ESLEME_DOSYASI = "otomasyon/makine-kimlikleri.json"
+
 #: Kapı atlama BİLETİ — operatörün ürettiği, ajanın üretemediği ikinci anahtar.
 #: Neden: ortam değişkenini ajan kendi kabuğundan verebiliyor (terminal yetkisi var). Bilet
 #: /run altında ROOT sahipli olmalı; root olmayan kullanıcı orada dosya oluşturamaz.
@@ -443,19 +449,9 @@ def kimlik_yolu() -> Path:
     return KIMLIK_VARSAYILAN
 
 
-def makine_kimligi_denetle(yol: Path | None = None, *, sahip_denetimi=None,
-                           dizin_denetimi=None) -> tuple[str, str]:
-    """Bu makinenin rolü → (`i5` | `i3`, ret gerekçesi boş) ya da (`""`, gerekçe).
-
-    NEDEN DOSYA: karar dosyasındaki `makine` alanı ajanın kendi beyanıydı; i5 oturumu "i3" yazıp
-    iki zorunlu kontrolü de tek başına geçirebiliyordu (AGENTS.md:52-53). Kimlik artık operatörün
-    kurduğu ROOT sahipli dosyadan okunur; ajan root olmadığı için onu yazamaz.
-
-    Kabul ölçütleri (bilet ile aynı sınıf): normal dosya, ROOT sahipli, grup/dünya-yazılamaz,
-    üst dizini root sahipli ve yazılamaz, sanal dosya sistemi (/proc · /sys · /dev) dışında,
-    içeriği `i5` ya da `i3`. TTL YOK: kimlik kalıcı bir kurulum bilgisidir (bilet geçicidir).
-    """
-    hedef = Path(yol) if yol is not None else kimlik_yolu()
+def _kimlik_dosyasindan(hedef: Path, sahip_denetimi=None,
+                        dizin_denetimi=None) -> tuple[str, str]:
+    """ROOT sahipli kurulum dosyasından rol oku (birincil yol)."""
     hedef_str = str(hedef)
     if any(hedef_str == onek or hedef_str.startswith(onek + "/") for onek in SANAL_ONEKLER):
         return "", (f"makine kimliği sanal dosya sisteminde ({hedef_str}) — "
@@ -463,8 +459,9 @@ def makine_kimligi_denetle(yol: Path | None = None, *, sahip_denetimi=None,
     try:
         st = hedef.lstat()
     except OSError as hata:
-        return "", (f"makine kimliği yok ({hedef}): {hata.strerror or hata}; operatör: "
-                    f"sudo sh -c 'printf i5 > {hedef}' && sudo chmod 0644 {hedef}")
+        return "", f"makine kimliği yok ({hedef}): {hata.strerror or hata}"
+    if stat.S_ISLNK(st.st_mode):
+        return "", f"makine kimliği sembolik bağlantı ({hedef}) — gerçek dosya olmalı"
     if not stat.S_ISREG(st.st_mode):
         return "", f"makine kimliği normal dosya değil ({hedef})"
     denetim = sahip_denetimi if sahip_denetimi is not None else kimlik_sahibi_denetimi
@@ -491,6 +488,130 @@ def makine_kimligi_denetle(yol: Path | None = None, *, sahip_denetimi=None,
         return "", (f"makine kimliği tanınmıyor ({ham!r}) — beklenen: "
                     f"{' | '.join(sorted(MAKINE_AYARI))}")
     return ham, ""
+
+
+def makine_id_sahibi_denetimi(st: "os.stat_result") -> bool:
+    """`/etc/machine-id` root sahipli mi? Testler bu FONKSİYONU enjekte eder."""
+    return st.st_uid == 0
+
+
+def makine_id_oku(yol: Path | None = None, *, sahip_denetimi=None) -> tuple[str, str]:
+    """`/etc/machine-id` — ROOT sahipli, makineye özgü, sudo GEREKTİRMEDEN okunur.
+
+    27 Ekim dersi: birincil yol (`/etc/yourkiosk-makine-kimligi`) sudo istiyordu. i5'te sudo
+    parolası yok → kimlik hiç kurulamadı → karar kapısı 13 kez reddetti → i5 incelemeyi
+    TAMAMLAYAMADI (kuyruk 39 saat kilitlendi). `/etc/machine-id` aynı güvenceyi bedava verir:
+    kök sahipli, dünya-yazılamaz, makineye özgü; ajan onu değiştiremez.
+    """
+    hedef = Path(yol) if yol is not None else MAKINE_ID_YOLU
+    hedef_str = str(hedef)
+    if any(hedef_str == onek or hedef_str.startswith(onek + "/") for onek in SANAL_ONEKLER):
+        return "", f"machine-id sanal dosya sisteminde ({hedef_str})"
+    try:
+        st = hedef.lstat()
+    except OSError as hata:
+        return "", f"machine-id yok ({hedef}): {hata.strerror or hata}"
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+        return "", f"machine-id normal dosya değil ({hedef})"
+    denetim = sahip_denetimi if sahip_denetimi is not None else makine_id_sahibi_denetimi
+    if not denetim(st):
+        return "", f"machine-id root sahipli değil (uid {st.st_uid}, yol {hedef})"
+    if (st.st_mode & 0o777) & 0o022:
+        return "", f"machine-id grup/dünya-yazılabilir (mod {st.st_mode & 0o777:04o}, {hedef})"
+    try:
+        ham = hedef.read_text(encoding="utf-8").strip().lower()
+    except OSError as hata:
+        return "", f"machine-id okunamadı ({hedef}): {hata.strerror or hata}"
+    if not ham or len(ham) < 8 or any(c not in "0123456789abcdef" for c in ham):
+        return "", f"machine-id biçimi beklenmedik ({ham[:12]!r}…, {hedef})"
+    return ham, ""
+
+
+def kimlik_eslemesi(depo: Path | None = None) -> tuple[dict, str]:
+    """Depodaki rol↔machine-id eşlemesi (`otomasyon/makine-kimlikleri.json`).
+
+    Neden depoda: roller (`i5`, `i3`) makineye özgü UUID'lerle ancak burada eşlenebilir; sudo
+    gerekmez. Ajan bu dosyayı kendi lehine düzenleyebilir — bu yüzden dosya GIT'te TEMİZ olmak
+    zorunda (değiştirilmiş hâli reddedilir) ve değişiklik ancak operatör PR'ıyla birleşebilir.
+    Yani "kimlik uydurma" yeniden bir PR incelemesine bağlanır.
+    """
+    kok = Path(depo) if depo is not None else Path(__file__).resolve().parents[2]
+    dosya = kok / KIMLIK_ESLEME_DOSYASI
+    if not dosya.is_file():
+        return {}, (f"kimlik eşlemesi yok ({dosya}) — operatör: "
+                    f"bash otomasyon/betik/makine-kimligi-kur.sh --kaydet i5")
+    try:
+        git = subprocess.run(["git", "-C", str(kok), "status", "--porcelain", "--",
+                              KIMLIK_ESLEME_DOSYASI],
+                             capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as hata:
+        return {}, f"kimlik eşlemesi denetlenemedi (git): {type(hata).__name__}"
+    if git.returncode != 0:
+        return {}, f"kimlik eşlemesi git deposunda değil ({kok}) — elle kurulum kabul edilmez"
+    if git.stdout.strip():
+        return {}, (f"kimlik eşlemesi DEĞİŞTİRİLMİŞ ({git.stdout.strip().splitlines()[0]}) — "
+                    f"değişiklik PR ile birleşmeli; ajan kendi rolünü yazamaz")
+    try:
+        veri = json.loads(dosya.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as hata:
+        return {}, f"kimlik eşlemesi okunamadı ({dosya}): {hata}"
+    if not isinstance(veri, dict):
+        return {}, "kimlik eşlemesi sözlük değil"
+    temiz: dict[str, dict] = {}
+    for rol, kayit in veri.items():
+        if rol not in MAKINE_AYARI or not isinstance(kayit, dict):
+            return {}, f"kimlik eşlemesi geçersiz kayıt ({rol!r})"
+        mid = str(kayit.get("machine_id", "")).strip().lower()
+        if len(mid) < 8 or any(c not in "0123456789abcdef" for c in mid):
+            return {}, f"kimlik eşlemesi geçersiz machine_id ({rol!r})"
+        temiz[rol] = {"machine_id": mid, "hostname": str(kayit.get("hostname", ""))}
+    return temiz, ""
+
+
+def kimlik_modu(yol: Path | None = None, makine_id: Path | None = None, *,
+                sahip_denetimi=None) -> str:
+    """Kimliğin hangi kaynaktan geleceği: `root-dosya` · `machine-id` · `yok`."""
+    hedef = Path(yol) if yol is not None else kimlik_yolu()
+    if hedef.exists():
+        return "root-dosya"
+    mid, _ = makine_id_oku(makine_id, sahip_denetimi=sahip_denetimi)
+    return "machine-id" if mid else "yok"
+
+
+def makine_kimligi_denetle(yol: Path | None = None, *, sahip_denetimi=None,
+                           dizin_denetimi=None, makine_id: Path | None = None,
+                           depo: Path | None = None) -> tuple[str, str]:
+    """Bu makinenin rolü → (rol, ret gerekçesi boş) ya da (boş, gerekçe).
+
+    İKİ KAYNAK, tek kural: rol ASLA karar dosyasının kendi beyanından okunmaz.
+      1. ROOT sahipli `/etc/yourkiosk-makine-kimligi` (operatör kurulumu) — varsa tek geçerli.
+      2. Yoksa: `/etc/machine-id` (root sahipli, makineye özgü) + depodaki rol eşlemesi.
+         sudo gerektirmez; i5'te 13 karar reddine yol açan kilitlenmenin kalıcı çözümü.
+    `yol` açıkça verilirse (testler) yalnız dosya yolu denenir — eski davranış korunur.
+    """
+    if yol is not None:
+        return _kimlik_dosyasindan(Path(yol), sahip_denetimi, dizin_denetimi)
+    hedef = kimlik_yolu()
+    if hedef.exists() or hedef.is_symlink():
+        return _kimlik_dosyasindan(hedef, sahip_denetimi, dizin_denetimi)
+
+    mid, neden = makine_id_oku(makine_id, sahip_denetimi=sahip_denetimi)
+    if not mid:
+        return "", (f"{neden}; operatör kurulumu: "
+                    f"sudo sh -c 'printf i5 > {hedef}' && sudo chmod 0644 {hedef}")
+    esleme, neden = kimlik_eslemesi(depo)
+    if not esleme:
+        return "", neden
+    uyan = sorted(rol for rol, kayit in esleme.items() if kayit["machine_id"] == mid)
+    if not uyan:
+        return "", (f"bu makine (machine-id {mid[:8]}…) rol eşlemesinde YOK — operatör: "
+                    f"bash otomasyon/betik/makine-kimligi-kur.sh --kaydet i5 "
+                    f"(çıkan satırı {KIMLIK_ESLEME_DOSYASI} dosyasına PR ile ekle); "
+                    f"alternatif: sudo sh -c 'printf i5 > {KIMLIK_VARSAYILAN}'")
+    if len(uyan) > 1:
+        return "", (f"machine-id {mid[:8]}… eşlemede birden çok role yazılmış "
+                    f"({', '.join(uyan)}) — eşleme bozuk, düzeltilmeli")
+    return uyan[0], ""
 
 
 def operator_izi_denetle() -> tuple[bool, str, str]:

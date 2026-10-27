@@ -696,6 +696,7 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
 
     # karar kapısı: yaz.py reddettiği/atladığı her kararı kapi-red.log'a yazar
     kapi_dosya = DURUM_KLASORU / "kapi-red.log"
+    son_kapi_nedeni = ""
     if kapi_dosya.is_file():
         for satirl in kapi_dosya.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
@@ -706,9 +707,15 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
                 continue
             if an >= sinir:
                 kapi_red += 1
+                hatalar = kayit.get("hatalar") or []
+                # 27 Ekim dersi: denetim "9 olay" diyordu ama NEDENİNİ söylemiyordu; kilitlenme
+                # (makine kimliği kurulamadı → her karar reddedildi) 39 saat görünmedi.
+                son_kapi_nedeni = str(hatalar[0]) if hatalar else str(kayit.get("olay", ""))
 
     satir(zaman_asimi == 0, "son 24s zaman aşımı yok", f"{zaman_asimi} olay")
-    satir(kapi_red < 3, "karar kapısı reddi < 3", f"{kapi_red} olay → {kapi_dosya}")
+    satir(kapi_red < 3, "karar kapısı reddi < 3",
+          f"{kapi_red} olay → {kapi_dosya}"
+          + (f" · son neden: {son_kapi_nedeni[:160]}" if son_kapi_nedeni else ""))
 
     # 9-12) BELLEK: 26 Ekim'de birim cgroup'unda `node-MainThread` V8 FatalProcessOutOfMemory ile
     # core dump aldı (makinede 3,8 GB RAM; V8 tavanı RAM'den büyük kuruldu, takas doldu). Bu dört
@@ -786,6 +793,32 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
     satir(kopya, "kod deposu makine kopyası",
           str(DEPO_VARSAYILAN) if kopya else
           f"insan deposu: {DEPO_VARSAYILAN} → nobetci-bakim.sh (pull sorunu biter)")
+
+    # 15) MAKİNE KİMLİĞİ — karar kapısının ÖN KOŞULU. 27 Ekim kilitlenmesi: kimlik dosyası sudo
+    # istiyordu, i5'te parola yoktu → her karar "makine kimliği geçersiz" diye reddedildi ve bu
+    # denetim yalnız "9 olay" diyordu (neden görünmüyordu). Artık kimliğin hangi kaynaktan geldiği
+    # ve geçerli olup olmadığı burada görünür.
+    try:
+        import importlib.util as _iu
+        _spec = _iu.spec_from_file_location("yaz_kimlik", DEPO_VARSAYILAN / "otomasyon" / "betik" / "yaz.py")
+        if _spec is None or _spec.loader is None:
+            raise ImportError("yaz.py yüklenemedi")
+        _modul = _iu.module_from_spec(_spec)
+        _spec.loader.exec_module(_modul)
+        kimlik, kimlik_neden = _modul.makine_kimligi_denetle()
+        kimlik_modu = _modul.kimlik_modu()
+        mid, _mid_neden = _modul.makine_id_oku()
+    except (OSError, ImportError, AttributeError, TypeError) as hata:
+        kimlik, kimlik_neden, kimlik_modu, mid = "", f"yaz.py kimlik kuralı okunamadı: {hata}", "?", ""
+    if kimlik:
+        ayrinti = (f"{kimlik} · kaynak {kimlik_modu}"
+                   + (f" · machine-id {mid[:8]}…" if mid and kimlik_modu == "machine-id" else ""))
+        if kimlik != rol:
+            ayrinti += f" → bu makine {kimlik!r} olarak kurulu, --rol {rol!r}; kapı yazımı reddedilir"
+        satir(kimlik == rol, "makine kimliği", ayrinti)
+    else:
+        satir(False, "makine kimliği",
+              f"{kimlik_neden} · düzelt: bash otomasyon/betik/makine-kimligi-kur.sh --kaydet {rol}")
 
     print(f"\n{'✓ tüm kontrol noktaları temiz' if sorun == 0 else f'✗ {sorun} kontrol noktası sorunlu'}")
     return 0 if sorun == 0 else 1
