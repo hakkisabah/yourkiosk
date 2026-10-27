@@ -72,7 +72,14 @@ fi
 # depo bilinmez, uzak adres varsayılana düşer. Betik kaynak depoya hiçbir şey YAZMAZ.
 KAYNAK=""
 if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
-  KAYNAK="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd || true)"
+  aday="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd || true)"
+  # Kaynak YALNIZ gerçek bir git ağacıysa kaynaktır. 27 Ekim: betik /tmp'den çalıştırılınca
+  # dirname/../.. = "/" oluyor ve "kaynak: /" yazıyordu (anlamsız, uzak adresi de bozuyordu).
+  if [ -n "$aday" ] && git -C "$aday" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    KAYNAK="$aday"
+  else
+    KAYNAK_YOLU="$aday"
+  fi
 fi
 soyle() { [ "$SESSIZ" -eq 1 ] || printf '%s\n' "$*"; }
 hata() { printf '✗ %s\n' "$*" >&2; }
@@ -80,13 +87,26 @@ hata() { printf '✗ %s\n' "$*" >&2; }
 # ── 0) git var mı ─────────────────────────────────────────────────────────────────────────────
 command -v git >/dev/null 2>&1 || { hata "git bulunamadı (PATH)"; exit 3; }
 
+# SSH adresinin okuma karşılığı (git@host:sahip/depo.git → https://host/sahip/depo.git).
+# Neden: nöbetçi yalnız OKUR; makinede GitHub SSH anahtarı olmayabilir (i5'te yok). SSH ile
+# fetch patlarsa public depo HTTPS ile sorunsuz okunur → makine kilitlenmez.
+https_karsiligi() {
+  case "$1" in
+    git@*:*) local s="${1#git@}"; printf 'https://%s/%s\n' "${s%%:*}" "${s#*:}" ;;
+    ssh://git@*) printf 'https://%s\n' "$(printf '%s' "$1" | sed 's|^ssh://git@||')" ;;
+    *) return 1 ;;
+  esac
+}
+
 # ── 1) UZAK adres: varsa kaynak deponun origin'i, yoksa varsayılan ────────────────────────────
 UZAK="${NOBETCI_UZAK:-}"
 if [ -z "$UZAK" ]; then
-  UZAK="$(git -C "$KAYNAK" remote get-url origin 2>/dev/null || true)"
+  UZAK="$(git -C "${KAYNAK:-/nonexistent}" remote get-url origin 2>/dev/null || true)"
   [ -z "$UZAK" ] && UZAK="$VARSAYILAN_UZAK"
 fi
-soyle "kaynak      : ${KAYNAK:-(boru hattı — dosya yolu yok)}"
+if [ -n "$KAYNAK" ]; then soyle "kaynak      : $KAYNAK"
+elif [ -n "${KAYNAK_YOLU:-}" ]; then soyle "kaynak      : yok (betik depo dışında: $KAYNAK_YOLU)"
+else soyle "kaynak      : yok (boru hattı — dosya yolu yok)"; fi
 soyle "kod deposu  : $KOD_DEPO"
 soyle "uzak        : $UZAK ($DAL)"
 
@@ -111,12 +131,20 @@ if [ ! -d "$KOD_DEPO/.git" ]; then
     exit 4
   fi
   soyle "→ klon oluşturuluyor"
-  git clone --branch "$DAL" --single-branch "$UZAK" "$KOD_DEPO" >/dev/null 2>&1 || {
-    hata "klon başarısız: $UZAK (dal: $DAL)"
-    hata "  SSH anahtarı yetkili mi?  ssh -T git@github.com"
-    hata "  Dal uzakta var mı?        git ls-remote --heads $UZAK $DAL"
-    exit 5
-  }
+  if ! git clone --branch "$DAL" --single-branch "$UZAK" "$KOD_DEPO" >/dev/null 2>&1; then
+    # SSH anahtarı yoksa (i5'te yok) public depo HTTPS ile okunur: nöbetçi yalnız OKUR.
+    YEDEK="$(https_karsiligi "$UZAK" || true)"
+    rm -rf "$KOD_DEPO" 2>/dev/null   # yarım klon kalıntısı ikinci denemeyi engellemesin
+    if [ -z "$YEDEK" ] || ! git clone --branch "$DAL" --single-branch "$YEDEK" "$KOD_DEPO" >/dev/null 2>&1; then
+      hata "klon başarısız: $UZAK (dal: $DAL)"
+      hata "  SSH anahtarı yetkili mi?  ssh -T git@github.com"
+      hata "  Dal uzakta var mı?        git ls-remote --heads $UZAK $DAL"
+      hata "  Adresi elle ver:          NOBETCI_UZAK=https://github.com/<sahip>/<depo>.git $0 $ROL --dal $DAL"
+      exit 5
+    fi
+    UZAK="$YEDEK"
+    soyle "uzak        : SSH okunamadı → HTTPS ile klonlandı ($YEDEK)"
+  fi
 fi
 # Makineye ait kopya işareti: nobetci.py bu işareti görürse `reset --hard` ile günceller.
 # İşaret yoksa (insan deposu) nöbetçi yalnız `merge --ff-only` dener → kimsenin işini ezmez.
@@ -126,8 +154,25 @@ mkdir -p "$DURUM_KLASORU"
 printf '%s\n' "$DAL" > "$DURUM_KLASORU/nobetci-dal"
 
 ESKI_SHA="$(git -C "$KOD_DEPO" rev-parse --short=10 HEAD 2>/dev/null || echo '?')"
-git -C "$KOD_DEPO" fetch --prune origin "$DAL" >/dev/null 2>&1 || {
-  hata "fetch başarısız (ağ/anahtar?) — klon güncellenmedi"; exit 5; }
+# TEK DAL klonunda `fetch origin <dal>` yalnız FETCH_HEAD yazar, `origin/<dal>` uzak-izleme dalı
+# OLUŞMAZ → sonraki `reset --hard origin/<dal>` patlar. (27 Ekim i5'te tam bu oldu: main klonu,
+# dal=ozellik/...). Ref'i AÇIKÇA yaz. SSH okunamazsa HTTPS'e düş (nöbetçi yalnız okur).
+klon_fetch() {
+  local refspec="+refs/heads/$1:refs/remotes/origin/$1" mevcut yedek
+  git -C "$KOD_DEPO" fetch --prune origin "$refspec" >/dev/null 2>&1 && return 0
+  mevcut="$(git -C "$KOD_DEPO" remote get-url origin 2>/dev/null || true)"
+  yedek="$(https_karsiligi "$mevcut" || true)"
+  [ -n "$yedek" ] || return 1
+  git -C "$KOD_DEPO" remote set-url origin "$yedek" >/dev/null 2>&1 || return 1
+  git -C "$KOD_DEPO" fetch --prune origin "$refspec" >/dev/null 2>&1 || return 1
+  soyle "uzak        : SSH okunamadı → HTTPS ($yedek)"
+  return 0
+}
+if ! klon_fetch "$DAL"; then
+  hata "fetch başarısız (ağ/anahtar?) — klon güncellenmedi"
+  hata "  dal uzakta var mı: git ls-remote --heads $(git -C "$KOD_DEPO" remote get-url origin 2>/dev/null || echo "$UZAK") $DAL"
+  exit 5
+fi
 git -C "$KOD_DEPO" reset --hard "origin/$DAL" >/dev/null 2>&1 || {
   hata "reset --hard origin/$DAL başarısız"; exit 5; }
 YENI_SHA="$(git -C "$KOD_DEPO" rev-parse --short=10 HEAD 2>/dev/null || echo '?')"

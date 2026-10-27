@@ -197,7 +197,11 @@ def depo_guncelle(depo: Path, gunluk_yolu: Path | None = None, dal: str = "main"
 
     eski = kod_sha(depo)
     try:
-        if git("fetch", "--prune", "origin", dal).returncode != 0:
+        # TEK DAL klonunda (`--single-branch`) `fetch origin <dal>` yalnız FETCH_HEAD yazar,
+        # `origin/<dal>` UZAK-İZLEME DALI OLUŞMAZ → sonraki `reset --hard origin/<dal>` patlar.
+        # (27 Ekim i5: dal=main klonunda başka dal istenince tam bu oldu.) Ref'i AÇIKÇA yaz.
+        if git("fetch", "--prune", "origin",
+               f"+refs/heads/{dal}:refs/remotes/origin/{dal}").returncode != 0:
             return "hata", f"fetch başarısız (origin/{dal}) — ağ/SSH anahtarı"
         if kopya_mi(depo):
             if git("reset", "--hard", f"origin/{dal}").returncode != 0:

@@ -134,6 +134,27 @@ class DepoGuncelleTesti(unittest.TestCase):
         self.assertEqual(durum, "hata")
         self.assertIn("git deposu değil", ayrinti)
 
+    def test_tek_dal_klonu_baska_dali_gunceller(self):
+        """`--single-branch main` klonunda başka dal istenirse `origin/<dal>` yoktur.
+        Ref AÇIKÇA yazılmalı, yoksa `reset --hard origin/<dal>` patlar (27 Ekim i5)."""
+        klon = self.kok / "tekdal"
+        s = git("clone", "--branch", "main", "--single-branch",
+                str(self.kurulum.origin), str(klon), cwd=self.kok)
+        self.assertEqual(s.returncode, 0, s.stderr)
+        (klon / ".git" / nobetci.KOPYA_ISARETI).touch()
+        # uzakta ikinci dal
+        git("checkout", "-b", "yan", cwd=self.kurulum.tohum)
+        (self.kurulum.tohum / "otomasyon" / "betik" / "surum.txt").write_text("yan\n", encoding="utf-8")
+        git("add", "-A", cwd=self.kurulum.tohum)
+        git("commit", "-m", "yan", cwd=self.kurulum.tohum)
+        git("push", "origin", "yan", cwd=self.kurulum.tohum)
+        yan_sha = git("rev-parse", "--short=10", "HEAD", cwd=self.kurulum.tohum).stdout.strip()
+
+        durum, ayrinti = nobetci.depo_guncelle(klon, dal="yan")
+        self.assertEqual(durum, "guncellendi", ayrinti)
+        self.assertEqual(nobetci.kod_sha(klon), yan_sha)
+        self.assertEqual((klon / "otomasyon/betik/surum.txt").read_text(encoding="utf-8"), "yan\n")
+
 
 class BakimBetigiTesti(unittest.TestCase):
     """`nobetci-bakim.sh` — pull/checkout GEREKMEDEN makine kopyasını kurar ve günceller."""
@@ -244,6 +265,46 @@ class BakimBetigiTesti(unittest.TestCase):
     def test_bilinmeyen_secenek_reddedilir(self):
         s = self._calistir("--yok-boyle-secenek", atla=False)
         self.assertEqual(s.returncode, 2)
+
+    def test_tek_dal_klonu_baska_dala_cekilir(self):
+        """27 Ekim i5 arızası: klon `--single-branch main` idi, `--dal <başka>` istenince
+        `fetch origin <dal>` yalnız FETCH_HEAD yazdı → `reset --hard origin/<dal>` patladı ve
+        kullanıcı yalnız '✗ reset --hard … başarısız' gördü. Ref AÇIKÇA yazılmalı."""
+        self.assertEqual(self._calistir().returncode, 0, "ilk kurulum (main) başarısız")
+        # uzakta ikinci dal — iskeleti (nobetci-kur.sh) taşıyan depodan türet
+        git("checkout", "-b", "yan", cwd=self.kaynak)
+        (self.kaynak / "otomasyon" / "betik" / "surum.txt").write_text("yan\n", encoding="utf-8")
+        git("add", "-A", cwd=self.kaynak)
+        git("commit", "-m", "yan", cwd=self.kaynak)
+        git("push", "origin", "yan", cwd=self.kaynak)
+        yan_sha = git("rev-parse", "--short=10", "HEAD", cwd=self.kaynak).stdout.strip()
+
+        s = self._calistir("--dal", "yan")
+        self.assertEqual(s.returncode, 0, s.stderr + s.stdout)
+        self.assertNotIn("reset --hard origin/yan başarısız", s.stderr)
+        self.assertEqual(nobetci.kod_sha(self.kod_depo), yan_sha)
+        self.assertEqual((self.kod_depo / "otomasyon/betik/surum.txt").read_text(encoding="utf-8"),
+                         "yan\n")
+        # izlenen dal TEK kaynaktan okunur (servis, --guncelle, --kendini-denetle)
+        self.assertEqual((self.ev / ".local/state/yourkiosk-otomasyon/nobetci-dal")
+                         .read_text(encoding="utf-8").strip(), "yan")
+
+    def test_depo_disi_betik_kaynak_saymaz(self):
+        """Betik /tmp gibi bir yerden çalışınca `dirname/../..` = "/" oluyordu ve 'kaynak: /'
+        yazıyordu (uzak adres de yanlış yere düşüyordu). Depo dışı = kaynak YOK."""
+        disarida = self.kok / "disarida" / "otomasyon" / "betik"
+        disarida.mkdir(parents=True)
+        shutil.copy2(BETIK_DIZINI / "nobetci-bakim.sh", disarida / "nobetci-bakim.sh")
+        ortam = {**os.environ, **GIT_ENV, "HOME": str(self.ev),
+                 "NOBETCI_UZAK": str(self.kurulum.origin),
+                 "NOBETCI_KOD_DEPO": str(self.kod_depo),
+                 "NOBETCI_SISTEMD_ATLA": "1"}
+        s = subprocess.run(["bash", str(disarida / "nobetci-bakim.sh"), "i5"],
+                           capture_output=True, text=True, timeout=180, env=ortam)
+        self.assertEqual(s.returncode, 0, s.stderr + s.stdout)
+        self.assertNotIn("kaynak      : /\n", s.stdout)
+        self.assertIn("kaynak      : yok", s.stdout)
+        self.assertTrue(nobetci.kopya_mi(self.kod_depo))
 
 
 class BirimKlonTesti(unittest.TestCase):
