@@ -226,7 +226,7 @@ KUR_LOG="$(mktemp -t yourkiosk-bakim-XXXXXX.log)"
 trap 'rm -f "$KUR_LOG"' EXIT
 if ! bash "$KUR" "$ROL" --kuru --klon "$KOD_DEPO" --dal "$DAL" >"$KUR_LOG" 2>&1; then
   hata "birim üretimi başarısız (klon kodu: $YENI_SHA) — çıktı:"
-  sed 's/^/    /' "$KUR_LOG" | tail -20 >&2
+  sed 's/^/    /' "$KUR_LOG" | tail -20 >&2 || true
   exit 7
 fi
 eksik=""
@@ -251,7 +251,7 @@ if [ "${NOBETCI_SISTEMD_ATLA:-0}" = "1" ]; then
 fi
 if ! bash "$KUR" "$ROL" --klon "$KOD_DEPO" --dal "$DAL" >>"$KUR_LOG" 2>&1; then
   hata "birim kurulumu başarısız (klon kodu: $YENI_SHA) — komut çıktısı:"
-  sed 's/^/    /' "$KUR_LOG" | tail -25 >&2
+  sed 's/^/    /' "$KUR_LOG" | tail -25 >&2 || true
   hata "  günlük: journalctl --user -u $UNIT_ADI -n 30 --no-pager"
   exit 7
 fi

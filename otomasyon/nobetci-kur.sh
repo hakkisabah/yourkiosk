@@ -233,7 +233,10 @@ case "$KIP" in
     echo "bellek tavanı: RAM ${RAM_MB} MB → MemoryHigh ${MEM_HIGH_MB} MB · MemoryMax ${MEM_MAX_MB} MB · NODE_OPTIONS heap ${NODE_HEAP_MB} MB"
     echo "kod deposu   : $KOD_DEPO$([ -n "${KLON:-}" ] && echo ' (makine kopyası)' || echo ' (insan deposu — nobetci-bakim.sh önerilir)')"
     echo "izlenen dal  : $DAL$([ "$DAL" = "main" ] && echo '' || echo '  (düzeltme dalı — merge sonrası --dal main ile normale dönün)')"
-    systemctl --user --no-pager status "$UNIT_ADI" | head -10
+    # `| head` KAPATILAN boru: head okumayı bırakınca systemctl SIGPIPE alır (141) ve
+    # `set -o pipefail` yüzünden script'in TAMAMI başarısız sayılır — "kuruldu" yazdıktan
+    # sonra "✗ birim kurulumu başarısız" (27 Ekim i5). Bu yüzden `|| true`.
+    systemctl --user --no-pager status "$UNIT_ADI" | head -10 || true
     echo
     echo "canlı günlük: journalctl --user -u $UNIT_ADI -f"
     echo "             tail -f $HOME/.local/state/yourkiosk-otomasyon/nobetci-$ROL.log"

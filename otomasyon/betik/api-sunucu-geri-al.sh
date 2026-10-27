@@ -146,5 +146,5 @@ Ayar değişikliği gateway yeniden başlayınca etkin olur. Bu betik gateway'e 
 Sonra doğrula:
 
   ss -tlnH 'sport = :8642'                          # beklenen: 127.0.0.1:8642 (ya da 172.17.0.1:8642)
-  sudo nft list ruleset | head -20                  # beklenen: hermes_api tablosu YOK
+  sudo nft list ruleset | head -20 || true           # beklenen: hermes_api tablosu YOK
 NOT
