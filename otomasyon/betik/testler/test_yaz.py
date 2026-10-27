@@ -8,6 +8,7 @@ bunun yorumda görünmemesi.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -86,6 +87,21 @@ class DurumMetniTesti(unittest.TestCase):
     def test_onay_durumu_success(self):
         self.assertEqual(yaz.durum_metni(karar(karar="onay", onem="dusuk", bulgular=[]))[0], "success")
 
+    def test_aciklama_inceleme_surumu_damgali(self):
+        """Karar (sha + inceleme sürümü) çiftine bağlı: damga AÇIKLAMANIN BAŞINDA olmalı.
+
+        Damga sonda olsaydı 140 karakterlik kırpma onu kesebilir, karar "sürümsüz" kalır ve
+        nöbetçi PR'ı bayat sayıp her turda yeniden incelerdi (sonsuz oturum).
+        """
+        _, aciklama = yaz.durum_metni(karar(ozet="çok uzun " * 60))
+        self.assertTrue(aciklama.startswith("[v"), aciklama)
+        self.assertRegex(aciklama, r"^\[v[0-9a-f]{8}\] ")
+
+    def test_yaz_ve_nobetci_ayni_surumu_hesaplar(self):
+        """İki betik farklı sürüm hesaplarsa yazılan damga hiçbir zaman güncel olmazdı."""
+        import nobetci  # aynı dizin, sys.path testte eklenmiş olmalı
+        self.assertEqual(yaz.inceleme_surumu(), nobetci.inceleme_surumu())
+
 
 class _BiletDestekli(unittest.TestCase):
     """Ortak koşum: ortam anahtarı + operatör bileti senaryoları (alt süreç, ağ yok).
@@ -158,6 +174,12 @@ class _BiletDestekli(unittest.TestCase):
             if kimlik_sahip_taklit:
                 onsoz.append("yaz.kimlik_sahibi_denetimi = lambda st: True")
                 onsoz.append("yaz.kimlik_dizini_denetimi = lambda st: True")
+        else:
+            # "kimlik YOK" senaryosu: birincil dosya kadar YEDEK kaynak da (machine-id + eşleme)
+            # kapalı olmalı — yoksa test makinenin gerçek /etc/machine-id'siyle kimlik bulur ve
+            # senaryo sessizce başka bir şeyi ölçer (27 Ekim i5 bulgusu: 3 test kırmızıydı).
+            onsoz.append(f"import pathlib; yaz.KIMLIK_VARSAYILAN = pathlib.Path({str(self.kok / 'kimlik-yok')!r})")
+            onsoz.append(f"yaz.MAKINE_ID_YOLU = pathlib.Path({str(self.kok / 'machine-id-yok')!r})")
         if bilet is not None:
             onsoz.append(f"import pathlib; yaz.BILET_VARSAYILAN = pathlib.Path({str(bilet)!r})")
         if uid_taklit:
@@ -654,7 +676,9 @@ class MakineKimligiTesti(_BiletDestekli):
         s = self.calistir(kimlik=None)
         self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
         self.assertIn("MAKİNE KİMLİĞİ REDDEDİLDİ", s.stderr)
-        self.assertIn("/etc/yourkiosk-makine-kimligi", s.stderr)
+        # Hem birincil dosya (enjekte edilen yol) hem yedek kaynak (machine-id) kapalı olmalı
+        self.assertIn("kimlik-yok", s.stderr)
+        self.assertIn("machine-id yok", s.stderr)
         self.assertIn("makine kimliği geçersiz", self.log.read_text(encoding="utf-8"))
 
     def test_beyan_ile_kimlik_uyusmazsa_reddedilir(self):
@@ -681,6 +705,24 @@ class MakineKimligiTesti(_BiletDestekli):
         s = self.calistir(kimlik="i5", kimlik_sahip_taklit=False)
         self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
         self.assertIn("root sahipli değil", s.stderr)
+
+    def test_tek_onay_operator_izi_ister(self):
+        """27 Ekim i5 bulgusu (orta): `--tek-onay` ikinci zorunlu kontrolü tamamen kaldırıyordu.
+
+        Artık `--kapi-atla` ile AYNI kapı: operatör anahtarı + bilet yoksa çıkış 5, birleştirme
+        isteği hiç atılmaz.
+        """
+        self.assertNotIn("YAZ_KAPI_ATLA_ONAY", os.environ)
+        # --birlestir yalnız KARAR makinesinde (i3) anlamlı → karar ve kimlik i3
+        k = dogru_karar()
+        k["makine"] = "i3"
+        k["eksikler"] = k.pop("bulgular")
+        self.karar_yolu.write_text(json.dumps(k), encoding="utf-8")
+        s = self.calistir("--birlestir", "--tek-onay", "--gerekce",
+                          "iki kapi tek makinede birlesti, operator onayi var", kimlik="i3")
+        self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
+        self.assertIn("--tek-onay REDDEDİLDİ", s.stderr)
+        self.assertIn("--tek-onay reddedildi", self.log.read_text(encoding="utf-8"))
 
     def test_kimlik_dosyasi_ortam_degiskeniyle_tasinamaz(self):
         """Üretimde kimlik yolunu taşıyan bir ortam anahtarı YOKTUR (bilet dersi)."""

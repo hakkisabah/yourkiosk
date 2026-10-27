@@ -34,6 +34,16 @@ def pr(no: int, yas_dk: int, draft: bool = False, etiketler=(), sha: str = "") -
     }
 
 
+def damga(metin: str = "karar", surum: str | None = None) -> str:
+    """GÜNCEL inceleme sürümüyle yazılmış karar açıklaması (damga başta)."""
+    return f"[v{surum or nobetci.inceleme_surumu()}] {metin}"
+
+
+def durum(state: str, metin: str = "karar", surum: str | None = None) -> dict:
+    """Commit durumu kaydı: state + (varsayılan olarak güncel sürüm damgalı) açıklama."""
+    return {"state": state, "description": damga(metin, surum)}
+
+
 class SahteGithub(nobetci.Github):
     """Yalnız `al()` taklidi: PR listesi + commit durumları (ağ ve dosya yok).
 
@@ -42,7 +52,7 @@ class SahteGithub(nobetci.Github):
     gerçek sınıftaki AttributeError'ı testler göremedi (i5 bulgusu).
     """
 
-    def __init__(self, prlar: list[dict], durumlar: dict[str, dict[str, str]] | None = None,
+    def __init__(self, prlar: list[dict], durumlar: dict[str, dict[str, object]] | None = None,
                  gunluk_yolu: Path | None = None):
         self.depo = "hakkisabah/yourkiosk"
         self.prlar = prlar
@@ -57,8 +67,12 @@ class SahteGithub(nobetci.Github):
             return 200, self.prlar
         if "/status" in yol:
             sha = yol.split("/commits/")[1].split("/")[0]
-            return 200, {"statuses": [{"context": k, "state": v}
-                                      for k, v in self.durumlar.get(sha, {}).items()]}
+            durumlar = []
+            for k, v in self.durumlar.get(sha, {}).items():
+                # değer dict ise {"state","description"} olarak geçer (inceleme sürümü damgası)
+                durumlar.append({"context": k, **v} if isinstance(v, dict)
+                                else {"context": k, "state": v})
+            return 200, {"statuses": durumlar}
         return 404, None
 
 
@@ -92,21 +106,50 @@ class AdilKuyrukTesti(unittest.TestCase):
 
     def test_i5_onaylanmis_pr_istenmez(self):
         sha = f"{86:040d}"
-        gh = SahteGithub([pr(86, 30)], {sha: {"guvenlik/inceleme": "success"}})
+        gh = SahteGithub([pr(86, 30)], {sha: {"guvenlik/inceleme": durum("success")}})
         self.assertEqual(nobetci.isler(gh, "i5", 8), [])
 
     def test_i5_ayni_sha_yeniden_incelenmez(self):
-        # iş 1 kez yapıldı: "sorun" yazılmış + aynı sha. Yeniden incelemek boş oturum üretir;
-        # sıra geliştiricide (yeni commit atınca sha değişir, PR tekrar girer).
+        # iş 1 kez yapıldı: "sorun" yazılmış + aynı sha + AYNI inceleme sürümü. Yeniden incelemek
+        # boş oturum üretir; sıra geliştiricide (yeni commit atınca sha değişir, PR tekrar girer).
         sha = f"{84:040d}"
         gh = SahteGithub([pr(84, 600, etiketler=["guvenlik/sorun"])],
-                         {sha: {"guvenlik/inceleme": "failure"}})
+                         {sha: {"guvenlik/inceleme": durum("failure")}})
         self.assertEqual(nobetci.isler(gh, "i5", 8), [])
+
+    def test_eski_surum_karari_bayat_yeniden_incelenir(self):
+        """27 Ekim canlı kilit: i5'in KENDİ hatasıyla yazdığı karar PR'ı sonsuza kilitliyordu.
+
+        #83/#84/#86/#90 hepsi `failure` + damgasız/eski sürüm → "yeni commit bekleniyor" deyip
+        i5 hiç oturum açmadı, geliştirici de i5'i düzeltemedi. Karar artık (sha + inceleme sürümü)
+        çiftine bağlı: sürüm eskiyse PR yeniden incelemeye döner.
+        """
+        sha = f"{83:040d}"
+        gh = SahteGithub([pr(83, 600)], {sha: {"guvenlik/inceleme": durum("failure", surum="00000000")}})
+        self.assertEqual([i["pr"] for i in nobetci.isler(gh, "i5", 8)], [83])
+
+    def test_damgasiz_karar_bayat_sayilir(self):
+        """Sürüm denetimi öncesi yazılmış (damgasız) kararların hangi mantıkla yazıldığı bilinmiyor."""
+        sha = f"{86:040d}"
+        gh = SahteGithub([pr(86, 600)], {sha: {"guvenlik/inceleme": {"state": "failure"}}})
+        self.assertEqual([i["pr"] for i in nobetci.isler(gh, "i5", 8)], [86])
+
+    def test_bayat_karar_gunluge_yazilir(self):
+        with tempfile.TemporaryDirectory() as dizin:
+            sha = f"{84:040d}"
+            log = Path(dizin) / "nobetci-i5.log"
+            gh = SahteGithub([pr(84, 600)],
+                             {sha: {"guvenlik/inceleme": durum("failure", surum="00000000")}},
+                             gunluk_yolu=log)
+            nobetci.isler(gh, "i5", 8)
+            metin = log.read_text(encoding="utf-8")
+            self.assertIn("eski inceleme sürümünden", metin)
+            self.assertIn(f"v{nobetci.inceleme_surumu()}", metin)
 
     def test_i5_yeni_commit_gelince_yeniden_incelenir(self):
         # aynı PR numarası, YENİ sha (düzeltme geldi) → durum yok → yeniden incele
         eski, yeni = f"{84:040d}", f"{85:040d}"
-        gh = SahteGithub([pr(84, 600, sha=yeni)], {eski: {"guvenlik/inceleme": "failure"}})
+        gh = SahteGithub([pr(84, 600, sha=yeni)], {eski: {"guvenlik/inceleme": durum("failure")}})
         self.assertEqual([i["pr"] for i in nobetci.isler(gh, "i5", 8)], [84])
 
     def test_karara_bagli_pr_nobetciyi_dusurmez(self):
@@ -121,8 +164,9 @@ class AdilKuyrukTesti(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dizin:
             sha = f"{89:040d}"
             log = Path(dizin) / "nobetci-i3.log"
-            gh = SahteGithub([pr(89, 120)], {sha: {"guvenlik/inceleme": "success",
-                                                   "guvenlik/karar": "failure"}}, gunluk_yolu=log)
+            gh = SahteGithub([pr(89, 120)], {sha: {"guvenlik/inceleme": durum("success"),
+                                                   "guvenlik/karar": durum("failure")}},
+                             gunluk_yolu=log)
             self.assertEqual(nobetci.isler(gh, "i3", 8), [])          # çökmemeli
             metin = log.read_text(encoding="utf-8")
             self.assertIn("zaten karara bağlı", metin)
@@ -144,11 +188,11 @@ class AdilKuyrukTesti(unittest.TestCase):
         yeni commit gelmeyecek — o PR sonsuza kadar "karara bağlı" görünüyordu.
         """
         sha = f"{91:040d}"
-        for durum in ("pending", "error"):
-            gh = SahteGithub([pr(91, 30)], {sha: {"guvenlik/inceleme": durum}})
-            self.assertEqual([i["pr"] for i in nobetci.isler(gh, "i5", 8)], [91], durum)
-        # karar yazılmışsa (failure) atlanır
-        gh = SahteGithub([pr(91, 30)], {sha: {"guvenlik/inceleme": "failure"}})
+        for st in ("pending", "error"):
+            gh = SahteGithub([pr(91, 30)], {sha: {"guvenlik/inceleme": st}})
+            self.assertEqual([i["pr"] for i in nobetci.isler(gh, "i5", 8)], [91], st)
+        # karar yazılmışsa (failure, güncel sürüm) atlanır
+        gh = SahteGithub([pr(91, 30)], {sha: {"guvenlik/inceleme": durum("failure")}})
         self.assertEqual(nobetci.isler(gh, "i5", 8), [])
 
     def test_i3_yarim_karar_yeniden_kuyruga_girer(self):
@@ -161,16 +205,25 @@ class AdilKuyrukTesti(unittest.TestCase):
         # 25 Ekim: i3 aynı head'e (cc4e4b81) üç tur üst üste "düzeltme" yazdı.
         sha = f"{89:040d}"
         gh = SahteGithub([pr(89, 120, etiketler=["duzeltme/gerekli"])],
-                         {sha: {"guvenlik/inceleme": "success", "guvenlik/karar": "failure"}})
+                         {sha: {"guvenlik/inceleme": durum("success"),
+                                "guvenlik/karar": durum("failure")}})
         self.assertEqual(nobetci.isler(gh, "i3", 8), [])
+
+    def test_i3_eski_surum_karari_yeniden_kuyruga_girer(self):
+        sha = f"{90:040d}"
+        gh = SahteGithub([pr(90, 120, etiketler=["guvenlik/onay"])],
+                         {sha: {"guvenlik/inceleme": durum("success"),
+                                "guvenlik/karar": durum("success", surum="00000000")}})
+        self.assertEqual([i["pr"] for i in nobetci.isler(gh, "i3", 8)], [90])
 
     def test_i3_yalniz_i5_onayli_ve_kararsiz_prlari_alir(self):
         onayli_kararsiz, onayli_kararli, onaysiz = f"{83:040d}", f"{84:040d}", f"{88:040d}"
         gh = SahteGithub(
             [pr(88, 0), pr(84, 600, etiketler=["guvenlik/onay"]), pr(83, 640)],
             {
-                onayli_kararsiz: {"guvenlik/inceleme": "success"},
-                onayli_kararli: {"guvenlik/inceleme": "success", "guvenlik/karar": "success"},
+                onayli_kararsiz: {"guvenlik/inceleme": durum("success")},
+                onayli_kararli: {"guvenlik/inceleme": durum("success"),
+                                 "guvenlik/karar": durum("success")},
                 onaysiz: {},
             },
         )
