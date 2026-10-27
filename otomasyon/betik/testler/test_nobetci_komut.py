@@ -117,3 +117,37 @@ class ProfilTesti(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class ZamanAsimiTesti(unittest.TestCase):
+    """27 Ekim: i5 oturumu 1860 sn'de öldürüldü (çıkış 124) ve günlükte yalnız "oturum bitti
+    (çıkış 124)" vardı. Operatör ne yapacağını göremiyordu; sonraki tur aynı duvara çarpıyordu.
+    Kilit: 124 + karar yazılmamışsa günlükte EYLEM söyleyen bir ZAMAN AŞIMI satırı olmalı.
+    """
+
+    class SahteGh:
+        def __init__(self):
+            self.denemeler = {}
+            self.gunluk = {}
+            self.kaydedilen = {}
+
+        def kaydet(self, veri):
+            self.kaydedilen = veri
+
+    def test_124_gunlukte_eylem_satiri_yazar(self):
+        dizin = tempfile.TemporaryDirectory()
+        self.addCleanup(dizin.cleanup)
+        gunluk_yolu = Path(dizin.name) / "nobetci.log"
+        is_ = {"pr": 83, "sha": "a" * 40, "baslik": "x", "yas_dk": 10}
+        eski_calistir, eski_isler = nobetci.hermes_calistir, nobetci.isler
+        nobetci.hermes_calistir = lambda *a, **k: (124, "zaman aşımı (1860s)")
+        nobetci.isler = lambda *a, **k: [is_]          # karar YAZILMADI (liste değişmedi)
+        try:
+            kod = nobetci.tek_tur(self.SahteGh(), Path(dizin.name), "i5", 1, False, 1860, gunluk_yolu)
+        finally:
+            nobetci.hermes_calistir, nobetci.isler = eski_calistir, eski_isler
+        metin = gunluk_yolu.read_text(encoding="utf-8")
+        self.assertEqual(kod, 124)
+        self.assertIn("ZAMAN AŞIMI", metin, "124 için eylem satırı yok")
+        self.assertIn("--zaman-asimi", metin, "çözüm yolu yazılmıyor")
+        self.assertIn("#83", metin, "hangi PR olduğu yazılmıyor")
