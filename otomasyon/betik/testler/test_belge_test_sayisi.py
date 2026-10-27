@@ -1,4 +1,4 @@
-"""Belgeler sabit test SAYISI yazmaz — sayı çıktıdan okunur (26 Ekim i5 bulgusunun kilidi).
+r"""Belgeler sabit test SAYISI yazmaz — sayı çıktıdan okunur (26 Ekim i5 bulgusunun kilidi).
 
 NE OLDU: aynı sınıf bulgu üç turdur tekrar ediyor. `SIRADAKI-ISLER.md` "kiosk 352 · web 108 ·
 panel 104" diyordu, gerçek 519/108/104; `README.md` 319, `kiosk/README.md` 290/58,
