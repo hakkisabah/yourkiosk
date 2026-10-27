@@ -115,20 +115,15 @@ def istek(yol: str, token: str, yontem: str = "GET", govde: dict | None = None) 
         return 0, {"hata": str(hata)[:300]}
 
 
-def inceleme_surumu() -> str:
-    """İnceleme mantığının sürümü — `nobetci.py` içeriğinden 8 hex.
+#: İNCELEME SÖZLEŞME SÜRÜMÜ — `nobetci.py` içindeki INCELEME_SURUMU ile AYNI olmalı (test kilitler).
+# Bir karar, (PR head sha + bu sürüm) ÇİFTİNE bağlıdır: sürüm artınca eski kararlar bayatlar ve
+# PR'lar kendiliğinden yeniden incelemeye döner (i5'in kendi hatası PR'ı kilitleyemez).
+INCELEME_SURUMU = "2"
 
-    NEDEN: bir karar, (PR head sha + inceleme sürümü) ÇİFTİNE bağlıdır. Aksi hâlde inceleyenin
-    kendi hatasıyla yazdığı bir "failure", yeni commit gelmedikçe PR'ı sonsuza kadar kilitliyordu
-    (27 Ekim canlı kilit: #83/#84/#86/#90). Sürüm damgası commit durumunun `description` alanına
-    yazılır; `nobetci.py` değişince damga değişir → eski kararlar bayat → otomatik yeniden inceleme.
-    Açıklama 140 karakterle sınırlı olduğu için damga BAŞTA durur (kırpma onu kesemez).
-    """
-    try:
-        veri = Path(__file__).with_name("nobetci.py").read_bytes()
-    except OSError:
-        return "00000000"
-    return hashlib.sha256(veri).hexdigest()[:8]
+
+def inceleme_surumu() -> str:
+    """İnceleme sözleşmesinin sürümü — commit durumu açıklamasına `[v<sürüm>]` olarak yazılır."""
+    return INCELEME_SURUMU
 
 
 def durum_metni(karar: dict) -> tuple[str, str]:
