@@ -205,8 +205,8 @@ panel-izleme (yalnız durum okur) : panel-izleme / $PAROLA_IZLEME
 Panel .env.local:
   VITE_MQTT_URL=wss://$HOST:8084/mqtt
   VITE_MQTT_KONU=yourkiosk/yayin
-  VITE_MQTT_KULLANICI=panel
-  VITE_MQTT_PAROLA=<panel parolası>
+  # parola YAZILMAZ: derleme değişkeni pakete gömülür, paket herkese açık → panel çalışma
+  # anında sorar (sessionStorage). Kimlik yoksa yayın fail-closed.
 
 Cihaz ayarları (tetik grubu):
   tetik.push_aktif=true
@@ -368,8 +368,7 @@ panel-izleme (yalnız durum okur) : panel-izleme / $PAROLA_IZLEME
 Panel .env.local:
   VITE_MQTT_URL=wss://$HOST:8084/mqtt
   VITE_MQTT_KONU=yourkiosk/yayin
-  VITE_MQTT_KULLANICI=panel
-  VITE_MQTT_PAROLA=…
+  # parola YAZILMAZ: çalışma anında sorulur (bkz. deploy/mosquitto/KURULUM.md §4.1)
 
 Cihaz ayarları (tetik grubu):
   tetik.push_aktif=true

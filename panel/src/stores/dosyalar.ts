@@ -54,6 +54,8 @@ interface Durum {
   mesgul: boolean
   sonUyari: string | null
   sonBasari: string | null
+  /** Son MQTT yayınının sonucu — `null` = sorun yok. Sessiz ölüm yok (27 Ekim i5 bulgusu). */
+  sonYayinHatasi: string | null
 }
 
 const bos = <T,>(): DosyaDurumu<T> => ({ veri: null, yuklendi: false })
@@ -72,6 +74,7 @@ export const useDosyalar = defineStore('dosyalar', {
     mesgul: false,
     sonUyari: null,
     sonBasari: null,
+    sonYayinHatasi: null,
   }),
   getters: {
     ayarlarBelgesi: (s): AyarBelgesi => s.ayarlar.veri ?? {},
@@ -196,8 +199,13 @@ export const useDosyalar = defineStore('dosyalar', {
             /* tetikleyici yazılamadı: cihaz normal aralıkta güncellenir */
           }
           // MQTT yapılandırıldıysa ANLIK bildirim de gönderilir (600+ cihaz ölçeği).
-          // Beklenmez: kayıt akışını yavaşlatmaz, hata sessizce yutulur.
-          void mqttBildir(ad).catch(() => undefined)
+          // Beklenmez (kayıt akışını yavaşlatmaz) AMA sonuç yutulmaz: yayın gitmediyse store
+          // alanına yazılır ve panelde uyarı olarak görünür (27 Ekim i5 bulgusu).
+          void mqttBildir(ad).then((yayin) => {
+            this.sonYayinHatasi = yayin.gonderildi ? null : (yayin.hata ?? 'yayın gönderilemedi')
+          }).catch((e: Error) => {
+            this.sonYayinHatasi = e.message
+          })
         }
         this.sonBasari = `${ad} kaydedildi (${sonuc.anahtar})`
         return true

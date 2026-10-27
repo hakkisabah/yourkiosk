@@ -58,10 +58,12 @@ panel yayınını ben yaparım; sonunda anahtarı kaldırmanızı hatırlatırı
    ```bash
    VITE_MQTT_URL=wss://broker.<IP>.nip.io:8084/mqtt
    VITE_MQTT_KONU=yourkiosk/yayin
-   VITE_MQTT_KULLANICI=panel
-   # VITE_MQTT_PAROLA YOKTUR — parola derleme anında pakete gömülür ve panel paketi
-   # CloudFront'tan kimlik doğrulaması olmadan indirilebilir. Parolayı panel, yayın
-   # düğmesine ilk basışta oturum için sorar (sessionStorage; sayfa yenilenince tekrar sorar).
+   # VITE_MQTT_PAROLA ve VITE_MQTT_KULLANICI **KULLANILMAZ**. Vite derleme değişkenlerini
+   # JS paketine literal gömer; panel paketi CloudFront'tan kimlik doğrulaması olmadan
+   # indirilebildiği için oradaki parola herkese açık olurdu (27 Ekim i5 bulgusu, yüksek).
+   # Panel yayın parolasını ÇALIŞMA ANINDA sorar ve yalnız o sekmede (sessionStorage) tutar
+   # → kod: panel/src/domain/yayinKimligi.ts + push.ts. Kimlik girilmezse yayın FAIL-CLOSED'dır
+   # (broker'a bağlanılmaz; cihazlar yoklama emniyet ağıyla yenilenir).
    ```
    → `./panel/infra/yayinla.sh`
 2. **Cihazlarda**: `pip install paho-mqtt`
@@ -234,7 +236,7 @@ Beklenen: TLS ✓ · panel yayını ✓ · cihaz aboneliği ✓ · **cihaz yayı
 
 ### 9.7 Devamı
 
-1. Panel `.env.local`: `VITE_MQTT_URL=wss://yourkiosk.hakkisabah.com:8084/mqtt` (+ konu/kullanıcı/parola) → `./panel/infra/yayinla.sh`
+1. Panel `.env.local`: `VITE_MQTT_URL=wss://yourkiosk.hakkisabah.com:8084/mqtt` + `VITE_MQTT_KONU=yourkiosk/yayin` (parola YAZILMAZ: çalışma anında sorulur) → `./panel/infra/yayinla.sh`
 2. Cihazlarda `pip install paho-mqtt`
 3. Panel → Tetikleme: `push_aktif=true` · `push_broker=yourkiosk.hakkisabah.com` · `push_port=8883` · `push_kullanici=cihaz-<cihazId>` (cihaz-ekle.sh) · `push_parola=…` · `kontrol_ms=300000`
 4. (Öneri) Lightsail → **Snapshots** → otomatik snapshot aç (yapılandırma yeniden üretilebilir, ama geri dönüş hızlı olur)
