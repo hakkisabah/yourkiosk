@@ -95,11 +95,13 @@ class DurumMetniTesti(unittest.TestCase):
         """
         _, aciklama = yaz.durum_metni(karar(ozet="çok uzun " * 60))
         self.assertTrue(aciklama.startswith("[v"), aciklama)
-        self.assertRegex(aciklama, r"^\[v[0-9a-f]{8}\] ")
+        self.assertRegex(aciklama, r"^\[v[0-9A-Za-z._-]{1,16}\] ")
+        self.assertIn(f"[v{yaz.INCELEME_SURUMU}]", aciklama)
 
     def test_yaz_ve_nobetci_ayni_surumu_hesaplar(self):
-        """İki betik farklı sürüm hesaplarsa yazılan damga hiçbir zaman güncel olmazdı."""
+        """İki betik farklı sürüm taşırsa yazılan damga hiçbir zaman güncel olmazdı (sonsuz tur)."""
         import nobetci  # aynı dizin, sys.path testte eklenmiş olmalı
+        self.assertEqual(yaz.INCELEME_SURUMU, nobetci.INCELEME_SURUMU)
         self.assertEqual(yaz.inceleme_surumu(), nobetci.inceleme_surumu())
 
 

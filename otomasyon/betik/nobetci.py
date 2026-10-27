@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import fcntl
-import hashlib
 import json
 import os
 import re
@@ -346,30 +345,27 @@ def durum_ayrintili(gh: Github, sha: str) -> dict[str, dict]:
             for s in govde.get("statuses", [])}
 
 
-#: İNCELEME SÜRÜMÜ — bir karar, (PR head sha + inceleme sürümü) ÇİFTİNE bağlıdır.
+#: İNCELEME SÖZLEŞME SÜRÜMÜ — bir karar, (PR head sha + sürüm) ÇİFTİNE bağlıdır.
 # Neden: kararlar yalnız commit sha'sına bağlanınca, İNCELEYEN hatalıysa (26 Ekim: node OOM'u
 # yüzünden yarım kalan tur, yanlış bulgu, eski istem) PR'lar sonsuza kadar "zaten karara bağlı"
 # kalıyordu. i5 susuyor, yeni commit gelmiyor, geliştirici de i5'in kendi hatasını düzeltemiyordu
-# (canlı kilit: #83/#84/#86/#90 hepsi failure + "yeni commit bekleniyor"). Sürüm, inceleyenin
-# KAYNAK KODUNDAN türetilir: inceleme mantığı/istem değişince sürüm değişir, eski kararlar BAYAT
-# sayılır ve PR'lar kendiliğinden yeniden incelemeye döner. Elle durum silmek/müdahale gerekmez.
+# (canlı kilit: #83/#84/#86/#90 hepsi failure + "yeni commit bekleniyor"). Sürüm değişince eski
+# kararlar BAYAT sayılır ve PR'lar kendiliğinden yeniden incelemeye döner; elle durum silinmesi
+# veya müdahale gerekmez.
+#
+# ARTIRMA KURALI: inceleme sözleşmesi DEĞİŞTİĞİNDE bu sayıyı artır (yeni zorunlu alan, istem
+# yapısı, bulgu ölçütü, karar sözlüğü...). Dosya özeti KULLANILMAZ: her yorum/düzeltme tüm açık
+# PR'ları yeniden incelemeye sokardı (oturum = para). `yaz.py` AYNI değeri taşır — test kilitler.
+INCELEME_SURUMU = "2"
+
+
 def inceleme_surumu() -> str:
-    """İnceleme mantığının sürümü (bu dosyanın içeriğinden 8 hex)."""
-    global _SURUM_ONBELLEK
-    if _SURUM_ONBELLEK is None:
-        try:
-            veri = Path(__file__).read_bytes()
-        except OSError:
-            veri = b""
-        _SURUM_ONBELLEK = hashlib.sha256(veri).hexdigest()[:8]
-    return _SURUM_ONBELLEK
+    """İnceleme sözleşmesinin sürümü (kararların geçerlilik anahtarı)."""
+    return INCELEME_SURUMU
 
-
-_SURUM_ONBELLEK: str | None = None
-
-#: Açıklamadaki sürüm damgası: `[v1a2b3c4d] ...` (GitHub açıklaması 140 karakterle sınırlı,
+#: Açıklamadaki sürüm damgası: `[v2] ...` (GitHub açıklaması 140 karakterle sınırlı,
 #: bu yüzden damga BAŞTA durur; kırpma onu asla kesemez).
-SURUM_DAMGASI = re.compile(r"\[v([0-9a-f]{8})\]")
+SURUM_DAMGASI = re.compile(r"\[v([0-9A-Za-z._-]{1,16})\]")
 
 
 def surum_guncel(aciklama: str | None, surum: str | None = None) -> bool:
