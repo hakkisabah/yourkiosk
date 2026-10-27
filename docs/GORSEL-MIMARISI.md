@@ -90,7 +90,7 @@ Yani `end = 2026-10-30` bilgisini S3 kendiliğinden okuyamaz.
 |---|---|---|
 | **1. Asıl** | Panel temizliği (VAR): `end + 2 saat` sonra kaydı veriden çıkarır, nesneyi S3'ten siler | panel açıldığında/yayında |
 | **2. Emniyet** | EventBridge + Lambda (günde 1): `lastSystemData.json`'ı okur, `max(end)+pay` geçmiş ve **hiçbir yayında referansı olmayan** nesneleri siler | 1 kez/gün, ~0 maliyet |
-| **3. Son çare** | Lifecycle: `kiosk/yayin-gorselleri/` → **90 gün** (45 değil) | sadece öksüzleri toplar |
+| **3. Son çare** | Lifecycle: `kiosk/yayin-gorselleri/` **VE** `silinebilir=true` etiketi → 30 gün (`deploy/s3/yasam-dongusu.json`) | sadece ETİKETLENMİŞ öksüzleri toplar; kullanımdaki görsel silinmez |
 
 Önek bazlı hızlı çözüm (Lambda istemezsen): yükleme öneki tarih taşısın —
 `kiosk/yayin-gorselleri/2026-10-30/<hash>.webp` + `Expiration.Days=30`. Kaba ama işler;
@@ -203,7 +203,7 @@ sonra bu geçerli değil**: içerik değişmedikçe gövde inmiyor.
 | 1 | İçerik-adlı anahtar + `immutable` | dedupe, sıfır doğrulama trafiği | 0,5 gün (panel yükleme ile birlikte) | düşük |
 | 2 | Panelde WebP yükleme hattı | %90 küçük dosya, RAM | 1 gün (**UI tasarımı onayı gerekir**) | düşük |
 | 3 | Cihazda "kullanılmıyor" silmesine 24 sa grace | indirme fırtınası yok | 2 saat | çok düşük |
-| 4 | S3 lifecycle 45 → 90 gün + günlük Lambda süpürücü | öksüz dosya yok | 2 saat + 0,5 gün | düşük |
+| 4 | S3 lifecycle **etiket kapılı** 30 gün (önek kuralı kaldırıldı) + günlük Lambda süpürücü | öksüz dosya yok, kullanımdaki görsel silinmez | 2 saat + 0,5 gün | düşük |
 | 5 | Bölge bazlı yayın (`ilceId`) | bölgesel kampanya | 1 gün (veri modeli + panel) | orta |
 
 Sıralama önerisi: **3 → 1 → 2 → 4 → 5**.

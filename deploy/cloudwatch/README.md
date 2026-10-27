@@ -78,7 +78,38 @@ Kurulan alarmlar (hepsi standart çözünürlük → ücretsiz kotanın 4'ü):
 kendi Mosquitto'nuzda CloudWatch metriği yoktur — orada `deploy/mosquitto/dogrula.sh` ve panelin
 "çevrimiçi" sayacı (bkz. `panel/README.md`) yeterlidir.
 
-## 4. Doğrulama (kurulumdan sonra)
+## 4. Bölge kuralı (alarmı ölü bırakmamak için)
+
+| Alarm | Bölge | Neden |
+|---|---|---|
+| `fatura-aylik-esik` | **us-east-1** | `AWS/Billing` metrikleri yalnız us-east-1'de yayınlanır |
+| `cloudfront-5xx-orani` | **us-east-1** | `AWS/CloudFront` metrikleri yalnız us-east-1'de yayınlanır |
+| `s3-5xx-orani` | varsayılan bölge (profil/`AWS_REGION`) | kova bölgesinde yayınlanır |
+| `lambda-hatalari` | varsayılan bölge | fonksiyon bölgesinde yayınlanır |
+
+27 Ekim i5 bulgusu: CloudFront alarmı `--region` VERİLMEDEN kuruluyordu → alarm varsayılan
+bölgede (ör. `eu-central-1`) oluşuyor, orada CloudFront metriği hiç gelmediği için
+`--treat-missing-data notBreaching` ile **sonsuza kadar OK** kalıyordu (ölü alarm).
+`--liste` ve `--sil` de bölge farkındadır: fatura/CloudFront alarmları us-east-1'de sorgulanır,
+diğerleri varsayılan bölgede. Tek bölgede sorgulamak alarmları "yok" gösterip silinmelerini
+engellerdi.
+
+## 5. Kabul edilen risk — SNS şifrelemesi (BİLGİ, 27 Ekim i5)
+
+SNS konusu varsayılan olarak **AWS tarafından yönetilen** anahtarla (SSE) şifrelenir; konuya ve
+aboneliklere erişebilen bir hesap/rol mesajları okuyabilir. Alarm bildirimleri yalnız "eşik
+aşıldı" bilgisini taşıdığı ve konuya erişim zaten IAM ile daraltıldığı için bu **kabul edilen
+bir risk** olarak yazıldı. Kendi müşteri anahtarınızla (CMK) şifrelemek isterseniz:
+
+```bash
+export SNS_KMS_ANAHTAR=alias/yourkiosk-alarm   # ya da tam anahtar ARN'i
+./alarmlar.sh                                  # create-topic --attributes KmsMasterKeyId=...
+```
+
+Anahtar politikası SNS'in (`sns.amazonaws.com`) `kms:Decrypt`/`kms:GenerateDataKey*` yapmasına
+izin vermelidir; aksi hâlde alarm aksiyonu sessizce başarısız olur.
+
+## 6. Doğrulama (kurulumdan sonra)
 
 ```bash
 aws cloudwatch describe-alarms --state-value INSUFFICIENT_DATA --output table   # ilk 5 dk normal

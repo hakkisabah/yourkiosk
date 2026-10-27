@@ -31,6 +31,35 @@ S3_ALARM="${S3_ALARM:-1}"
 ALARM_ADLARI="fatura-aylik-esik cloudfront-5xx-orani lambda-hatalari"
 [[ "$S3_ALARM" == "1" ]] && ALARM_ADLARI="fatura-aylik-esik s3-5xx-orani $ALARM_ADLARI"
 
+# --- BÖLGE (27 Ekim i5 bulgusu) ---------------------------------------------
+# CloudFront metrikleri CloudWatch'a YALNIZ `us-east-1`'de yayınlanır (CloudFront küresel bir
+# servistir ama metrik uç noktası us-east-1'dir). Alarm `--region` VERİLMEDEN kurulursa
+# varsayılan bölgede (ör. eu-central-1) oluşur, orada hiç veri olmadığı için `notBreaching`
+# ile SONSUZA KADAR OK kalır — yani ölü alarm. Aynı bölge kuralı --liste/--sil için de geçerli:
+# yanlış bölgede sorgularsanız alarm "yok" görünür ve silinmez.
+FATURA_BOLGESI="us-east-1"      # AWS/Billing metrikleri de yalnız us-east-1'de
+GLOBAL_BOLGE="us-east-1"        # AWS/CloudFront metrikleri yalnız us-east-1'de
+BOLGE_ONEKLI_ALARMLAR=("fatura-aylik-esik" "cloudfront-5xx-orani")
+VARSAYILAN_BOLGE_ALARMLARI=("s3-5xx-orani" "lambda-hatalari")
+
+#: Bir alarmın kurulduğu bölge: global (us-east-1) metrikler ayrı, diğerleri varsayılan bölge.
+alarm_bolgesi() {
+  case "$1" in
+    fatura-aylik-esik|cloudfront-5xx-orani) echo "$GLOBAL_BOLGE" ;;
+    *) echo "" ;;   # boş = AWS varsayılan bölgesi (AWS_REGION / profil)
+  esac
+}
+
+#: `aws` çağrısına bölge argümanı ekler (boşsa hiçbir şey eklemez).
+bolge_arg() {
+  local bolge="$1"; shift
+  if [[ -n "$bolge" ]]; then
+    aws --region "$bolge" "$@"
+  else
+    aws "$@"
+  fi
+}
+
 komut_yok() {
   command -v aws >/dev/null 2>&1 || {
     echo "✗ aws CLI bulunamadı. Kurun: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html" >&2
@@ -44,7 +73,17 @@ konu_arn() {
     return
   fi
   local arn
-  arn="$(aws sns create-topic --name "$KONU_ADI" --query TopicArn --output text)"
+  # KMS (27 Ekim i5 bulgusu, BİLGİ): SNS konusu varsayılan olarak AWS tarafından yönetilen
+  # anahtarla şifrelenir; konuya/aboneliğe erişebilen bir hesap anahtarı da kullanabilir.
+  # Kendi müşteri anahtarınızla (CMK) şifrelemek isterseniz SNS_KMS_ANAHTAR verin — anahtar
+  # politikası SNS'in `decrypt` yapmasına izin vermelidir. Verilmezse kabul edilen risk
+  # deploy/cloudwatch/README.md §5'te yazılıdır (metin testi kilitler).
+  if [[ -n "${SNS_KMS_ANAHTAR:-}" ]]; then
+    arn="$(aws sns create-topic --name "$KONU_ADI" \
+      --attributes "KmsMasterKeyId=$SNS_KMS_ANAHTAR" --query TopicArn --output text)"
+  else
+    arn="$(aws sns create-topic --name "$KONU_ADI" --query TopicArn --output text)"
+  fi
   echo "$arn" >"$ARN_DOSYASI"
   echo "$arn"
 }
@@ -52,16 +91,24 @@ konu_arn() {
 liste() {
   komut_yok
   # NOT: alarm adları "yourkiosk" öneki taşımıyor; --alarm-name-prefix ile listelemek boş dönerdi.
-  aws cloudwatch describe-alarms \
-    --alarm-names $ALARM_ADLARI \
+  # Bölge farkındalığı ZORUNLU: global metrik alarmları us-east-1'de, diğerleri varsayılan
+  # bölgede. Tek bölgede sorgulamak alarmları "yok" gösterir (i5 bulgusu).
+  bolge_arg "$GLOBAL_BOLGE" cloudwatch describe-alarms \
+    --alarm-names "${BOLGE_ONEKLI_ALARMLAR[@]}" \
     --query 'MetricAlarms[].[AlarmName,StateValue,MetricName,Threshold]' \
     --output table
+  if [[ ${#VARSAYILAN_BOLGE_ALARMLARI[@]} -gt 0 ]]; then
+    bolge_arg "" cloudwatch describe-alarms \
+      --alarm-names "${VARSAYILAN_BOLGE_ALARMLARI[@]}" \
+      --query 'MetricAlarms[].[AlarmName,StateValue,MetricName,Threshold]' \
+      --output table
+  fi
 }
 
 sil() {
   komut_yok
   for ad in $ALARM_ADLARI; do
-    aws cloudwatch delete-alarms --alarm-names "$ad" >/dev/null 2>&1 || true
+    bolge_arg "$(alarm_bolgesi "$ad")" cloudwatch delete-alarms --alarm-names "$ad" >/dev/null 2>&1 || true
   done
   if [[ -f "$ARN_DOSYASI" ]]; then
     aws sns delete-topic --topic-arn "$(cat "$ARN_DOSYASI")" >/dev/null 2>&1 || true
@@ -87,8 +134,7 @@ kur() {
   echo "→ $BILDIRIM_EPOSTA adresine ONAY e-postası gitti; onaylamadan bildirim gelmez."
 
   # 1) FATURA (us-east-1 + AWS/Billing; başka bölgede veri GELMEZ)
-  aws cloudwatch put-metric-alarm \
-    --region us-east-1 \
+  bolge_arg "$FATURA_BOLGESI" cloudwatch put-metric-alarm \
     --alarm-name fatura-aylik-esik \
     --alarm-description "yourkiosk: tahmini aylık AWS faturası \$${AYLIK_LIMIT_USD} üstünde" \
     --namespace AWS/Billing \
@@ -104,7 +150,7 @@ kur() {
 
   # 2) S3 5xx — cihazlar veri çekemiyor demektir (S3_ALARM=0 ise atlanır: bu metrik ücretsiz değil)
   if [[ "$S3_ALARM" == "1" ]]; then
-  aws cloudwatch put-metric-alarm \
+  bolge_arg "" cloudwatch put-metric-alarm \
     --alarm-name s3-5xx-orani \
     --alarm-description "yourkiosk: S3 5xx (cihazlar veri çekemiyor)" \
     --namespace AWS/S3 \
@@ -120,8 +166,9 @@ kur() {
     --alarm-actions "$arn"
   fi
 
-  # 3) CloudFront 5xx oranı (yayın bozuk)
-  aws cloudwatch put-metric-alarm \
+  # 3) CloudFront 5xx oranı (yayın bozuk) — metrikler YALNIZ us-east-1'de: `--region us-east-1`
+  #    verilmezse alarm hiç veri görmeyen bir bölgede kalır (27 Ekim i5 bulgusu).
+  bolge_arg "$GLOBAL_BOLGE" cloudwatch put-metric-alarm \
     --alarm-name cloudfront-5xx-orani \
     --alarm-description "yourkiosk: CloudFront 5xx oranı %1 üstü" \
     --namespace AWS/CloudFront \
@@ -137,7 +184,7 @@ kur() {
 
   # 4) Lambda hataları (yalnız auth-modu: lambda)
   if [[ "${AUTH_MODU:-cognito}" == "lambda" ]]; then
-    aws cloudwatch put-metric-alarm \
+    bolge_arg "" cloudwatch put-metric-alarm \
       --alarm-name lambda-hatalari \
       --alarm-description "yourkiosk: panel Lambda hataları" \
       --namespace AWS/Lambda \

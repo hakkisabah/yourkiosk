@@ -147,20 +147,19 @@ Yayınların `end` alanı **son gösterim tarihidir**. İki taraf da aynı ölç
   anahtarlara izin verir (`src/aws/s3.ts` → `nesneSil`) — veri dosyaları bu yoldan silinemez.
 
 **Lambda modunda** nesne silme kapalıdır (presigned imza yalnızca okuma/yazma içindir). Veri
-kaydı yine temizlenir; görsel nesneleri için kovada **yaşam döngüsü kuralı** (güvenlik ağı) tanımlayın:
+kaydı yine temizlenir; görsel nesneleri için kovada **etiket kapılı yaşam döngüsü kuralı**
+(güvenlik ağı) tanımlıdır — TEK doğru kaynak depoda:
 
 ```bash
-# kiosk/yayinlar/ ön eki altındaki görselleri 30 gün sonra otomatik sil
-aws s3api put-bucket-lifecycle-configuration --bucket KOVA_ADI --lifecycle-configuration '{
-  "Rules": [{
-    "ID": "yayin-gorselleri-30g",
-    "Status": "Enabled",
-    "Filter": { "Prefix": "kiosk/yayinlar/" },
-    "Expiration": { "Days": 30 }
-  }]
-}'
+# yalnız 'silinebilir=true' ETİKETLİ görseller 30 gün sonra silinir (kullanımdaki görsel silinmez)
+aws s3api put-bucket-lifecycle-configuration --bucket KOVA_ADI \
+  --lifecycle-configuration file://deploy/s3/yasam-dongusu.json
 ```
 
+> **Önek kuralı KULLANILMAZ** (27 Ekim i5 bulgusu): görsel anahtarı içerik sha'sıdır ve
+> `contentUrl` kalıcıdır; `Prefix` + `Expiration.Days` kuralı panelde kullanılan görseli de
+> siler. Etiket kanıt sonrası panel tarafından konur (`silinebilir=true`).
+>
 > S3 yaşam döngüsü kuralı **sabit gün** sayar (yayının kendi `end` alanını bilemez); bu yüzden
 > asıl temizlik panelden yapılır, kural yalnızca "öksüz kalırsa er ya da geç gitsin" güvencesidir.
 

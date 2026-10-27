@@ -111,8 +111,11 @@ systemctl list-timers yourkiosk-guncelle.timer      # gece güncellemesi planlı
 sudo /usr/local/lib/yourkiosk/guncelle.sh --kuru
 
 # MQTT zinciri (broker kurulduysa)
+# DIKKAT: cihaz kimliği `MQTT_CIHAZ_ID` (yalnız kimlik, "cihaz-" ÖNEKİ YOK — betik kullanıcı
+# adını `cihaz-<id>` diye kurar). 27 Ekim i5 bulgusu: bu blok eski sürümde betiğin HİÇ okumadığı
+# bir ad (`..._KULLANICI`) veriyordu → 5 ve 7. kontroller sessizce ATLANIYORdu.
 MQTT_PAROLA_PANEL=… MQTT_PAROLA_CIHAZ=… MQTT_PAROLA_IZLEME=… \
-MQTT_CIHAZ_KULLANICI=cihaz-C1 MQTT_CIHAZ_PAROLA=… \
+MQTT_CIHAZ_ID=C1 MQTT_CIHAZ_PAROLA=… \
   bash deploy/mosquitto/dogrula.sh <broker-adresi>
 
 # yedek tatbikatı (zararsız: aynı baytları geri yazar)
@@ -127,10 +130,17 @@ cd deploy/yedek && ./geri_donme.sh --kova yourkiosk-veri --anahtar kiosk/lastSys
   **Yalnız imzalı yayın etiketinden günceller:** `origin/main` üzerindeki `yayin-*` desenli
   ANNOTATED + GPG imzalı en yeni etiket `git verify-tag` ile doğrulanır; doğrulanmazsa (imza yok,
   anahtar yok) güncelleme **reddedilir** (çıkış 6) ve günlüğe açık satır yazılır — `main` ucu
-  imzasız çekilip çalıştırılmaz. Anahtar kurulumu (cihaz başına bir kez):
+  imzasız çekilip çalıştırılmaz. **İmzalayanın KİMLİĞİ de doğrulanır** (27 Ekim i5 bulgusu):
+  `git verify-tag --raw` çıktısındaki `VALIDSIG` parmak izi, ROOT'a ait beyaz liste
+  `/etc/yourkiosk/yayin-imzaci` ile karşılaştırılır. Anahtar halkası kiosk kullanıcısının
+  yazabildiği dizinde olduğu için bu şart: aksi hâlde ele geçirilmiş bir hesap kendi anahtarını
+  import edip kendi etiketini imzalayabilirdi. Anahtar kurulumu (cihaz başına bir kez):
   ```bash
   sudo runuser -u kiosk -- gpg --import yayin-anahtari.asc   # yayın imza anahtarının AÇIK anahtarı
+  sudo install -d -m0755 /etc/yourkiosk                      # beyaz liste: root'a ait dosya
+  echo 'PARMAK_IZI' | sudo tee /etc/yourkiosk/yayin-imzaci    # gpg --fingerprint (40 hex)
   ```
+  Liste yoksa/boşsa güncelleme **fail-closed** reddedilir (çıkış 6).
   Anahtarı olmayan cihazda `--kuru` uyarı verir, gerçek koşu güncellemeyi atlar (fail-closed).
   **Kopya kendini yenilemez** (bilerek): root'un, `kiosk` kullanıcısının yazabildiği dosyayı
   `/usr/local/lib`'e kopyalaması yerel yetki yükseltmesi olurdu; ayrıca `ProtectSystem=full`

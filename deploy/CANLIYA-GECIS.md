@@ -122,14 +122,25 @@ Depo sahibi beklenmedik bir kullanıcıysa çıkış 4, kiosk kullanıcısı yok
 
 **İMZALI ETİKET ZORUNLU (i5 bulgusu 3):** betik `main` ucunu imzasız çekmez. `origin/main`
 üzerindeki en yeni `yayin-*` ANNOTATED etiketi `git verify-tag` ile doğrulanır; imza/anahtar yoksa
-güncelleme **reddedilir** (çıkış 6) ve günlüğe açık satır yazılır. Yayın akışı:
+güncelleme **reddedilir** (çıkış 6) ve günlüğe açık satır yazılır. **İMZALAYANIN KİMLİĞİ de
+doğrulanır (27 Ekim i5 bulgusu 5):** `git verify-tag --raw` çıktısındaki `VALIDSIG` parmak izi
+ROOT'a ait beyaz liste (`/etc/yourkiosk/yayin-imzaci`) ile karşılaştırılır; uyuşmazsa ya da liste
+yoksa güncelleme reddedilir. Yayın akışı:
 
 ```bash
 # yayın yapan makinede (GPG imza anahtarıyla)
 git tag -s "yayin-$(date '+%Y%m%d')" -m "yayın" && git push origin "yayin-$(date '+%Y%m%d')"
 # her cihazda BİR KEZ: imza anahtarının AÇIK anahtarını kiosk kullanıcısına kur
 sudo runuser -u kiosk -- gpg --import yayin-anahtari.asc
+# her cihazda BİR KEZ: İMZALAYAN PARMAK İZİ beyaz listesi (root'a ait, kiosk yazamaz)
+gpg --fingerprint --with-colons yayin-anahtari.asc | awk -F: '$1=="fpr"{print $10; exit}'
+sudo install -d -m0755 /etc/yourkiosk
+echo 'PARMAK_IZI' | sudo tee /etc/yourkiosk/yayin-imzaci   # 40 hex, büyük/küçük harf fark etmez
 ```
+
+`--kuru` **hiçbir şeyi değiştirmez**: 27 Ekim i5 bulgusuyla `git fetch --tags --prune --force`
+kuru koşudan çıkarıldı (yerel etiketleri güncelliyordu). Kuru koşu ELDEKİ yerel etiketlerle
+karşılaştırır ve bunu çıktıda yazar; gerçek koşu fetch eder.
 
 **Neden sağlık denetimi:** etiketten güncelleme + derleme başarısız olursa cihaz bir sonraki
 açılışta beyaz ekran verir; betik sağlık denetimi geçmezse önceki commit'e döner.

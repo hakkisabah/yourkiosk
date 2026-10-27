@@ -99,11 +99,47 @@ log "önceki commit: $ONCEKI"
 #   runuser -u kiosk -- gpg --import yayin-anahtari.asc     # yayın imza anahtarının AÇIK anahtarı
 ETIKET_DESENI="${KIOSK_YAYIN_ETIKET_DESENI:-yayin-*}"
 log "imzalı yayın etiketi aranıyor (desen: $ETIKET_DESENI · origin/main)"
-if ! kiok git fetch --tags --prune --force origin main >/dev/null 2>&1; then
-  log "✗ git fetch başarısız (ağ/origin?) — güncelleme yapılmadı, ağaç DEĞİŞMEDİ"
-  exit 6
+# KURU KOŞU HİÇBİR ŞEYİ DEĞİŞTİRMEZ (i5 bulgusu, 27 Ekim): `git fetch --tags --prune --force`
+# yerel etiketleri de günceller/siler, yani --kuru "hiçbir şey değişmez" sözünü tutmuyordu.
+# Kuru koşuda fetch ATLANIR; karşılaştırma ELDEKİ yerel etiketlerle yapılır ve çıktıda bunun
+# bayat olabileceği açıkça yazılır.
+if [[ $KURU -eq 1 ]]; then
+  log "KURU: git fetch ATLANDI (yerel etiketler değişmez) — karşılaştırma yerel etiketlerle"
+  ETIKET="$(kiok git tag --list "$ETIKET_DESENI" --sort=-creatordate | head -1 || true)"
+else
+  if ! kiok git fetch --tags --prune --force origin main >/dev/null 2>&1; then
+    log "✗ git fetch başarısız (ağ/origin?) — güncelleme yapılmadı, ağaç DEĞİŞMEDİ"
+    exit 6
+  fi
+  ETIKET="$(kiok git tag --merged origin/main --list "$ETIKET_DESENI" --sort=-creatordate | head -1 || true)"
 fi
-ETIKET="$(kiok git tag --merged origin/main --list "$ETIKET_DESENI" --sort=-creatordate | head -1 || true)"
+
+# --- İMZALAYAN BEYAZ LİSTESİ ----------------------------------------------
+# ROOT'a ait dosya: kiosk kullanıcısı yazamaz → ele geçirilmiş bir hesap kendi anahtarını
+# imzalayan olarak "kaydedemez". Satır başına bir parmak izi (40 hex), `#` yorumları serbest.
+# Yol yalnız test/kurulum için ortamdan değiştirilebilir; birim bu değişkeni VERMEZ.
+IMZACI_DOSYASI="${KIOSK_YAYIN_IMZACI_DOSYASI:-/etc/yourkiosk/yayin-imzaci}"
+
+#: `git verify-tag --raw` çıktısındaki VALIDSIG satırından BİRİNCİL anahtarın parmak izini döner.
+#: (Son alan: alt anahtarla imzalanmışsa birincil anahtarın parmak izi; boş = bulunamadı.)
+validsig_parmak_izi() {
+  awk '/^\[GNUPG:\] VALIDSIG / {print $NF; exit}' | tr '[:lower:]' '[:upper:]'
+}
+
+#: Beyaz listedeki parmak izleri (satır satır). Dosya yok/boşsa çıkış 1 (fail-closed).
+beklenen_imzacilar() {
+  [[ -r "$IMZACI_DOSYASI" ]] || return 1
+  awk '!/^[[:space:]]*#/ && NF {print toupper($1)}' "$IMZACI_DOSYASI"
+}
+
+#: Parmak izi beyaz listede mi? Biçim (40 hex) ve liste varlığı da denetlenir.
+imzaci_izinli() {
+  local fpr="$1" beklenen
+  [[ "$fpr" =~ ^[0-9A-F]{40}$ ]] || return 1
+  beklenen="$(beklenen_imzacilar)" || return 1
+  [[ -n "$beklenen" ]] || return 1
+  grep -qx -- "$fpr" <<<"$beklenen"
+}
 
 etiket_dogrula() {
   if [[ -z "$ETIKET" ]]; then
@@ -115,12 +151,46 @@ etiket_dogrula() {
     log "✗ $ETIKET ANNOTATED etiket değil (hafif etiket imza taşımaz) — güncelleme yapılmadı"
     return 6
   fi
-  if ! kiok git verify-tag -- "$ETIKET" >/dev/null 2>&1; then
+
+  # --- İMZALAYANIN KİMLİĞİ (27 Ekim i5 bulgusu 5) ---------------------------
+  # ÖLÇÜLEN: `git verify-tag` yalnız "imza GEÇERLİ mi" der, imzalayanın KİMLİĞİNE bakmaz.
+  # Anahtar halkası kiosk kullanıcısının yazabildiği $KIOSK_HOME altında olduğu için ele
+  # geçirilmiş bir kiosk hesabı KENDİ anahtarını import edip KENDİ etiketini imzalayabiliyordu
+  # → kapı "geçerli imza" diyerek açılıyordu.
+  #
+  # ÇÖZÜM: beklenen imzalayan(lar) BEYAZ LİSTE ile sabitlenir; `git verify-tag --raw` çıktısındaki
+  # `[GNUPG:] VALIDSIG <parmak izi> … <birincil parmak izi>` satırının son alanı (birincil anahtar
+  # parmak izi) listeyle karşılaştırılır. Liste ROOT'a ait bir dosyadır (/etc/yourkiosk/yayin-imzaci)
+  # → kiosk kullanıcısı değiştiremez. Liste yoksa/boşsa FAIL-CLOSED: güncelleme reddedilir.
+  local imza fpr
+  if ! imza="$(kiok git verify-tag --raw -- "$ETIKET" 2>&1)"; then
     log "✗ $ETIKET GPG imzası DOĞRULANAMADI (imza yok / yanlış anahtar / anahtar kurulu değil)"
     log "  anahtar kurulumu: runuser -u $KIOSK_KULLANICI -- gpg --import yayin-anahtari.asc"
     log "  güncelleme REDDEDİLDİ (fail-closed) — ağaç DEĞİŞMEDİ"
     return 6
   fi
+  fpr="$(printf '%s\n' "$imza" | validsig_parmak_izi)"
+  if [[ -z "$fpr" ]]; then
+    log "✗ $ETIKET imzası geçti ama VALIDSIG parmak izi okunamadı — güncelleme REDDEDİLDİ"
+    log "  (git/gpg sürümü --raw çıktısını değiştirmiş olabilir; imzalayan kimliği doğrulanamaz)"
+    return 6
+  fi
+  if ! beklenen_imzacilar >/dev/null; then
+    log "✗ imzalayan beyaz listesi yok/okunamıyor: $IMZACI_DOSYASI"
+    log "  kurulum: sudo install -d -m0755 /etc/yourkiosk"
+    log "           echo 'PARMAK_IZI' | sudo tee $IMZACI_DOSYASI   # 40 haneli, gpg --fingerprint"
+    log "  güncelleme REDDEDİLDİ (fail-closed) — ağaç DEĞİŞMEDİ"
+    return 6
+  fi
+  if ! imzaci_izinli "$fpr"; then
+    log "✗ imzalayan parmak izi $fpr beyaz listede DEĞİL ($IMZACI_DOSYASI)"
+    log "  anahtar halkası kiosk kullanıcısının yazabildiği dizinde; kendi anahtarını ekleyip"
+    log "  kendi etiketini imzalamak bu kapıyı AÇMAZ. Yayın anahtarını değiştirdiyseniz listeyi"
+    log "  root olarak güncelleyin (sudo $0 --kuru ile doğrulayın)."
+    log "  güncelleme REDDEDİLDİ (fail-closed) — ağaç DEĞİŞMEDİ"
+    return 6
+  fi
+  log "✓ imza geçerli · imzalayan beyaz listede: $fpr"
   return 0
 }
 

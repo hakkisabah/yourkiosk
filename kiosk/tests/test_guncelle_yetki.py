@@ -280,10 +280,14 @@ def test_guncelleme_imzali_yayin_etiketinden_yapilir():
     assert "git verify-tag" in metin, "GPG imza doğrulaması yok (fail-open)"
     assert "cat-file -t" in metin, "annotated/hafif etiket ayrımı yapılmıyor"
     assert "git tag --merged origin/main" in metin, "etiket main'e ulaşıyor mu denetlenmiyor"
-    assert "verify-tag -- " in metin or 'verify-tag -- "$ETIKET"' in metin
+    assert "verify-tag --raw -- " in metin, "imza doğrulaması --raw değil (VALIDSIG okunamaz)"
+    # 2b) İMZALAYANIN KİMLİĞİ (27 Ekim i5 bulgusu): VALIDSIG parmak izi beyaz listeyle karşılaştırılır
+    assert "VALIDSIG" in metin, "imzalayan parmak izi (VALIDSIG) okunmuyor"
+    assert "IMZACI_DOSYASI" in metin and "imzaci_izinli" in metin, \
+        "imzalayan beyaz listesi denetlenmiyor (kendi anahtarını ekleyen geçerdi)"
 
     # 3) doğrulama geçmezse çıkış kodu != 0 (fail-closed), sessiz atlama yok
-    dogrula_govdesi = metin.split("etiket_dogrula()", 1)[1].split("\n}", 1)[0]
+    dogrula_govdesi = metin.split("etiket_dogrula()", 1)[1].split("\n}\n", 1)[0]
     assert "return 6" in dogrula_govdesi, "imza kapısı hata kodu döndürmüyor"
     assert "REDDEDİLDİ" in dogrula_govdesi or "güncelleme yapılmadı" in dogrula_govdesi, \
         "imza yokken günlüğe açık RED satırı yazılmıyor"
@@ -293,7 +297,8 @@ def test_guncelleme_imzali_yayin_etiketinden_yapilir():
     assert 'checkout --detach --force "$ETIKET"' in metin, "güncelleme etiketten checkout yapmıyor"
 
     # 5) --kuru modda uyarı var, gerçek koşuda reddet
-    kuru_blogu = metin.split("if [[ $KURU -eq 1 ]]", 1)[1].split("fi", 1)[0]
+    #    (birden çok `if [[ $KURU -eq 1 ]]` bloğu var: fetch atlama + kuru çıktı bloğu → son bloğu al)
+    kuru_blogu = metin.rsplit("if [[ $KURU -eq 1 ]]", 1)[1]
     assert "etiket_dogrula" in kuru_blogu and "ATLANIR" in kuru_blogu, \
         "--kuru imza kapısını denetlemiyor/uyarmıyor"
 

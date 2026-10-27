@@ -32,8 +32,14 @@ command -v aws >/dev/null || { echo "✗ aws CLI yok" >&2; exit 2; }
 surumleri_listele() {
   # DİKKAT: --prefix önek eşleşmesidir ("kiosk/veri.json" → "kiosk/veri.json.bak" da gelir);
   # bu yüzden Key tam eşleşmeyle süzülür, yoksa yanlış nesnenin sürümü geri getirilir.
+  #
+  # SAYFALAMA (27 Ekim i5 bulgusu, BİLGİ): `--max-items 10` KALDIRILDI. Sınır ham sayfa
+  # öğelerine uygulanıyor, `--query` süzgeci ise sayfa başına sonradan çalışıyor → önek
+  # eşleşen başka anahtarlar (ör. `lastSystemData.json.bak`) ilk 10'u doldurduğunda süzgeç
+  # BOŞ dönüyordu ve "eski sürüm yok" deniyordu. Süzgeç artık sunucu tarafında (`--query`,
+  # Key tam eşleşme) ve aws CLI tüm sayfaları kendisi dolaşır (varsayılan otomatik sayfalama).
   aws "${PROFIL_ARG[@]}" s3api list-object-versions \
-    --bucket "$KOVA" --prefix "$ANAHTAR" --max-items 10 \
+    --bucket "$KOVA" --prefix "$ANAHTAR" \
     --query "Versions[?Key=='$ANAHTAR'].[VersionId,IsLatest,LastModified,Size]" --output table
 }
 
