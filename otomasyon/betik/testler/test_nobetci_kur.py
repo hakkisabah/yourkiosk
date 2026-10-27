@@ -144,6 +144,15 @@ class UnitTesti(unittest.TestCase):
             if satir.startswith("#"):
                 self.assertNotIn("`", satir, f"yorum satırında backtick: {satir}")
 
+    def test_cokme_dongusu_sayaci_starttan_once_sifirlanir(self):
+        """i5: OOM döngüsü birimi `failed` + start limiti dolu bırakır → `start` reddedilir.
+
+        Kurulumun başarısız GÖRÜNMEMESİ için sayaç start'tan önce sıfırlanmalı.
+        """
+        kaynak = BETIK.read_text(encoding="utf-8")
+        self.assertIn("reset-failed", kaynak)
+        self.assertLess(kaynak.index("reset-failed"), kaynak.index('systemctl --user start'))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

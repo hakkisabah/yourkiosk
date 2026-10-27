@@ -217,7 +217,11 @@ case "$KIP" in
     # ÇALIŞAN OTURUMU ÖLDÜRME: `enable --now` zaten aktif bir birimi yeniden başlatmaz; yine de
     # niyeti açık yazıyoruz — aktifse yalnız `enable`, değilse `start`.
     systemctl --user enable "$UNIT_ADI"
+    # 27 Ekim i5: OOM çökme döngüsü birimi `failed` durumunda bırakır ve start limiti doludur;
+    # `start` o hâlde "start request repeated too quickly" ile REDDEDİLİR (kurulum başarısız görünür).
+    # Sayacı sıfırlamak güvenli: birim zaten çalışmıyor.
     if ! systemctl --user is-active "$UNIT_ADI" >/dev/null 2>&1; then
+      systemctl --user reset-failed "$UNIT_ADI" 2>/dev/null || true
       systemctl --user start "$UNIT_ADI"
     else
       echo "not: servis zaten çalışıyor; yeni ExecStart bir sonraki yeniden başlatmada etkin olur"
