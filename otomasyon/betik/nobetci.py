@@ -238,6 +238,11 @@ def gunluk(yol: Path | None, mesaj: str) -> None:
 #: Aynı durum satırını her yoklamada (15-20 sn) yazmak günlüğü şişiriyordu → seyrek günlük.
 _SEYREK_SON: dict[tuple[str, str], float] = {}
 
+#: ETag önbelleğinde tutulabilecek en fazla adres sayısı (27 Ekim i5 bulgusu: budama yoktu).
+#: İş listesindeki her PR için 1 PR + 2 durum adresi tutulur; 30 PR'lık bir kuyruk ~90 kayıt
+#: eder. 120, kuyruk büyüse bile durum dosyasını ~100 KB'ın altında tutar.
+ONBELLEK_SINIRI = 120
+
 
 def gunluk_seyrek(yol: Path | None, anahtar: str, mesaj: str, ara_s: int = 1800) -> None:
     """Aynı `anahtar` için en çok `ara_s` saniyede bir yaz (boşta günlük şişmesin).
@@ -280,6 +285,7 @@ class Github:
                 pass
 
     def kaydet(self, ek: dict) -> None:
+        self.buda()
         self.durum_yolu.parent.mkdir(parents=True, exist_ok=True)
         veri = {"etag": self.onbellek, "denemeler": self.denemeler, "gunluk": self.gunluk,
                 **ek, "guncelleme": simdi()}
@@ -289,6 +295,34 @@ class Github:
         # Aynı süreçte "durum değişti mi" karşılaştırması doğru olsun (boşta günlük şişmesin).
         self._onceki_veri = {"son_karar": str(ek.get("son_karar", self._onceki_veri.get("son_karar", ""))),
                              "zaman": veri["guncelleme"]}
+
+    def buda(self, gecerli_sha: set[str] | None = None) -> int:
+        """ETag önbelleğini sınırlar → atılan kayıt sayısı.
+
+        27 Ekim i5 bulgusu (düşük): her adresin TAM yanıt gövdesi bellekte tutuluyor ve her
+        turda (15 sn) tümüyle diske yazılıyordu; budama yoktu. Kapanmış PR'ların ve artık
+        ilgilenilmeyen sha'ların durum yanıtları durum dosyasını sürekli büyütüyordu
+        (ölçüm: 100+ kayıt, turda ~1 MB yazma). İki kural:
+          1. `gecerli_sha` verilirse yalnız o sha'ları (ve PR iş listesi adreslerini) taşıyan
+             kayıtlar kalır → kapanan PR'ların artıkları düşer,
+          2. her hâlükârda kayıt sayısı `ONBELLEK_SINIRI`nı aşmaz (en eski önce atılır).
+        """
+        atilan = 0
+        onbellek = getattr(self, "onbellek", None)
+        if not isinstance(onbellek, dict):
+            return 0  # taklit istemciler (test) önbellek tutmayabilir
+        if gecerli_sha is not None:
+            for url in list(onbellek):
+                if "/commits/" in url and "/status" in url:
+                    sha = url.split("/commits/", 1)[1].split("/", 1)[0]
+                    if sha not in gecerli_sha:
+                        onbellek.pop(url, None)
+                        atilan += 1
+        fazla = len(onbellek) - ONBELLEK_SINIRI
+        for url in list(onbellek)[:max(0, fazla)]:
+            onbellek.pop(url, None)
+            atilan += 1
+        return atilan
 
     def al(self, yol: str) -> tuple[int, object | None]:
         url = f"https://api.github.com{yol}"
@@ -308,6 +342,8 @@ class Github:
                 etag = r.headers.get("ETag")
                 if etag:
                     self.onbellek[url] = {"etag": etag, "veri": govde}
+                    if len(self.onbellek) > ONBELLEK_SINIRI:
+                        self.buda()
                 return r.status, govde
         except urllib.error.HTTPError as hata:
             if hata.code == 304:
@@ -492,6 +528,12 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
 
     # yaş büyük = daha eski → başa. Eşitlikte PR numarası küçük olan (daha eski) önce.
     cikti.sort(key=lambda i: (-i["yas_dk"], i["pr"]))
+    # ETag önbelleği: yalnız AÇIK PR'ların sha'ları kalsın (kapanan PR artıkları düşsün).
+    if hasattr(gh, "buda"):
+        gecerli = {str((p.get("head") or {}).get("sha", "")).strip()
+                   for p in govde if isinstance(p, dict)}
+        gecerli.discard("")
+        gh.buda(gecerli)
     if bayat:
         gunluk_seyrek(getattr(gh, "gunluk_yolu", None), f"{rol}:bayat:{surum}",
                       f"{rol}: {bayat} PR eski inceleme sürümünden → yeniden inceleme (v{surum})")

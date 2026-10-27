@@ -9,12 +9,53 @@
 
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import nobetci  # noqa: E402
+
+
+class OnbellekTesti(unittest.TestCase):
+    """27 Ekim i5 bulgusu: ETag önbelleği hiç budanmıyordu → durum dosyası turda şişiyordu.
+
+    Kapanış ölçütü: 500 ayrı sha yoklandığında kayıt sayısı `ONBELLEK_SINIRI`nı aşmaz ve
+    güncel iş listesinde olmayan sha'ların durum yanıtları düşer.
+    """
+
+    def setUp(self):
+        self.dizin = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dizin.cleanup)
+        self.durum = Path(self.dizin.name) / "durum.json"
+        self.gh = nobetci.Github("sahte", "hakkisabah/yourkiosk", self.durum)
+
+    def _sha(self, i: int) -> str:
+        return f"{i:040x}"
+
+    def test_500_sha_sonrasi_kayit_sayisi_sinirli(self):
+        for i in range(500):
+            url = f"https://api.github.com/repos/d/d/commits/{self._sha(i)}/status"
+            self.gh.onbellek[url] = {"etag": f'W/"{i}"', "veri": {"statuses": []}}
+        self.gh.kaydet({"rol": "i5"})
+        veri = json.loads(self.durum.read_text(encoding="utf-8"))
+        self.assertLessEqual(len(veri["etag"]), nobetci.ONBELLEK_SINIRI)
+        self.assertLess(self.durum.stat().st_size, 200_000)
+
+    def test_guncel_olmayan_sha_budanir(self):
+        gecerli = self._sha(1)
+        for i in (1, 2, 3):
+            url = f"https://api.github.com/repos/d/d/commits/{self._sha(i)}/status"
+            self.gh.onbellek[url] = {"etag": f'W/"{i}"', "veri": {}}
+        self.gh.onbellek["https://api.github.com/repos/d/d/pulls?state=open"] = {"etag": "W/\"p\"", "veri": []}
+        atilan = self.gh.buda({gecerli})
+        self.assertEqual(atilan, 2)
+        kalan = [u for u in self.gh.onbellek if "/commits/" in u]
+        self.assertEqual(len(kalan), 1)
+        self.assertIn(gecerli, kalan[0])
+        self.assertTrue(any("/pulls" in u for u in self.gh.onbellek), "PR listesi kaydı korunmalı")
 
 
 class ButceTesti(unittest.TestCase):

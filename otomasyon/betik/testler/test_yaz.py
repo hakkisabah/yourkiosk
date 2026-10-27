@@ -534,15 +534,23 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
         self.addCleanup(lambda: setattr(yaz, "istek", self._gercek))
 
     def _sahte_istek(self, acik_kod: int = 200, commit_kod: int = 200, yabanci: bool = False,
-                     kontroller=None):
+                     kontroller=None, diger_commitler=None, kendi_commitler=None):
         def sahte(yol, token, yontem="GET", govde=None):
             if "/pulls?state=open" in yol:
                 if acik_kod != 200:
                     return acik_kod, {"message": f"HTTP {acik_kod}"}
-                return 200, ([{"number": 88, "head": {"sha": "c" * 40}}] if yabanci else [])
+                return 200, ([{"number": 88, "head": {"sha": "c" * 40}}] if yabanci or diger_commitler else [])
+            if yol == f"/repos/{self.DEPO}/pulls/88/commits?per_page=100":
+                if commit_kod != 200:
+                    return commit_kod, {"message": f"HTTP {commit_kod}"}
+                if diger_commitler is not None:
+                    return 200, [{"sha": s} for s in diger_commitler]
+                return 200, [{"sha": "c" * 40}]
             if yol.endswith("/commits?per_page=100"):
                 if commit_kod != 200:
                     return commit_kod, {"message": f"HTTP {commit_kod}"}
+                if kendi_commitler is not None:
+                    return 200, [{"sha": s} for s in kendi_commitler]
                 return 200, [{"sha": "c" * 40}] if yabanci else [{"sha": self.SHA}]
             if yol == f"/repos/{self.DEPO}/pulls/90":
                 return 200, {"number": 90, "state": "open", "draft": False, "title": "t",
@@ -587,6 +595,22 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
         uygun, mesaj = self._birlestir()
         self.assertFalse(uygun, mesaj)
         self.assertIn("#88", mesaj)
+
+    # ── 27 Ekim i5 bulgusu: HEAD OLMAYAN yabancı commit ────────────────────────────────────
+    def test_baska_prin_head_olmayan_commiti_de_engellenir(self):
+        """#88'in eski (artık head olmayan) commit'i bu dalda taşınıyorsa birleştirme DURUR."""
+        eski = "d" * 40
+        self._sahte_istek(diger_commitler=[eski, "c" * 40], kendi_commitler=[self.SHA, eski])
+        uygun, mesaj = self._birlestir()
+        self.assertFalse(uygun, mesaj)
+        self.assertIn("#88", mesaj)
+        self.assertIn(eski[:7], mesaj)
+
+    def test_diger_pr_commit_listesi_okunamazsa_denetim_kapanir(self):
+        self._sahte_istek(diger_commitler=["d" * 40], commit_kod=403)
+        uygun, mesaj = self._birlestir()
+        self.assertFalse(uygun, mesaj)
+        self.assertIn("commit listesi denetlenemedi (HTTP 403)", mesaj)
 
     # ── çift onay VARSAYILAN (26 Ekim i5 bulgusu) ──────────────────────────────────────────
     def test_kontroller_yalniz_karar_iceriyorken_birlestirme_yok(self):
