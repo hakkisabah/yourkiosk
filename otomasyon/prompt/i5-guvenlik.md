@@ -130,3 +130,16 @@ Depo kuralları: `kiosk/GUVENLIK.md`, `kiosk/KOMUTLAR.md`, `docs/AWS-KURULUM.md`
 - Kod yazma, commit/push, birleştirme yok.
 - Sır **değerini** raporlama (maskeli göster).
 - PR başına tek oturum hedefle; aynı commit'i tekrar tekrar inceleme (nöbetçi beklemeyi uygular).
+- **ZAMAN BÜTÇESİ (SERT).** Nöbetçi oturumu `--run-budget` sonunda ÖLDÜRÜR (çıkış 124) ve o turda
+  yazdığın hiçbir şey kaydedilmez — 27 Ekim'de bir oturum 1860 sn'de öldü ve PR'a hiçbir karar
+  yazılmadı (PR 1 tur daha bekledi, token iki kez harcandı). Bu yüzden:
+  - **Kararı yazmaya bütçenin son üçte birinde başla.** Ölçüm bitmediyse bile o ana kadar
+    ÖLÇTÜĞÜN kanıtla yaz; ölçemediğin alanı `kabul`e "ölçülmedi" diye yaz. Boş çıkmak PR'ı
+    kilitler, eksik ölçüm kilitlemez.
+  - Test/derleme **en fazla bir kez** ve **hedefli dosyalarla**: `pytest tests/test_x.py -q`,
+    `vitest run src/domain/push`. Tam paket (`pytest`/`vitest run` çıplak) bütçeyi yer; tam paket
+    yalnız kapsamı gerçekten gerektiriyorsa ve `agir-komut.sh` ile koşulur.
+  - Tek komutta 5 dakikadan fazla bekleme yok: uzun komutu `timeout 300` ile sınırla, süresi
+    dolarsa "ölçülemedi" yaz ve devam et. Arka planda bitmesini bekleme.
+  - Bütçe dolarsa `ZAMAN AŞIMI` satırı günlüğe düşer; operatör görür. Senin işin o noktaya
+    gelmeden kararı yazmak.

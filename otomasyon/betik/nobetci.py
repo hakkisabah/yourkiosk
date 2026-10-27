@@ -721,6 +721,15 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
                                 + f" (çıkış {kod}); aynı head tekrar denenecek, bekleme artıyor"
                                 + ("" if kod != 0 else " · tur/bütçe tavanı yetmedi mi? (OTURUM_TUR_TAVANI="
                                    f"{OTURUM_TUR_TAVANI})"))
+            if kod == 124:
+                # 27 Ekim: i5 oturumu 1860 sn'de öldürüldü (çıkış 124) ve PR'a hiçbir şey yazılmadı.
+                # Sebep neredeyse her zaman ÖLÇÜM: tam test paketi/derleme koşusu bütçeyi yiyor.
+                # Bu satır operatöre ne yapacağını söyler; sessiz 124 bir sonraki turda aynı duvara
+                # çarpar (aynı PR, aynı head, aynı süre).
+                gunluk(gunluk_yolu, f"{rol}: ZAMAN AŞIMI ({zaman_asimi} sn) — süreç öldürüldü; "
+                                    f"bütçenin çoğu ölçüme gitti. Çözüm: incelemeyi böl (PR başına tek "
+                                    f"oturum + hedefli test), ya da --zaman-asimi artır "
+                                    f"(şu an tur tavanı {b['tur']} × {b['tur_basi_sn']} sn)")
         gh.gunluk[bugun] = bugun_sayi + 1
         for g in list(gh.gunluk):
             if g != bugun:
