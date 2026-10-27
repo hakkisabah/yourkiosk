@@ -830,6 +830,24 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
           f"MemoryMax={tavan_mb} MB · NODE_OPTIONS heap={'var' if heap_var else 'YOK'}"
           if (tavan_mb or heap_var) else "tanımsız → nobetci-kur.sh ile yeniden kur")
 
+    # 9b) TEK KAYNAK + UYUM: 27 Ekim'de `set-property` ayrı bir drop-in dizini
+    # (user.control/<birim>.d) yazdı; 50-bellek.conf ile değerler AYRIŞTI (2445279232 vs 2332M).
+    # Hangi tavanın gerçek olduğu belirsizleşince OOM koruması denetlenemez oluyor.
+    # Kural: tek kaynak 50-bellek.conf; etkin değer onunla (yuvarlama payı içinde) aynı olmalı.
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as f:
+            ram_mb = next((int(s.split()[1]) // 1024 for s in f if s.startswith("MemTotal:")), 0)
+    except (OSError, ValueError):
+        ram_mb = 0
+    beklenen_max = ram_mb * 75 // 100 if ram_mb > 1024 else 1280
+    kontrol_dizin = Path.home() / ".config" / "systemd" / "user.control" / f"{UNIT_ADI}.d"
+    artik = sorted(p.name for p in kontrol_dizin.glob("*.conf")) if kontrol_dizin.is_dir() else []
+    uyumlu = tavan_mb > 0 and abs(tavan_mb - beklenen_max) <= 2
+    satir(not artik and uyumlu, "bellek tek kaynak/uyumlu",
+          (f"set-property artığı: {artik} → nobetci-bakim.sh" if artik
+           else f"etkin {tavan_mb} MB ≈ beklenen {beklenen_max} MB" if uyumlu
+           else f"etkin {tavan_mb} MB ≠ beklenen {beklenen_max} MB → nobetci-bakim.sh"))
+
     bos_mb = takas_dolu_pct = 0
     try:
         with open("/proc/meminfo", encoding="utf-8") as f:
