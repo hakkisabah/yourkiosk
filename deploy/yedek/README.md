@@ -33,8 +33,17 @@ aws iam create-policy --policy-name yourkiosk-yedek \
   --policy-document file://deploy/yedek/iam-politikasi.json
 ```
 
-İçerik özeti: nesne düzeyinde `s3:GetObject|PutObject|GetObjectTagging|PutObjectTagging`
-(`arn:aws:s3:::yourkiosk-veri/kiosk/*`), kova düzeyinde `s3:ListBucket|ListBucketVersions`.
+İçerik özeti — **iki nesne, iki anahtar, wildcard yok** (28 Ekim i5 bulgusu): okuma
+`s3:GetObject|GetObjectVersion`, yazma `s3:PutObject` — hepsi yalnız
+`arn:aws:s3:::yourkiosk-veri/kiosk/lastSystemData.json` ve
+`.../kiosk/lastupdate.json` üzerinde; kova düzeyinde `s3:ListBucketVersions|GetBucketVersioning`.
+
+Eskiden nesne kaynağı `kiosk/*` idi: yedek anahtarı ele geçerse **her** kiosk nesnesini
+(panel paketi, yayın görselleri, ayar dosyaları) ezebiliyordu. Betik yalnız iki nesneyi geri
+yazdığı için kaynak da iki nesneyle sınırlandı; aynı sınıftan olan **kullanılmayan**
+`GetObjectTagging|PutObjectTagging` ve `s3:ListBucket` izinleri kaldırıldı. Bu daraltmayı
+`kiosk/tests/test_deploy_iam_dar.py` makineyle kilitler: politikaya üçüncü bir anahtar ya da
+`kiosk/*` geri gelirse test kırmızıya döner.
 
 `aws configure --profile yourkiosk-yedek` ile tanımlayın; betikleri `AWS_PROFILE=yourkiosk-yedek`
 ile koşun. Politika `s3:DeleteObject` **içermez** — yanlış sürüm seçilirse silme değil, yeni sürüm

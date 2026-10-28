@@ -239,7 +239,11 @@ def veri_dosyasini_optimize(
         sonuc["kazanc"]["cikis"] += bilgi["cikti_bayt"]
         if yaz:
             adresi_degistir(yeni_belge, yol, yeni)
-    if yaz and sonuc["degisen"]:
+    # TEK KARAR — YA HEPSİ YA HİÇBİRİ (i5 bulgusu, 28 Ekim): eskiden geçersiz adres varken
+    # GEÇEN adresler yazılıyor, veri dosyası değişiyor, sonra "DEĞİŞTİRİLMEDİ" deniyordu.
+    # Operatöre yalan söyleyen bir mesaj + yarım güncelleme. Artık tek bir geçersiz adres
+    # bile varsa veri dosyasına HİÇ yazılmaz (atomik karar).
+    if yaz and sonuc["degisen"] and not sonuc["gecersiz"]:
         yedek = veri_yolu.with_suffix(veri_yolu.suffix + ".bak")
         yedek.write_bytes(veri_yolu.read_bytes())
         atomik_yaz(veri_yolu, (json.dumps(yeni_belge, ensure_ascii=False, indent=1) + "\n").encode("utf-8"))
@@ -294,13 +298,27 @@ def main() -> int:
                 print("  SONRA veri dosyasını yükleyip `lastupdate.json` damgasını tazeleyin.")
             else:
                 print("  Sıradaki adım: dosyayı S3'e yükleyin + `lastupdate.json` damgasını tazeleyin.")
+        elif secim.yaz:
+            # --yaz verildi ama yazılmadı: mesaj NEDENİ söylemeli (eskiden burada yanlışlıkla
+            # "KURU çalışma … (yazmak için --yaz)" yazıyordu — operatör --yaz vermişti).
+            if sonuc["gecersiz"]:
+                print("Hiçbir adres yazılmadı — geçersiz adres varken yarım güncelleme yapılmaz (aşağıya bakın).")
+            else:
+                print("--yaz verildi ama değişecek adres yok — veri dosyası aynı kaldı.")
         else:
             print("KURU çalışma — hiçbir dosya değişmedi (yazmak için --yaz).")
-        # CİHAZ KAPISINDAN GEÇMEYEN ADRES VARSA: hiçbir şey yazılmadı ve çıkış kodu != 0
+        # CİHAZ KAPISINDAN GEÇMEYEN ADRES VARSA: hiçbir şey yazılmadı ve çıkış kodu != 0.
+        # NOT: WebP dosyaları --cikti klasörüne yazılmış olabilir (bunlar çıktı ürünüdür,
+        # veri dosyası değil); mesaj bunu açıkça söyler ki operatör S3'e yüklemeyi yanlışlıkla
+        # yapmasın.
         if sonuc["gecersiz"]:
             print(f"✗ {len(sonuc['gecersiz'])} adres cihazın görsel politikasından geçmedi — "
-                  "veri dosyası DEĞİŞTİRİLMEDİ (--url-taban https ve herkese açık host olmalı).",
+                  "veri dosyası DEĞİŞTİRİLMEDİ, geçen adresler de yazılmadı "
+                  "(--url-taban https ve herkese açık host olmalı).",
                   file=sys.stderr)
+            if sonuc.get("cikti_klasoru"):
+                print(f"  DİKKAT: WebP dosyaları {sonuc['cikti_klasoru']} klasörüne yazıldı — "
+                      "bunları S3'e YÜKLEMEYİN (veri dosyası onlara başvurmuyor).", file=sys.stderr)
             return 3
         return 0 if sonuc["degisen"] else 1
 

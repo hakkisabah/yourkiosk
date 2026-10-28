@@ -168,3 +168,65 @@ def test_cli_kapidan_gecmeyen_adreste_sifir_disi_kod_doner(tmp_path: Path, monke
 
     assert kod != 0, "geçersiz adreste araç başarı döndürdü"
     assert veri.read_bytes() == onceki, "geçersiz adres yazılmış"
+
+
+# --- 28 Ekim i5 bulgusu: KARIŞIK durumda "DEĞİŞTİRİLMEDİ" yalanı -------------------
+def test_karisik_durumda_gecen_adresler_de_yazilmaz(tmp_path: Path, monkeypatch, capsys) -> None:
+    """Bazı adresler kapıdan geçer, bazıları geçmezse veri dosyasına HİÇ yazılmamalı.
+
+    ÖLÇÜLEN kusur: geçenler yazılıyor (dosya değişiyor), sonra "veri dosyası DEĞİŞTİRİLMEDİ"
+    deniyordu. Operatöre yalan söyleyen mesaj + yarım güncelleme (cihazlar yarım adres setiyle
+    kalır). Beklenen: atomik karar (ya hepsi ya hiçbiri), doğru mesaj, çıkış 3.
+    """
+    veri = tmp_path / "lastSystemData.json"
+    veri.write_text(json.dumps(BELGE), encoding="utf-8")
+    onceki = veri.read_bytes()
+    (tmp_path / "afis.png").write_bytes(b"png")
+    (tmp_path / "bosluklu.webp").write_bytes(b"png")
+    monkeypatch.setattr(gw, "donustur", lambda yol, *_a, **_k: (b"webp", {"bayt": 1000, "cikti_bayt": 100}))
+    # Kapı: İLK adres geçer, ikincisi reddedilir → karışık durum (sıra: BELGE'deki kayıt sırası).
+    # (Yeni adresler içerik özetli olduğu için dosya adından ayırt edilemez; sayaç kullanılır.)
+    sayac = {"n": 0}
+
+    def kapi(adres, **_k):
+        sayac["n"] += 1
+        return (sayac["n"] == 1), ("" if sayac["n"] == 1 else "test kapısı reddetti")
+
+    monkeypatch.setattr(gw, "adres_cihaz_kapisindan_gecer", kapi)
+
+    sonuc = gw.veri_dosyasini_optimize(veri, [tmp_path], "https://yeni/yayin-gorselleri", yaz=True)
+
+    assert sonuc["degisen"], "test kurgusu bozuk: geçen adres yok"
+    assert sonuc["gecersiz"], "test kurgusu bozuk: geçmeyen adres yok"
+    assert sonuc["yazildi"] is False, "karışık durumda veri dosyası yazıldı (atomik değil)"
+    assert veri.read_bytes() == onceki, "karışık durumda veri dosyası değişti"
+
+
+def test_karisik_durum_mesaji_dogru(tmp_path: Path, monkeypatch, capsys) -> None:
+    """Mesaj 'DEĞİŞTİRİLMEDİ' derken gerçekten değişmemeli; --yaz verildiğinde 'KURU' dememeli."""
+    veri = tmp_path / "lastSystemData.json"
+    veri.write_text(json.dumps(BELGE), encoding="utf-8")
+    (tmp_path / "afis.png").write_bytes(b"png")
+    (tmp_path / "bosluklu.webp").write_bytes(b"png")
+    monkeypatch.setattr(gw, "donustur", lambda yol, *_a, **_k: (b"webp", {"bayt": 1000, "cikti_bayt": 100}))
+    sayac = {"n": 0}
+
+    def kapi(adres, **_k):
+        sayac["n"] += 1
+        return (sayac["n"] == 1), ("" if sayac["n"] == 1 else "reddedildi")
+
+    monkeypatch.setattr(gw, "adres_cihaz_kapisindan_gecer", kapi)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["gorsel_webp.py", "--veri", str(veri), "--url-taban", "https://yeni/g",
+         "--klasor", str(tmp_path), "--yaz"],
+    )
+
+    kod = gw.main()
+    cikti = capsys.readouterr()
+    tum = cikti.out + cikti.err
+
+    assert kod == 3, f"karışık durumda çıkış kodu 3 değil: {kod}"
+    assert "KURU çalışma" not in tum, "--yaz verildiği hâlde 'KURU çalışma' mesajı yazıldı"
+    assert "DEĞİŞTİRİLMEDİ" in cikti.err, "operatöre dosyanın değişmediği söylenmiyor"
+

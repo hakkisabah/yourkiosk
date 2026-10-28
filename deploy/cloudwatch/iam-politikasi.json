@@ -6,8 +6,7 @@
       "Effect": "Allow",
       "Action": [
         "cloudwatch:PutMetricAlarm",
-        "cloudwatch:DeleteAlarms",
-        "cloudwatch:ListTagsForResource"
+        "cloudwatch:DeleteAlarms"
       ],
       "Resource": [
         "arn:aws:cloudwatch:*:${aws:PrincipalAccount}:alarm:fatura-aylik-esik",
@@ -30,19 +29,9 @@
       "Action": [
         "sns:CreateTopic",
         "sns:Subscribe",
-        "sns:SetTopicAttributes",
-        "sns:GetTopicAttributes",
         "sns:DeleteTopic"
       ],
       "Resource": "arn:aws:sns:*:${aws:PrincipalAccount}:yourkiosk-alarm"
-    },
-    {
-      "Sid": "KonuListele",
-      "Effect": "Allow",
-      "Action": [
-        "sns:ListTopics"
-      ],
-      "Resource": "*"
     },
     {
       "Sid": "FaturaMetrigiOkuma",

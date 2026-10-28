@@ -60,7 +60,12 @@ LOGDIZIN="${KIOSK_LOG_DIZIN:-/var/log/yourkiosk}"
 [[ -d "$LOGDIZIN" && -w "$LOGDIZIN" ]] || LOGDIZIN="$GECICI"
 # Hata sonrası okunabilsin diye günlük KALICI dizine yazılır; 14 günden eskiler silinir.
 CANLI_LOG="$LOGDIZIN/canli-$(date '+%Y%m%d-%H%M%S').log"
-[[ "$LOGDIZIN" != "$GECICI" ]] && find "$LOGDIZIN" -maxdepth 1 -name 'canli-*.log' -mtime +14 -delete 2>/dev/null || true
+# KURU KOŞU HİÇBİR ŞEYİ DEĞİŞTİRMEZ (i5 bulgusu, 28 Ekim): bu `find … -delete` KURU denetiminin
+# DIŞINDAYDI — `--kuru` "hiçbir şey değişmez" dese de her koşuda 14 günden eski günlükleri
+# siliyordu (geri alınamaz veri kaybı). Artık yalnız gerçek koşuda çalışır.
+if [[ $KURU -eq 0 && "$LOGDIZIN" != "$GECICI" ]]; then
+  find "$LOGDIZIN" -maxdepth 1 -name 'canli-*.log' -mtime +14 -delete 2>/dev/null || true
+fi
 
 [[ -d .git ]] || { log "✗ $KOK bir git deposu değil"; exit 2; }
 id -u "$KIOSK_KULLANICI" >/dev/null 2>&1 || { log "✗ '$KIOSK_KULLANICI' kullanıcısı yok (KIOSK_KULLANICI ile belirtin)"; exit 5; }

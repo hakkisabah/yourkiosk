@@ -38,16 +38,26 @@ aws iam create-policy --policy-name yourkiosk-alarm \
   --policy-document file://deploy/cloudwatch/iam-politikasi.json
 ```
 
-İçerik özeti: `cloudwatch:PutMetricAlarm|DeleteAlarms|ListTagsForResource` (yalnız bu depodaki
-DÖRT alarmın ARN'i), `sns:CreateTopic|Subscribe|SetTopicAttributes|GetTopicAttributes|DeleteTopic`
-(yalnız `yourkiosk-alarm` konusunun ARN'i), `cloudwatch:DescribeAlarms`, `sns:ListTopics`,
+İçerik özeti: `cloudwatch:PutMetricAlarm|DeleteAlarms` (yalnız bu depodaki
+DÖRT alarmın ARN'i), `sns:CreateTopic|Subscribe|DeleteTopic`
+(yalnız `yourkiosk-alarm` konusunun ARN'i), `cloudwatch:DescribeAlarms`,
 `cloudwatch:GetMetricStatistics|ListMetrics`. Kaynak ARN'lerinde hesap kimliği IAM politika
 değişkeni `${aws:PrincipalAccount}` ile gelir (dosya hesaba bağımlı değildir). `DescribeAlarms`,
-`ListTopics`, `GetMetricStatistics`, `ListMetrics` kaynak düzeyi yetkilendirmeyi
+`GetMetricStatistics`, `ListMetrics` kaynak düzeyi yetkilendirmeyi
 DESTEKLEMEDİĞİ için zorunlu olarak `Resource:"*"` kalır — bunların dışında wildcard yoktur
-(`kiosk/tests/test_deploy_guvenlik.py` bunu kilitler). `sns:Publish` **bilerek yok** (betik yayın
+(`kiosk/tests/test_deploy_guvenlik.py` bunu kilitler; kullanılmayan izin denetimi ise
+`kiosk/tests/test_deploy_iam_dar.py`). `sns:Publish` **bilerek yok** (betik yayın
 yapmaz, alarmlar SNS'e AWS servisi olarak yazar). `alarmlar.sh --sil` için `sns:DeleteTopic`
 GEREKLİDİR. `KONU_ADI` değiştirirseniz politikadaki SNS ARN'ini de güncelleyin.
+
+**Her izin bir kullanıma bağlıdır (28 Ekim i5 bulgusu).** Politika iki kaynaktan türetilir:
+(a) `alarmlar.sh`'ın gerçekten çağırdığı eylemler, (b) operatörün fatura metriğini bu anahtarla
+okuma amacı. Buna karşılık `sns:SetTopicAttributes`, `sns:GetTopicAttributes`,
+`cloudwatch:ListTagsForResource` ve `sns:ListTopics` **hiçbir betikte çağrılmıyordu** (i5'in
+işaret ettiği iki eylem + aynı sınıftan iki eylem daha) → kaldırıldı; kullanılmayan izin
+sadece saldırı yüzeyidir. Fatura metriğini **kendi** anahtarınızla okumak isterseniz bu iki
+eylemi bilerek geri ekleyin (`GetMetricStatistics|ListMetrics`); test, eklenen her eylemin ya
+bir betikte çağrıldığını ya da gerekçeli allow-list'te olduğunu doğrular.
 
 > Fatura metriklerini görebilmek için hesapta **Billing → Billing preferences → "Receive Billing
 > Alerts"** açık olmalı. Bu bir **hesap ayarıdır**, IAM izniyle açılamaz (kullanıcı yapar).
@@ -116,6 +126,10 @@ aws cloudwatch describe-alarms --state-value INSUFFICIENT_DATA --output table   
 aws sns list-subscriptions-by-topic \
   --topic-arn "$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/yourkiosk/sns-arn")"   # onay bekliyor mu?
 ```
+
+> Abone listesi komutu `sns:ListSubscriptionsByTopic` ister; **alarm anahtarı bu izni bilerek
+> taşımaz** — abone listesi kişisel e-posta adreslerini (PII) açığa çıkarır ve alarm kurma
+> işi bunu gerektirmez. Bu tek doğrulamayı konsoldan ya da yönetici kimliğinizle yapın.
 
 * SNS e-postasını **onaylamadan** hiçbir bildirim gelmez (AWS bunu zorunlu tutar).
 * Fatura metrigi 6 saatte bir güncellenir; alarmın `INSUFFICIENT_DATA` olması ilk saatlerde
