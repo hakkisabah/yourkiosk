@@ -24,7 +24,9 @@ Kullanım:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import stat
 import subprocess
 import time
 import os
@@ -32,11 +34,56 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 TABAN = "https://api.github.com"
 BASLIKLAR = {"Accept": "application/vnd.github+json", "User-Agent": "yourkiosk-otomasyon"}
+#: Karar kapısı reddi/atlaması buraya JSON satırları olarak yazılır (nobetci denetler).
+#: 26 Ekim i5 bulgusu: yol `YAZ_KAPI_LOG` ortam değişkeninden geliyordu → ajan `/dev/null` verip
+#: kapı atlamasının izini silebiliyor, `--kendini-denetle`nin 8. noktası kör kalıyordu. Aynı sınıf
+#: hata bilet yolunda kapatılmıştı; burada da yol SABİT. (Testler modül özniteliğini enjekte eder;
+#: üretim CLI'ında yolu taşıyan bir anahtar YOKTUR.)
+KAPI_LOG = Path.home() / ".local" / "state" / "yourkiosk-otomasyon" / "kapi-red.log"
+
+#: MAKİNE KİMLİĞİ — operatörün kurduğu ROOT sahipli dosya (`i5` ya da `i3`).
+#: 26 Ekim i5 bulgusu: kimlik karar dosyasının KENDİ `makine` alanından okunuyordu; i5 oturumu
+#: "i3" yazıp iki kapıyı da tek başına geçirebiliyordu (AGENTS.md:52-53 yasaklıyor). Artık kimlik
+#: dosyadan okunur, karar dosyasındaki değerle uyuşmazsa yazım reddedilir (çıkış 5).
+KIMLIK_VARSAYILAN = Path("/etc/yourkiosk-makine-kimligi")
+
+#: YEDEK kimlik kaynağı (27 Ekim): `/etc/machine-id` root sahipli ve makineye özgüdür, sudo
+#: GEREKTİRMEZ. Rol eşlemesi depoda tutulur (`otomasyon/makine-kimlikleri.json`) ve git'te temiz
+#: olmak zorundadır → kimlik uydurmak yine PR incelemesine bağlıdır.
+MAKINE_ID_YOLU = Path("/etc/machine-id")
+KIMLIK_ESLEME_DOSYASI = "otomasyon/makine-kimlikleri.json"
+#: Rol eşlemesinin "yayınlanmış" çıpası: depo VARSAYILAN dalı. SABİT — `--dal`, durum dosyası ya da
+#: ortam değişkeni bunu değiştiremez (28 Ekim i5 bulgusu: çıpa ajanın yazabildiği durum dosyasından
+#: okununca tek makine kendini i3 ilan edip iki kapıyı birden geçirebiliyordu).
+KIMLIK_ESLEME_DALI = "main"
+#: Eşleme HAM machine-id YAYINLAMAZ (27 Ekim i5: depo herkese açık, ham makine kimliği kalıcı
+#: cihaz tanımlayıcısıdır). Depoda `kimlik_ozet` = sha256(AYIRAC + machine-id) tutulur. Tuz
+#: (secret salt) GEREKMEZ: machine-id ~122 bit rastgele olduğu için özet tersine çevrilemez;
+#: ayraç yalnız alan ayrımı içindir (aynı değerin başka amaçla kullanılan özetleriyle karışmasın).
+KIMLIK_OZET_AYRACI = "yourkiosk-makine-kimligi-v1|"
+
+#: Yabancı-commit denetiminde commit listesi okunacak açık PR sayısı üst sınırı.
+#: Neden sınır: her PR için bir API çağrısı gerekir; 600 cihazlık depoda açık PR sayısı
+#: arttığında birleştirme turu saatlik kotayı (5000) yakmasın. 20 PR × 1 çağrı + PR listesi
+#: tek birleştirmede ~21 çağrı; sıradaki PR'lar bir sonraki turda denetlenir.
+_YABANCI_PRLER = 20
+
+
+def kimlik_ozeti(machine_id: str) -> str:
+    """machine-id → depoda yayınlanan özet (ham değer asla depoya yazılmaz)."""
+    return hashlib.sha256((KIMLIK_OZET_AYRACI + machine_id.strip().lower()).encode()).hexdigest()
+
+#: Kapı atlama BİLETİ — operatörün ürettiği, ajanın üretemediği ikinci anahtar.
+#: Neden: ortam değişkenini ajan kendi kabuğundan verebiliyor (terminal yetkisi var). Bilet
+#: /run altında ROOT sahipli olmalı; root olmayan kullanıcı orada dosya oluşturamaz.
+BILET_VARSAYILAN = Path("/run/yourkiosk-kapi-atla.bilet")
+#: Bilet TTL'i (saniye): eski bir bilet kazara kalıcı arka kapıya dönüşmesin.
+BILET_TTL_SN = 600
 
 #: makine → (commit durumu adı, onay etiketi, sorun etiketi)
 MAKINE_AYARI = {
@@ -78,13 +125,48 @@ def istek(yol: str, token: str, yontem: str = "GET", govde: dict | None = None) 
         return 0, {"hata": str(hata)[:300]}
 
 
+def yorum_yaz(depo: str, token: str, no: int, govde: str, *,
+              deneme: int = 3, bekle=None) -> tuple[bool, int]:
+    """PR yorumunu yaz → (başarılı, son HTTP kodu). Kod ≥ 400 HATA'dır ve tekrar denenir.
+
+    28 Ekim i5 süreç bulgusu (#86): kararın İKİ kanalı var — commit durumu + PR yorumu. Yazma yolu
+    yorum POST'unun HTTP kodunu basıp DEVAM ediyordu, yani yorum düşmese de betik 0 ile çıkıyordu.
+    Sonuç: PR sayfasında karar YOK (geliştirici kapanış ölçütlerini göremiyor, envanter PR'ı
+    "incelenmemiş" sayıyor), status taze olduğu için kuyruk onu yeniden de incelemiyor → sessizlik
+    kalıcı. Artık kod ≥ 400 hata sayılır, kısa beklemeyle yeniden denenir ve çağıran çıkış ≠ 0 verir.
+    """
+    son = 0
+    if bekle is None:
+        bekle = time.sleep
+    for i in range(max(1, deneme)):
+        son, yanit = istek(f"/repos/{depo}/issues/{no}/comments", token, "POST", {"body": govde})
+        print(f"[yaz] PR #{no} yorumu: HTTP {son}" + ("" if 200 <= son < 300 else f" → {yanit}"))
+        # 0 (ağ hatası) da HATA: `son < 400` yazsaydık ağ kesintisi "yorum yazıldı" sayılırdı.
+        if 200 <= son < 300:
+            return True, son
+        if i + 1 < max(1, deneme):
+            bekle(2 * (i + 1))
+    return False, son
+
+
+#: İNCELEME SÖZLEŞME SÜRÜMÜ — `nobetci.py` içindeki INCELEME_SURUMU ile AYNI olmalı (test kilitler).
+# Bir karar, (PR head sha + bu sürüm) ÇİFTİNE bağlıdır: sürüm artınca eski kararlar bayatlar ve
+# PR'lar kendiliğinden yeniden incelemeye döner (i5'in kendi hatası PR'ı kilitleyemez).
+INCELEME_SURUMU = "2"
+
+
+def inceleme_surumu() -> str:
+    """İnceleme sözleşmesinin sürümü — commit durumu açıklamasına `[v<sürüm>]` olarak yazılır."""
+    return INCELEME_SURUMU
+
+
 def durum_metni(karar: dict) -> tuple[str, str]:
     """(commit durumu, kısa açıklama) — GitHub açıklaması en fazla 140 karakter."""
     secim = str(karar.get("karar", "")).lower()
     durum = "success" if secim in ONAY_KARARLARI else ("failure" if secim in SORUN_KARARLARI else "error")
     onem = karar.get("onem") or "-"
     ozet = str(karar.get("ozet", "")).replace("\n", " ")[:110]
-    return durum, f"{secim} ({onem}): {ozet}"[:140]
+    return durum, f"[v{inceleme_surumu()}] {secim} ({onem}): {ozet}"[:140]
 
 
 def yorum_govdesi(karar: dict, durum: str) -> str:
@@ -101,14 +183,24 @@ def yorum_govdesi(karar: dict, durum: str) -> str:
         str(karar.get("ozet", "")).strip(),
         "",
     ]
+    if karar.get("kanit_yok"):
+        # Kanıt katmanı kapatıldıysa bu yorumda GÖRÜNÜR olmalı (denetlenebilirlik).
+        satirlar += [f"⚠️ **KANIT KATMANI ATLANDI** (--kanit-yok) — gerekçe: {karar['kanit_yok']}", ""]
+    if karar.get("kapi_atlandi"):
+        satirlar += [f"⚠️ **KARAR KAPISI ATLANDI** — gerekçe: {karar['kapi_atlandi']}", ""]
     bulgular = karar.get("bulgular") or []
     if bulgular:
-        satirlar += ["| Dosya | Satır | Önem | Bulgu |", "|---|---|---|---|"]
+        # `kabul` (kapanış ölçütü) yorumda GÖRÜNMEK ZORUNDA: 26 Ekim i5 bulgusu — kapı bu alanı
+        # zorunlu kılıyordu ama tablo onu basmıyordu, yani ölçüt geliştiriciye hiç ulaşmıyordu.
+        satirlar += ["| Dosya | Satır | Önem | Bulgu | Kapanış ölçütü |", "|---|---|---|---|---|"]
         for b in bulgular[:25]:
             aciklama = str(b.get("aciklama", "")).replace("|", "\\|")[:200]
-            satirlar.append(f"| `{b.get('dosya', '?')}` | {b.get('satir', '')} | {b.get('onem', '')} | {aciklama} |")
+            kabul = str(b.get("kabul", "") or "").replace("|", "\\|")[:220] or "—"
+            satirlar.append(
+                f"| `{b.get('dosya', '?')}` | {b.get('satir', '')} | {b.get('onem', '')} "
+                f"| {aciklama} | {kabul} |")
         if len(bulgular) > 25:
-            satirlar.append(f"| … | | | (+{len(bulgular) - 25} bulgu daha) |")
+            satirlar.append(f"| … | | | (+{len(bulgular) - 25} bulgu daha) | |")
         satirlar.append("")
     denetlenen = karar.get("denetlenen") or []
     if denetlenen:
@@ -127,11 +219,13 @@ def yorum_govdesi(karar: dict, durum: str) -> str:
 
     eksikler = karar.get("eksikler") or []
     if eksikler:
-        satirlar += ["#### i5'in kaçırdığı bulgular (i3)", "", "| Dosya | Satır | Önem | Bulgu |", "|---|---|---|---|"]
+        satirlar += ["#### i5'in kaçırdığı bulgular (i3)", "",
+                     "| Dosya | Satır | Önem | Bulgu | Kapanış ölçütü |", "|---|---|---|---|---|"]
         for e in eksikler[:25]:
+            kabul = str(e.get("kabul", "") or "").replace("|", "\\|")[:220] or "—"
             satirlar.append(
                 f"| `{e.get('dosya', '?')}` | {e.get('satir', '')} | {e.get('onem', '')} "
-                f"| {str(e.get('aciklama', '')).replace('|', '\\|')[:200]} |"
+                f"| {str(e.get('aciklama', '')).replace('|', '\\|')[:200]} | {kabul} |"
             )
         satirlar.append("")
 
@@ -208,14 +302,59 @@ def etiket_ekle(depo: str, token: str, no: int, eklenecek: list[str], cikarilaca
         istek(f"/repos/{depo}/issues/{no}/labels/{urllib.parse.quote(etiket, safe='')}", token, "DELETE")
 
 
-def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay: bool = False) -> tuple[bool, str]:
+def _yabanci_commitler(depo: str, token: str, pr_no: int) -> tuple[list[str], str]:
+    """Dalın taşıdığı, BAŞKA bir açık PR'a ait commit'ler → (liste, hata).
+
+    Neden: 25 Ekim'de #89 dalı, birleşmemiş #88'in commit'ini (11a5a89) taşıyordu. Squash-merge
+    olsa bile "onaylanmamış iş main'e girer" riski doğar ya da PR sonsuza kadar bekler. Kapı bunu
+    birleştirme anında makineyle denetler; dal temizlenince (rebase) kendiliğinden geçer.
+
+    FAIL-CLOSED (26 Ekim i5 bulgusu): API 200 dışı kod dönerse (429 kota, 403, 0 ağ hatası) eski
+    sürüm BOŞ liste dönüyordu → denetim sessizce atlanıyordu. Artık her başarısız çağrı hata
+    döndürür; `birlestir()` bu durumda birleştirmez ve gerekçeyi PR yorumuna yazar.
+
+    27 Ekim i5 bulgusu (düşük): yalnız diğer PR'ların HEAD sha'sı toplanıyordu. Bir dal, başka bir
+    açık PR'ın artık head OLMAYAN commit'ini (üzerine yeni commit atılmış onaysız iş) taşıyabilir
+    ve denetim görmezdi. Artık her açık PR'ın TÜM commit listesi toplanır (istek sayısı
+    `_YABANCI_PRLER` ile sınırlı, kota koruması).
+    """
+    kod, digerleri = istek(f"/repos/{depo}/pulls?state=open&per_page=100", token)
+    if kod != 200 or not isinstance(digerleri, list):
+        return [], f"açık PR listesi denetlenemedi (HTTP {kod})"
+    baska: dict[str, int] = {}
+    for p in digerleri[:_YABANCI_PRLER]:
+        if not isinstance(p, dict) or p.get("number") == pr_no:
+            continue
+        no = p.get("number", 0)
+        sha = ((p.get("head") or {}).get("sha") or "").strip()
+        if sha:
+            baska[sha] = no
+        kod_p, commitler_p = istek(f"/repos/{depo}/pulls/{no}/commits?per_page=100", token)
+        if kod_p != 200 or not isinstance(commitler_p, list):
+            return [], f"#{no} commit listesi denetlenemedi (HTTP {kod_p})"
+        for c in commitler_p:
+            if isinstance(c, dict) and c.get("sha"):
+                baska[str(c["sha"]).strip()] = no
+    if not baska:
+        return [], ""
+    kod, commitler = istek(f"/repos/{depo}/pulls/{pr_no}/commits?per_page=100", token)
+    if kod != 200 or not isinstance(commitler, list):
+        return [], f"PR commit listesi denetlenemedi (HTTP {kod})"
+    return [f"#{baska[c['sha']]} ({c['sha'][:7]})" for c in commitler
+            if isinstance(c, dict) and c.get("sha") in baska], ""
+
+
+def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay: bool = True) -> tuple[bool, str]:
     """PR'ı SQUASH ile birleştirir — yalnız güvenli koşullarda.
 
     Koruma katmanları (hepsi sağlanmazsa birleştirmez):
       · PR açık, taslak değil, `mergeable_state == clean`,
       · PR'ın head sha'sı kararın işaretlediği sha ile AYNI (incelenen kod birleşsin),
       · engelleyici etiket yok (`guvenlik/sorun`, `duzeltme/gerekli`, `birlestirme/durdur`),
-      · head sha üzerindeki tüm durum kontrolleri başarılı (pending/failure varsa bekle).
+      · head sha üzerindeki tüm durum kontrolleri başarılı (pending/failure varsa bekle),
+      · ÇİFT ONAY VARSAYILAN (26 Ekim i5 bulgusu): `guvenlik/inceleme` VE `guvenlik/karar`
+        ikisi de `success` olmalı. Tek kapıyla birleştirme yalnız `--tek-onay` + yazılı
+        gerekçeyle, yani açık bir istisna olarak yapılır (günlüğe ATLANDI satırı düşer).
     """
     kod, pr = istek(f"/repos/{depo}/pulls/{pr_no}", token)
     if kod != 200 or not isinstance(pr, dict):
@@ -227,6 +366,13 @@ def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay
     if (pr.get("head") or {}).get("sha") != sha:
         return False, "PR'ın head sha'sı değişmiş (yeni commit var) — yeniden inceleme gerekir"
     etiketler = [e.get("name") for e in pr.get("labels", [])]
+    yabanci, denetim_hatasi = _yabanci_commitler(depo, token, pr_no)
+    if denetim_hatasi:
+        # FAIL-CLOSED: denetim yapılamadıysa "yabancı commit yok" sayılmaz (26 Ekim i5 bulgusu).
+        return False, f"yabancı commit denetimi yapılamadı — {denetim_hatasi}"
+    if yabanci:
+        return False, ("dal başka AÇIK PR'ın commit'ini taşıyor: " + ", ".join(yabanci)
+                       + " — rebase edin, sonra yeniden karar")
     engel = [e for e in etiketler if e in ENGELLEYEN_ETIKETLER]
     if engel:
         return False, f"engelleyici etiket: {', '.join(engel)}"
@@ -265,6 +411,466 @@ def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay
     return False, f"birleştirme başarısız (HTTP {kod}): {mesaj}"
 
 
+def _yuksek_bulgular(karar: dict) -> list[dict]:
+    """'yüksek'/'kritik' önemdeki bulgular — kapı atlama yolları bunlar varken kapalıdır.
+
+    27 Ekim i5 bulgusu: yalnız `bulgular` alanı taranıyordu; i3 kararlarında aynı liste `eksikler`
+    adıyla geliyor → 'yüksek' bulgu varken `--kanit-yok`/`--kapi-atla` sessizce geçebiliyordu.
+    Her iki alan (ve varsa `sorunlar`) birlikte taranır.
+    """
+    kayitlar: list = []
+    for alan in ("bulgular", "eksikler", "sorunlar"):
+        deger = karar.get(alan)
+        if isinstance(deger, list):
+            kayitlar.extend(deger)
+    return [b for b in kayitlar if isinstance(b, dict)
+            and str(b.get("onem", b.get("onem_derecesi", ""))).lower()
+            in {"yuksek", "yüksek", "kritik", "critical", "high"}]
+
+
+def bilet_yolu() -> Path:
+    """Bilet yolu SABİTTİR — hiçbir ortam değişkeniyle değiştirilemez (26 Ekim i5 bulgusu).
+
+    Önceki sürüm yolu `YAZ_KAPI_ATLA_BILET` ile değiştiriyordu; ajan terminal yetkisiyle bu
+    değişkeni kendi kabuğundan verip `/proc/1/stat` gibi root sahipli, dünya-okur,
+    grup/dünya-yazılamaz bir sanal dosyayı bilet gibi gösterebiliyordu → iki faktörlü koruma
+    tek faktöre (ortam anahtarı) düşüyordu.
+    Testler yolu `bilet_denetle(yol=...)` parametresiyle enjekte eder; üretim CLI'ında yol
+    anahtarı YOKTUR.
+    """
+    return BILET_VARSAYILAN
+
+
+def bilet_dizini_denetimi(st: "os.stat_result") -> bool:
+    """Biletin ÜST DİZİNİ root sahipli ve grup/dünya-yazılamaz mı?
+
+    Biletin kendisi sağlam görünse de yazılabilir bir dizinde duruyorsa aynı kullanıcı onu
+    silip yeniden koyabilir. Testler bu FONKSİYONU enjekte eder (ortam anahtarı yoktur).
+    """
+    return st.st_uid == 0 and not (st.st_mode & 0o022)
+
+
+#: Biletin kabul edilmediği sanal dosya sistemleri — /proc/1/stat gibi "root sahipli, dünya-okur"
+#: görünen dosyalar gerçek bir operatör izni değildir.
+SANAL_ONEKLER = ("/proc", "/sys", "/dev")
+
+
+def bilet_denetle(yol: Path | None = None, *, sahip_denetimi=None,
+                  dizin_denetimi=None,
+                  simdi: float | None = None) -> tuple[bool, str]:
+    """Operatör bileti geçerli mi? → (kabul, ret gerekçesi).
+
+    Bilet: normal dosya, ROOT sahipli (uid 0), dünya-okur, grup/dünya-yazılamaz, mtime ≤ 10 dk;
+    üst dizini root sahipli ve grup/dünya-yazılamaz; sanal dosya sisteminde (/proc · /sys · /dev)
+    olamaz.
+    """
+    hedef = Path(yol) if yol is not None else bilet_yolu()
+    hedef_str = str(hedef)
+    if any(hedef_str == onek or hedef_str.startswith(onek + "/") for onek in SANAL_ONEKLER):
+        return False, (f"bilet sanal dosya sisteminde ({hedef_str}) — "
+                       f"{' · '.join(SANAL_ONEKLER)} altındaki yollar kabul edilmez")
+    try:
+        st = hedef.lstat()          # sembolik bağı İZLEME: bağ üzerinden root dosyası gösterilemesin
+    except OSError as hata:
+        return False, f"bilet yok ({hedef}): {hata.strerror or hata}"
+    if not stat.S_ISREG(st.st_mode):
+        return False, f"bilet normal dosya değil ({hedef})"
+    denetim = sahip_denetimi if sahip_denetimi is not None else bilet_sahibi_denetimi
+    if not denetim(st):
+        return False, f"bilet root sahipli değil (uid {st.st_uid}, yol {hedef})"
+    mod = st.st_mode & 0o777
+    if not mod & 0o004:
+        return False, f"bilet dünya-okur değil (mod {mod:04o}, yol {hedef})"
+    if mod & 0o022:
+        return False, f"bilet grup/dünya-yazılabilir (mod {mod:04o}, yol {hedef})"
+    ust = hedef.parent
+    try:
+        st_ust = ust.stat()
+    except OSError as hata:
+        return False, f"bilet dizini okunamıyor ({ust}): {hata.strerror or hata}"
+    d_denetim = dizin_denetimi if dizin_denetimi is not None else bilet_dizini_denetimi
+    if not d_denetim(st_ust):
+        return False, (f"bilet dizini güvenli değil (uid {st_ust.st_uid}, "
+                       f"mod {st_ust.st_mode & 0o777:04o}, dizin {ust}) — root sahipli ve "
+                       f"grup/dünya-yazılamaz olmalı")
+    yas = (simdi if simdi is not None else time.time()) - st.st_mtime
+    if yas > BILET_TTL_SN:
+        return False, f"bilet bayat ({int(yas)} sn > {BILET_TTL_SN} sn TTL, yol {hedef})"
+    return True, ""
+
+
+def bilet_sahibi_denetimi(st: "os.stat_result") -> bool:
+    """Bilet root sahipli mi? (ajan root olmadığı için kendi bileti üretemez).
+
+    Testler bu FONKSİYONU enjekte eder (`bilet_denetle(..., sahip_denetimi=...)` ya da modül
+    özniteliği). Ortam değişkeniyle gevşetilebilen bir anahtar YOKTUR: aksi hâlde aynı boşluk
+    (ajanın kendi kabuğundan anahtar vermesi) yeni bir adla geri gelirdi.
+    """
+    return st.st_uid == 0
+
+
+def kimlik_sahibi_denetimi(st: "os.stat_result") -> bool:
+    """Kimlik dosyası root sahipli mi? (ajan root değil → kendi rolünü kuramaz)
+
+    Testler bu FONKSİYONU enjekte eder; biletten AYRI tutulur ki iki mekanizmanın testleri
+    birbirini gevşetmesin. Ortam değişkeniyle gevşetilebilen bir anahtar YOKTUR.
+    """
+    return st.st_uid == 0
+
+
+def kimlik_dizini_denetimi(st: "os.stat_result") -> bool:
+    """Kimlik dosyasının üst dizini root sahipli ve grup/dünya-yazılamaz mı?"""
+    return st.st_uid == 0 and not (st.st_mode & 0o022)
+
+
+def kimlik_yolu() -> Path:
+    """Makine kimliği dosyasının yolu — SABİT (ortam değişkeniyle taşınamaz)."""
+    return KIMLIK_VARSAYILAN
+
+
+def _kimlik_dosyasindan(hedef: Path, sahip_denetimi=None,
+                        dizin_denetimi=None) -> tuple[str, str]:
+    """ROOT sahipli kurulum dosyasından rol oku (birincil yol)."""
+    hedef_str = str(hedef)
+    if any(hedef_str == onek or hedef_str.startswith(onek + "/") for onek in SANAL_ONEKLER):
+        return "", (f"makine kimliği sanal dosya sisteminde ({hedef_str}) — "
+                    f"{' · '.join(SANAL_ONEKLER)} altındaki yollar kabul edilmez")
+    try:
+        st = hedef.lstat()
+    except OSError as hata:
+        return "", f"makine kimliği yok ({hedef}): {hata.strerror or hata}"
+    if stat.S_ISLNK(st.st_mode):
+        return "", f"makine kimliği sembolik bağlantı ({hedef}) — gerçek dosya olmalı"
+    if not stat.S_ISREG(st.st_mode):
+        return "", f"makine kimliği normal dosya değil ({hedef})"
+    denetim = sahip_denetimi if sahip_denetimi is not None else kimlik_sahibi_denetimi
+    if not denetim(st):
+        return "", (f"makine kimliği root sahipli değil (uid {st.st_uid}, yol {hedef}) — "
+                    f"yalnız operatör kurabilir")
+    mod = st.st_mode & 0o777
+    if mod & 0o022:
+        return "", f"makine kimliği grup/dünya-yazılabilir (mod {mod:04o}, yol {hedef})"
+    ust = hedef.parent
+    try:
+        st_ust = ust.stat()
+    except OSError as hata:
+        return "", f"makine kimliği dizini okunamıyor ({ust}): {hata.strerror or hata}"
+    d_denetim = dizin_denetimi if dizin_denetimi is not None else kimlik_dizini_denetimi
+    if not d_denetim(st_ust):
+        return "", (f"makine kimliği dizini güvenli değil (uid {st_ust.st_uid}, "
+                    f"mod {st_ust.st_mode & 0o777:04o}, dizin {ust})")
+    try:
+        ham = hedef.read_text(encoding="utf-8").strip().lower()
+    except OSError as hata:
+        return "", f"makine kimliği okunamadı ({hedef}): {hata.strerror or hata}"
+    if ham not in MAKINE_AYARI:
+        return "", (f"makine kimliği tanınmıyor ({ham!r}) — beklenen: "
+                    f"{' | '.join(sorted(MAKINE_AYARI))}")
+    return ham, ""
+
+
+def makine_id_sahibi_denetimi(st: "os.stat_result") -> bool:
+    """`/etc/machine-id` root sahipli mi? Testler bu FONKSİYONU enjekte eder."""
+    return st.st_uid == 0
+
+
+def makine_id_oku(yol: Path | None = None, *, sahip_denetimi=None) -> tuple[str, str]:
+    """`/etc/machine-id` — ROOT sahipli, makineye özgü, sudo GEREKTİRMEDEN okunur.
+
+    27 Ekim dersi: birincil yol (`/etc/yourkiosk-makine-kimligi`) sudo istiyordu. i5'te sudo
+    parolası yok → kimlik hiç kurulamadı → karar kapısı 13 kez reddetti → i5 incelemeyi
+    TAMAMLAYAMADI (kuyruk 39 saat kilitlendi). `/etc/machine-id` aynı güvenceyi bedava verir:
+    kök sahipli, dünya-yazılamaz, makineye özgü; ajan onu değiştiremez.
+    """
+    hedef = Path(yol) if yol is not None else MAKINE_ID_YOLU
+    hedef_str = str(hedef)
+    if any(hedef_str == onek or hedef_str.startswith(onek + "/") for onek in SANAL_ONEKLER):
+        return "", f"machine-id sanal dosya sisteminde ({hedef_str})"
+    try:
+        st = hedef.lstat()
+    except OSError as hata:
+        return "", f"machine-id yok ({hedef}): {hata.strerror or hata}"
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+        return "", f"machine-id normal dosya değil ({hedef})"
+    denetim = sahip_denetimi if sahip_denetimi is not None else makine_id_sahibi_denetimi
+    if not denetim(st):
+        return "", f"machine-id root sahipli değil (uid {st.st_uid}, yol {hedef})"
+    if (st.st_mode & 0o777) & 0o022:
+        return "", f"machine-id grup/dünya-yazılabilir (mod {st.st_mode & 0o777:04o}, {hedef})"
+    try:
+        ham = hedef.read_text(encoding="utf-8").strip().lower()
+    except OSError as hata:
+        return "", f"machine-id okunamadı ({hedef}): {hata.strerror or hata}"
+    if not ham or len(ham) < 8 or any(c not in "0123456789abcdef" for c in ham):
+        return "", f"machine-id biçimi beklenmedik ({ham[:12]!r}…, {hedef})"
+    return ham, ""
+
+
+def _uzak_dallar(depo: Path, uzak: str = "origin") -> tuple[dict[str, str], str]:
+    """`git ls-remote --heads <uzak>` → ({dal: sha}, hata). Ağ yoksa HATA (fail-closed).
+
+    Neden gerekli (27 Ekim i5 bulgusu E bölgesi): eşleme "yayınlanmış" diye YEREL uzak-izleme
+    ref'inden okunuyordu. Yerel commit atıp `update-ref refs/remotes/origin/main <kendi commit'i>`
+    yazabilen bir ajan kendini yayınlanmış saydırabiliyor, yani çift kapı tek makinede çöküyordu.
+    Artık her aday için yerel ref sha'sı UZAKTAKİ gerçek sha ile birebir eşleşmek zorunda.
+    """
+    try:
+        s = subprocess.run(["git", "-C", str(depo), "ls-remote", "--heads", uzak],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as hata:
+        return {}, f"uzak dal listesi okunamadı: {type(hata).__name__}"
+    if s.returncode != 0:
+        return {}, f"uzak dal listesi okunamadı (git ls-remote çıkış {s.returncode})"
+    dallar: dict[str, str] = {}
+    for satir in s.stdout.splitlines():
+        parca = satir.split("\t")
+        if len(parca) != 2 or not parca[1].startswith("refs/heads/"):
+            continue
+        sha, ad = parca[0].strip().lower(), parca[1][len("refs/heads/"):].strip()
+        if len(sha) == 40 and ad:
+            dallar[ad] = sha
+    if not dallar:
+        return {}, "uzakta dal bulunamadı"
+    return dallar, ""
+
+
+def _yayinlanmis_esleme(depo: Path, dal: str = "", *,
+                        uzak_oku=None) -> tuple[bytes, str]:
+    """Eşleme dosyasının YAYINLANMIŞ (uzaktaki) baytları → (bayt, ref).
+
+    27 Ekim i5 bulgusu (yüksek): tek denetim `git status --porcelain` idi, yani yalnız ÇALIŞMA
+    AĞACI temizliğine bakıyordu. Yerel commit atabilen bir ajan eşlemeyi kendi machine-id'sine
+    çevirip i5 iken i3 kimliği alabiliyordu → iki kapılı düzen tek makinede çöküyordu.
+
+    27 Ekim i5 bulgusu (orta): çapa hâlâ YEREL ref'ti (`origin/<dal>`), ağdan doğrulama
+    yoktu; `update-ref refs/remotes/origin/main …` ile taklit mümkündü. Artık üç koşul birlikte
+    aranır: (1) `git ls-remote` uzak sha'sı, (2) yerel uzak-izleme ref'inin sha'sı bununla AYNI,
+    (3) blob o sha'dan okunur (ref'ten değil → TOCTOU yok). Biri tutmazsa o aday atlanır.
+
+    28 Ekim i5 bulgusu (orta): çıpa ADAYLARI arasında ajanın YAZABİLDİĞİ durum dosyası
+    (`~/.local/state/yourkiosk-otomasyon/<uygulama>-dal`) vardı. O dosya `--dal` ile yazıldığı için
+    tek makine kendini `i3` ilan eden eşlemeyi bir düzeltme dalına koyup çıpayı oraya çevirebiliyor,
+    iki zorunlu kapıyı (inceleme + karar) tek başına yeşile çeviriyordu — üstelik bu makinedeki
+    token push/admin yetkili olduğu için düzeltmeyi de kendisi yazıyordu. Artık çıpa YALNIZ depo
+    VARSAYILAN dalıdır (`KIMLIK_ESLEME_DALI`), sabittir, hiçbir durum dosyası ya da argüman onu
+    değiştiremez; varsayılan dalda eşleme yoksa fail-closed.
+    """
+    hedef = (dal or "").strip().lstrip("/")
+    if hedef and hedef != KIMLIK_ESLEME_DALI:
+        # Başka daldan okuma isteği reddedilir: çıpa ajanın seçimi olamaz.
+        return b"", ""
+    adaylar = [KIMLIK_ESLEME_DALI]
+    oku = uzak_oku if uzak_oku is not None else _uzak_dallar
+    uzak, _hata = oku(depo)
+    if not uzak:
+        return b"", ""
+    for ad in adaylar:
+        if not ad:
+            continue
+        uzak_sha = str(uzak.get(ad, "")).strip().lower()
+        if len(uzak_sha) != 40:
+            continue
+        yerel = subprocess.run(["git", "-C", str(depo), "rev-parse", "--verify", "-q",
+                                f"refs/remotes/origin/{ad}"],
+                               capture_output=True, text=True, timeout=60)
+        if yerel.returncode != 0 or yerel.stdout.strip().lower() != uzak_sha:
+            # Yerel ref bayat ya da oynanmış → yayınlanmış sayılmaz (fetch gerekir).
+            continue
+        s = subprocess.run(["git", "-C", str(depo), "show", f"{uzak_sha}:{KIMLIK_ESLEME_DOSYASI}"],
+                           capture_output=True, timeout=60)
+        if s.returncode == 0 and s.stdout:
+            return s.stdout, f"origin/{ad}"
+    return b"", ""
+
+
+def _esleme_teshis(depo: Path) -> str:
+    """Yayınlanmış eşleme okunamadığında NEDEN'i tek satırda söyler (yalnız okuma).
+
+    28 Ekim saha bulgusu: tek mesaj her durumda "fetch eksik" diyordu. Gerçek neden çoğu zaman
+    `main` dalında dosyanın HENÜZ OLMAMASIydı (eşlemeyi ekleyen PR birleşmemiş) → operatör
+    saatlerce yanlış komutu kovaladı (i5'te 17 karar kapısı reddi bu yüzden birikti).
+    Teşhis üç durumu ayırır: dal yok · yerel ref bayat · dosya yayınlanmış dalda yok.
+    Ağ/kabuk hatasında boş döner (uydurma gerekçe yazmamak için).
+    """
+    try:
+        uzak, _ = _uzak_dallar(depo)
+        sha = str(uzak.get(KIMLIK_ESLEME_DALI, "")).strip().lower()
+        if len(sha) != 40:
+            # Uzak okunamıyor (ağ/remote yok) → spesifik teşhis YOK; çağıran genel metni yazar.
+            return ""
+        ref = f"refs/remotes/origin/{KIMLIK_ESLEME_DALI}"
+        yerel = subprocess.run(["git", "-C", str(depo), "rev-parse", "--verify", "-q", ref],
+                               capture_output=True, text=True, timeout=60)
+        if yerel.returncode != 0:
+            return (f"yerel `origin/{KIMLIK_ESLEME_DALI}` ref'i yok (fetch hiç çalışmamış?) → "
+                    f"git -C {depo} fetch origin "
+                    f"+refs/heads/{KIMLIK_ESLEME_DALI}:{ref}")
+        yerel_sha = yerel.stdout.strip().lower()
+        if yerel_sha != sha:
+            return (f"yerel `origin/{KIMLIK_ESLEME_DALI}` ref'i BAYAT "
+                    f"({yerel_sha[:8]} ≠ uzak {sha[:8]}) → fetch gerekli: git -C {depo} fetch origin "
+                    f"+refs/heads/{KIMLIK_ESLEME_DALI}:{ref}")
+        var = subprocess.run(["git", "-C", str(depo), "cat-file", "-e",
+                              f"{sha}:{KIMLIK_ESLEME_DOSYASI}"],
+                             capture_output=True, text=True, timeout=60)
+        if var.returncode != 0:
+            return (f"`{KIMLIK_ESLEME_DOSYASI}` yayınlanmış `{KIMLIK_ESLEME_DALI}` dalında "
+                    f"({sha[:8]}) YOK — dosyayı ekleyen PR birleşmemiş; birleştikten sonra "
+                    f"git -C {depo} fetch origin "
+                    f"+refs/heads/{KIMLIK_ESLEME_DALI}:{ref}")
+        return "yayınlanmış blob `git show` ile okunamadı"
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def kimlik_eslemesi(depo: Path | None = None, *,
+                    yayin_oku=None) -> tuple[dict, str]:
+    """Depodaki rol↔machine-id eşlemesi (`otomasyon/makine-kimlikleri.json`).
+
+    Neden depoda: roller (`i5`, `i3`) makineye özgü UUID'lerle ancak burada eşlenebilir; sudo
+    gerekmez. Ajan bu dosyayı kendi lehine düzenleyebilir — bu yüzden dosya GIT'te TEMİZ olmak
+    zorunda (değiştirilmiş hâli reddedilir) ve değişiklik ancak operatör PR'ıyla birleşebilir.
+    Yani "kimlik uydurma" yeniden bir PR incelemesine bağlanır.
+    """
+    kok = Path(depo) if depo is not None else Path(__file__).resolve().parents[2]
+    dosya = kok / KIMLIK_ESLEME_DOSYASI
+    if not dosya.is_file():
+        return {}, (f"kimlik eşlemesi yok ({dosya}) — operatör: "
+                    f"bash otomasyon/betik/makine-kimligi-kur.sh --kaydet i5")
+    try:
+        git = subprocess.run(["git", "-C", str(kok), "status", "--porcelain", "--",
+                              KIMLIK_ESLEME_DOSYASI],
+                             capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as hata:
+        return {}, f"kimlik eşlemesi denetlenemedi (git): {type(hata).__name__}"
+    if git.returncode != 0:
+        return {}, f"kimlik eşlemesi git deposunda değil ({kok}) — elle kurulum kabul edilmez"
+    if git.stdout.strip():
+        return {}, (f"kimlik eşlemesi DEĞİŞTİRİLMİŞ ({git.stdout.strip().splitlines()[0]}) — "
+                    f"değişiklik PR ile birleşmeli; ajan kendi rolünü yazamaz")
+    try:
+        yerel = dosya.read_bytes()
+    except OSError as hata:
+        return {}, f"kimlik eşlemesi okunamadı ({dosya}): {hata}"
+    oku = yayin_oku if yayin_oku is not None else _yayinlanmis_esleme
+    yayin, ref = oku(kok)
+    if not yayin:
+        # Teşhis yalnız GERÇEK okuyucuda çalışır (testler enjekte edilen okuyucuyla eski mesajı görür).
+        teshis = "" if yayin_oku is not None else _esleme_teshis(kok)
+        ayrinti = (f" — {teshis}" if teshis else
+                   f" — yerel uzak-izleme ref'i `git ls-remote origin` ile eşleşmiyor ya da fetch "
+                   f"eksik: git -C {kok} fetch origin")
+        return {}, f"kimlik eşlemesi YAYINLANMIŞ sürümden doğrulanamadı ({kok}){ayrinti}"
+    if yayin != yerel:
+        return {}, (f"kimlik eşlemesi yayınlanmış sürümden FARKLI (yerel ≠ {ref}) — yerel commit "
+                    f"rol taklidi sayılır; değişiklik PR ile birleşmeli")
+    try:
+        veri = json.loads(yerel.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as hata:
+        return {}, f"kimlik eşlemesi okunamadı ({dosya}): {hata}"
+    if not isinstance(veri, dict):
+        return {}, "kimlik eşlemesi sözlük değil"
+    temiz: dict[str, dict] = {}
+    for rol, kayit in veri.items():
+        if rol not in MAKINE_AYARI or not isinstance(kayit, dict):
+            return {}, f"kimlik eşlemesi geçersiz kayıt ({rol!r})"
+        if "machine_id" in kayit:
+            return {}, (f"kimlik eşlemesi HAM machine_id içeriyor ({rol!r}) — depo herkese açık; "
+                        f"yeniden kaydedin: bash otomasyon/betik/makine-kimligi-kur.sh --kaydet {rol} --yaz")
+        ozet = str(kayit.get("kimlik_ozet", "")).strip().lower()
+        if len(ozet) != 64 or any(c not in "0123456789abcdef" for c in ozet):
+            return {}, f"kimlik eşlemesi geçersiz kimlik_ozet ({rol!r})"
+        temiz[rol] = {"kimlik_ozet": ozet, "hostname": str(kayit.get("hostname", ""))}
+    return temiz, ""
+
+
+def kimlik_modu(yol: Path | None = None, makine_id: Path | None = None, *,
+                sahip_denetimi=None) -> str:
+    """Kimliğin hangi kaynaktan geleceği: `root-dosya` · `machine-id` · `yok`."""
+    hedef = Path(yol) if yol is not None else kimlik_yolu()
+    if hedef.exists():
+        return "root-dosya"
+    mid, _ = makine_id_oku(makine_id, sahip_denetimi=sahip_denetimi)
+    return "machine-id" if mid else "yok"
+
+
+def makine_kimligi_denetle(yol: Path | None = None, *, sahip_denetimi=None,
+                           dizin_denetimi=None, makine_id: Path | None = None,
+                           depo: Path | None = None) -> tuple[str, str]:
+    """Bu makinenin rolü → (rol, ret gerekçesi boş) ya da (boş, gerekçe).
+
+    İKİ KAYNAK, tek kural: rol ASLA karar dosyasının kendi beyanından okunmaz.
+      1. ROOT sahipli `/etc/yourkiosk-makine-kimligi` (operatör kurulumu) — varsa tek geçerli.
+      2. Yoksa: `/etc/machine-id` (root sahipli, makineye özgü) + depodaki rol eşlemesi.
+         sudo gerektirmez; i5'te 13 karar reddine yol açan kilitlenmenin kalıcı çözümü.
+    `yol` açıkça verilirse (testler) yalnız dosya yolu denenir — eski davranış korunur.
+    """
+    if yol is not None:
+        return _kimlik_dosyasindan(Path(yol), sahip_denetimi, dizin_denetimi)
+    hedef = kimlik_yolu()
+    if hedef.exists() or hedef.is_symlink():
+        return _kimlik_dosyasindan(hedef, sahip_denetimi, dizin_denetimi)
+
+    mid, neden = makine_id_oku(makine_id, sahip_denetimi=sahip_denetimi)
+    if not mid:
+        return "", (f"{neden}; operatör kurulumu: "
+                    f"sudo sh -c 'printf i5 > {hedef}' && sudo chmod 0644 {hedef}")
+    esleme, neden = kimlik_eslemesi(depo)
+    if not esleme:
+        return "", neden
+    ozet = kimlik_ozeti(mid)
+    uyan = sorted(rol for rol, kayit in esleme.items() if kayit["kimlik_ozet"] == ozet)
+    if not uyan:
+        return "", (f"bu makine (machine-id {mid[:8]}…) rol eşlemesinde YOK — operatör: "
+                    f"bash otomasyon/betik/makine-kimligi-kur.sh --kaydet i5 "
+                    f"(çıkan satırı {KIMLIK_ESLEME_DOSYASI} dosyasına PR ile ekle); "
+                    f"alternatif: sudo sh -c 'printf i5 > {KIMLIK_VARSAYILAN}'")
+    if len(uyan) > 1:
+        return "", (f"machine-id {mid[:8]}… eşlemede birden çok role yazılmış "
+                    f"({', '.join(uyan)}) — eşleme bozuk, düzeltilmeli")
+    return uyan[0], ""
+
+
+def operator_izi_denetle() -> tuple[bool, str, str]:
+    """Kapı atlama/kanıt kapatma izni → (kabul, uzun gerekçe, günlük için kısa gerekçe).
+
+    26 Ekim i5 bulgusu: koruma YALNIZ `YAZ_KAPI_ATLA_ONAY=1` ortam değişkenine bakıyordu; ajanın
+    terminal yetkisi olduğu için anahtarı kendi kabuğundan sağlayabiliyordu. Artık iki parça
+    birlikte aranır: (1) ortam anahtarı, (2) operatörün ürettiği root sahipli TTL'li bilet.
+    """
+    if os.environ.get("YAZ_KAPI_ATLA_ONAY", "") != "1":
+        return (False,
+                "operatör ortam anahtarı yok (YAZ_KAPI_ATLA_ONAY=1)",
+                "operatör anahtarı yok")
+    gecerli, neden = bilet_denetle()
+    if not gecerli:
+        return (False,
+                f"operatör bileti geçersiz — {neden}; operatör: "
+                f"sudo install -m 0644 /dev/null {bilet_yolu()}",
+                f"operatör bileti geçersiz: {neden}")
+    return True, "", ""
+
+
+def _kapi_red_yaz(karar: dict, makine: str, hatalar: list[str], atlandi: bool) -> None:
+    """Kapı reddi/atlaması kalıcı iz bıraksın.
+
+    `nobetci.py --kendini-denetle` bu dosyayı sayar: ajan karar yazamıyorsa (ya da kapıyı
+    sürekli atlıyorsa) sessiz kalmaz, kontrol noktası ✗ verir.
+    """
+    kayit = {
+        "zaman": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "olay": "ATLANDI" if atlandi else "KARAR KAPISI",
+        "makine": makine, "pr": karar.get("pr"), "karar": karar.get("karar"),
+        "hatalar": hatalar[:6],
+    }
+    try:
+        KAPI_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with KAPI_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(kayit, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="i5/i3 kararını GitHub'a yaz")
     ap.add_argument("karar", nargs="?", default="", help="karar.json yolu")
@@ -275,13 +881,44 @@ def main() -> int:
     ap.add_argument("--kuru", action="store_true", help="hiçbir istek atmadan göster")
     ap.add_argument(
         "--cift-onay", action="store_true",
-        help="birleştirme için 'guvenlik/inceleme' VE 'guvenlik/karar' success olmalı (D modu)",
+        help="(VARSAYILAN, geriye dönük uyumluluk için duruyor) birleştirme için "
+             "'guvenlik/inceleme' VE 'guvenlik/karar' success olmalı",
     )
+    ap.add_argument(
+        "--tek-onay", action="store_true",
+        help="İSTİSNA: ikinci kapı olmadan birleştir — --gerekce (≥20 karakter) zorunlu, "
+             "kullanım kapi-red.log'a ATLANDI olarak yazılır",
+    )
+    ap.add_argument("--kanit-yok", action="store_true",
+                    help="karar kapısında dosya:satır kanıtını ağdan denetleme — --kapi-atla ile AYNI "
+                         "korumalar: YAZ_KAPI_ATLA_ONAY=1 (operatör) VE root sahipli TTL'li bilet "
+                         "/run/yourkiosk-kapi-atla.bilet (ortam anahtarı tek başına yetmez), "
+                         "--gerekce ≥20 karakter, 'yüksek' bulgu yokluğu; her kullanım "
+                         "kapi-red.log'a ATLANDI satırı yazar")
+    ap.add_argument("--kapi-atla", action="store_true",
+                    help="karar kapısı hatalarına RAĞMEN yayınla — AYRICA YAZ_KAPI_ATLA_ONAY=1 "
+                         "ortam anahtarı VE operatör bileti (/run/yourkiosk-kapi-atla.bilet, root "
+                         "sahipli, ≤10 dk) ister; --gerekce zorunlu, 'yüksek' bulgu varsa imkânsız")
+    ap.add_argument("--gerekce", default="",
+                    help="--kapi-atla / --kanit-yok için gerekçe (≥20 karakter); PR yorumuna ve kapi-red.log'a yazılır")
     ap.add_argument(
         "--birlestir", action="store_true",
         help="karar 'onay' ise PR'ı otomatik birleştir (koruma: etiketler/çakışma/kontrol durumu)",
     )
     a = ap.parse_args()
+
+    # ---- TEK ONAY (İSTİSNA) ------------------------------------------------------------------
+    # 26 Ekim i5 bulgusu: çift onay VARSAYILAN KAPALIYDI (birlestir(..., cift_onay=False)) →
+    # iki kapılı modelin ikinci kapısı fiilen isteğe bağlıydı. Artık çift onay varsayılan; tek
+    # kapıyla birleştirme açık bir istisna: --tek-onay + yazılı gerekçe + günlük kaydı.
+    tek_onay = bool(a.tek_onay)
+    if tek_onay and not a.birlestir:
+        print("[yaz] --tek-onay yalnız --birlestir ile anlamlıdır.", file=sys.stderr)
+        return 2
+    if tek_onay and len(a.gerekce.strip()) < 20:
+        print("[yaz] --tek-onay için --gerekce \"…\" (≥20 karakter) zorunlu — ikinci kapı "
+              "atlanıyor, gerekçe günlüğe yazılır.", file=sys.stderr)
+        return 2
 
     # --- şablon üret (JSON elle yazmak hataya açık; bu komut her zaman geçerli dosya üretir)
     if a.ornek:
@@ -295,6 +932,7 @@ def main() -> int:
             "makine": "i5", "sha": sha, "pr": None, "karar": "onay", "onem": "dusuk",
             "ozet": "Şablon: buraya 1-3 cümlelik değerlendirme yazın.",
             "bulgular": [{"dosya": "yol/dosya.py", "satir": 0, "onem": "dusuk", "aciklama": "örnek bulgu"}],
+            "denetlenen": [],
             "not": "Şablon: geliştiriciye iletilecek not (yoksa boş bırakın).",
             "zaman": datetime.now().isoformat(timespec="seconds"),
         }
@@ -302,6 +940,8 @@ def main() -> int:
         hedef.write_text(json.dumps(ornek, ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"örnek karar dosyası yazıldı: {hedef}  (sha: {(sha or 'BULUNAMADI')[:12]})")
         print("düzenleyip: python3 otomasyon/betik/yaz.py " + str(hedef) + " --kuru")
+        print("NOT: şablon karar kapısından GEÇMEZ — `denetlenen` 12 alanı doldur, "
+              "`bulgular` gerçek dosya:satır içersin.")
         return 0
 
     if not a.karar:
@@ -326,6 +966,136 @@ def main() -> int:
 
     makine = str(karar.get("makine", "i5")).lower()
     baglam, onay_etiketi, sorun_etiketi = MAKINE_AYARI.get(makine, MAKINE_AYARI["i5"])
+
+    # ---- MAKİNE KİMLİĞİ (26 Ekim i5 bulgusu) ------------------------------------------------
+    # Karar dosyasındaki `makine` alanı ajanın KENDİ beyanıydı: i5 oturumu "i3" yazıp hem
+    # `guvenlik/inceleme` hem `guvenlik/karar` kontrolünü tek başına yeşile çevirebiliyordu
+    # (AGENTS.md:52-53 yasaklıyor). Kimlik artık operatörün kurduğu ROOT sahipli dosyadan okunur:
+    #   · dosya yok/geçersiz  → çıkış 5 (fail-closed; operatör kurulum komutu hata metninde)
+    #   · beyan ≠ dosya       → çıkış 5
+    #   · --birlestir yalnız kimlik `i3` iken (karar makinesi) kullanılabilir
+    kimlik, kimlik_neden = makine_kimligi_denetle()
+    if not kimlik:
+        print(f"[yaz] MAKİNE KİMLİĞİ REDDEDİLDİ — {kimlik_neden}", file=sys.stderr)
+        print("  Kimlik operatör kurulumudur; ajan kendi rolünü seçemez.", file=sys.stderr)
+        _kapi_red_yaz(karar, makine, [f"makine kimliği geçersiz: {kimlik_neden}"], atlandi=False)
+        return 5
+    if kimlik != makine:
+        print(f"[yaz] KİMLİK UYUŞMAZLIĞI — bu makine {kimlik!r}, karar dosyası {makine!r} diyor. "
+              "Reddedildi.", file=sys.stderr)
+        _kapi_red_yaz(karar, makine,
+                      [f"kimlik uyuşmazlığı: makine={kimlik!r}, karar={makine!r}"], atlandi=False)
+        return 5
+    makine = kimlik
+    if a.birlestir and kimlik != "i3":
+        print(f"[yaz] --birlestir REDDEDİLDİ — bu makinenin kimliği {kimlik!r}; birleştirme "
+              "karar makinesine (i3) aittir.", file=sys.stderr)
+        _kapi_red_yaz(karar, makine,
+                      [f"--birlestir reddedildi: kimlik {kimlik!r}"], atlandi=False)
+        return 5
+
+    # ---- KANIT KATMANI (--kanit-yok) — ajanın tek başına kapatabileceği bir anahtar DEĞİL ---------
+    # 26 Ekim i5 bulgusu: bayrak `kanit=not a.kanit_yok` ile dosya:satır kanıtı denetimini tamamen
+    # kapatıyordu ve ajanın kendi elindeydi (terminal yetkisi olan ajan kanıtsız karar yayınlayabilir).
+    # Artık --kapi-atla ile AYNI üç koruma geçerli:
+    #   (1) operatörün ortam anahtarı `YAZ_KAPI_ATLA_ONAY=1` (nöbetçi biriminde tanımlı DEĞİL),
+    #   (2) yazılı gerekçe ≥20 karakter, (3) 'yüksek'/'kritik' bulgu varken hiç kullanılamaz.
+    # Her kullanım (kabul de ret de) kapi-red.log'a iz bırakır; kabulde olay=ATLANDI.
+    if a.kanit_yok:
+        gerekce = a.gerekce.strip()
+        izin, ret_uzun, ret_kisa = operator_izi_denetle()
+        if not izin:
+            print(f"[yaz] KANIT KATMANI: --kanit-yok REDDEDİLDİ — {ret_uzun}. Kanıt denetimini "
+                  "kapatmak ajanın tek başına verebileceği bir karar değil.", file=sys.stderr)
+            _kapi_red_yaz(karar, makine, [f"--kanit-yok reddedildi: {ret_kisa}"], atlandi=False)
+            return 5
+        if _yuksek_bulgular(karar):
+            print(f"[yaz] KANIT KATMANI: --kanit-yok REDDEDİLDİ — {len(_yuksek_bulgular(karar))} "
+                  "'yüksek' bulgusu varken kanıt denetimi kapatılamaz.", file=sys.stderr)
+            _kapi_red_yaz(karar, makine, ["--kanit-yok reddedildi: yüksek bulgu"], atlandi=False)
+            return 5
+        if len(gerekce) < 20:
+            print("[yaz] KANIT KATMANI: --kanit-yok için --gerekce \"…\" (≥20 karakter) zorunlu.",
+                  file=sys.stderr)
+            _kapi_red_yaz(karar, makine, ["--kanit-yok reddedildi: gerekçe yok"], atlandi=False)
+            return 5
+        karar["kanit_yok"] = gerekce
+        _kapi_red_yaz(karar, makine, [f"--kanit-yok: kanıt katmanı ATLANDI; gerekçe: {gerekce}"], atlandi=True)
+        print(f"[yaz] KANIT KATMANI: ATLANDI (--kanit-yok) → dosya:satır kanıtı ağdan denetlenmiyor; "
+              f"gerekçe günlüğe ve yoruma yazıldı")
+
+    # ---- TEK ONAY: operatör izi (27 Ekim i5 bulgusu, orta) ------------------------------------
+    # `--tek-onay` + gerekçe, ikinci zorunlu kontrolü (guvenlik/inceleme) tamamen kaldırıyordu;
+    # yalnız kapi-red.log'a iz düşüyordu. Artık `--kapi-atla` ile AYNI kapıdan geçer: operatör
+    # ortam anahtarı (YAZ_KAPI_ATLA_ONAY=1) + root sahipli TTL'li bilet yoksa birleştirme isteği
+    # HİÇ atılmaz (çıkış 5).
+    # SIRA ÖNEMLİ: yetki kapısı, içerik kapısından ÖNCE gelir. İçerik kapısı (kanıt tazeliği)
+    # GitHub'a çıkar; ağ hatası/429 olduğunda süreç "kanıt doğrulanamadı" diyip dönerdi ve
+    # yetkisiz `--tek-onay` isteği yanlış gerekçeyle (ve ağ olmadan test edilemez biçimde)
+    # reddedilmiş görünürdü. Yetki denetimi ağ gerektirmez → önce o.
+    if tek_onay:
+        izin, ret_uzun, ret_kisa = operator_izi_denetle()
+        if not izin:
+            print(f"[yaz] KARAR KAPISI: --tek-onay REDDEDİLDİ — {ret_uzun}", file=sys.stderr)
+            print("  İkinci kapıyı atlamak serbest bir anahtar değil: operatör anahtarı + TTL'li "
+                  "bilet (ve --birlestir) birlikte gerekir.", file=sys.stderr)
+            _kapi_red_yaz(karar, makine, [f"--tek-onay reddedildi: {ret_kisa}"], atlandi=False)
+            return 5
+
+    # ---- KARAR KAPISI (fail-closed) -------------------------------------------------------
+    # Şema + kapsam (12 alan) + tutarlılık + dosya:satır kanıtı. Geçmezse GitHub'a HİÇBİR şey
+    # yazılmaz: kararsızlık sessizce "onay"a dönüşmesin (25 Ekim kararı).
+    import karar_dogrula  # aynı dizinde
+    kapi = karar_dogrula.dogrula_karar(karar, makine, token=token_oku(a.token_dosya),
+                                       depo=a.depo_adresi, kanit=not a.kanit_yok)
+    for uyari in kapi.uyarilar:
+        print(f"[kapı] ⚠ {uyari}")
+    if not kapi.gecti:
+        for hata in kapi.hatalar:
+            print(f"[kapı] ✗ {hata}")
+        # Kapıyı atlamak serbest bir anahtar DEĞİL: (a) yazılı gerekçe zorunlu, (b) 'yüksek' önemde
+        # bulgu varken hiç atlanamaz, (c) atlama PR yorumunda görünür. 26 Ekim i5 bulgusu: bayrak
+        # ajanın kendi elindeydi ve hiçbir makine itiraz etmiyordu.
+        yuksek = _yuksek_bulgular(karar)
+        gerekce = a.gerekce.strip()
+        # 26 Ekim i5 bulgusu: bayrak ajanın KENDİ elindeydi (terminal yetkisi olan ajan --kapi-atla
+        # yazıp şemayı/kanıtı devre dışı bırakabiliyordu). Kapı atlama artık ÜÇ parça ister:
+        #   (1) operatörün ortam anahtarı `YAZ_KAPI_ATLA_ONAY=1` — nöbetçi biriminde TANIMLI DEĞİL,
+        #   (2) operatörün ürettiği ROOT sahipli, TTL'li bilet `/run/yourkiosk-kapi-atla.bilet` —
+        #       ortam anahtarı tek başına yetmez, çünkü ajan anahtarı kendi kabuğundan verebilir
+        #       ama root sahipli dosyayı üretemez;
+        #   (3) yazılı gerekçe + 'yüksek' bulgu yokluğu.
+        # Atlama her durumda kapi-red.log'a ve PR yorumuna yazılır (denetlenebilir).
+        izin, ret_uzun, ret_kisa = operator_izi_denetle()
+        if a.kapi_atla and not izin:
+            print(f"[yaz] KARAR KAPISI: --kapi-atla REDDEDİLDİ — {ret_uzun}. Kapı atlama ajanın "
+                  "tek başına kullanabileceği bir anahtar değil.", file=sys.stderr)
+            _kapi_red_yaz(karar, makine, kapi.hatalar + [f"--kapi-atla reddedildi: {ret_kisa}"],
+                          atlandi=False)
+            return 5
+        if a.kapi_atla and yuksek:
+            print(f"[yaz] KARAR KAPISI: atlama REDDEDİLDİ — {len(yuksek)} 'yüksek' bulgusu varken "
+                  "kapı atlanamaz (önce düzelt).", file=sys.stderr)
+            _kapi_red_yaz(karar, makine, kapi.hatalar + ["--kapi-atla reddedildi: yüksek bulgu"], atlandi=False)
+            return 5
+        if a.kapi_atla and len(gerekce) < 20:
+            print("[yaz] KARAR KAPISI: --kapi-atla için --gerekce \"…\" (≥20 karakter) zorunlu.",
+                  file=sys.stderr)
+            _kapi_red_yaz(karar, makine, kapi.hatalar + ["--kapi-atla reddedildi: gerekçe yok"], atlandi=False)
+            return 5
+        if a.kapi_atla:
+            print("[yaz] KARAR KAPISI: ATLANDI (--kapi-atla) → yayınlanıyor; gerekçe günlüğe ve yoruma yazıldı")
+            karar["kapi_atlandi"] = gerekce
+            _kapi_red_yaz(karar, makine, kapi.hatalar + [f"gerekçe: {gerekce}"], atlandi=True)
+        else:
+            _kapi_red_yaz(karar, makine, kapi.hatalar, atlandi=False)
+            print("[yaz] KARAR KAPISI: reddedildi → GitHub'a hiçbir şey yazılmadı.\n"
+                  "      Düzelt: karar JSON'unu kanıtlı hâle getir (denetlenen 12 alan, dosya:satır, "
+                  "kararsızlıkta 'sorun'), sonra tekrar çalıştır.", file=sys.stderr)
+            return 5
+
+    # ---- TEK ONAY kapısı yukarıda (yetki, içerikten önce) ------------------------------------
+
     durum, aciklama = durum_metni(karar)
     govde = yorum_govdesi(karar, durum)
 
@@ -340,7 +1110,16 @@ def main() -> int:
             print(f"POST /repos/{a.depo_adresi}/issues/{karar['pr']}/comments")
         print(f"etiketler: +{[onay_etiketi if durum == 'success' else sorun_etiketi]}")
         if a.birlestir and durum == "success" and karar.get("pr"):
-            print(f"[KURU] otomatik birleştirme denenecek: PR #{karar['pr']} (squash)")
+            # KURU modda da birleştirme kapısını GERÇEKTEN denetle (yazma yok): yabancı commit,
+            # eksik çift onay, head sha kayması gibi engeller denenmeden "olur" demek yanıltıcıydı.
+            kuru_token = token_oku(a.token_dosya)
+            if kuru_token:
+                uygun, mesaj = birlestir(a.depo_adresi, kuru_token, karar["pr"],
+                                         karar.get("sha") or "", kuru=True, cift_onay=not tek_onay)
+                print(f"[KURU] birleştirme kapısı: {'✓ geçer' if uygun else '✗ engelli'} — {mesaj}")
+            else:
+                print(f"[KURU] otomatik birleştirme denenecek: PR #{karar['pr']} "
+                      "(token yok → kapı denetlenemedi)")
         return 0
 
     token = token_oku(a.token_dosya)
@@ -372,8 +1151,7 @@ def main() -> int:
 
     pr_no = karar.get("pr")
     if pr_no:
-        kod, yanit = istek(f"/repos/{a.depo_adresi}/issues/{pr_no}/comments", token, "POST", {"body": govde})
-        print(f"[yaz] PR #{pr_no} yorumu: HTTP {kod}" + ("" if kod < 400 else f" → {yanit}"))
+        yorum_ok, yorum_kod = yorum_yaz(a.depo_adresi, token, int(pr_no), govde)
         etiket_ekle(
             a.depo_adresi,
             token,
@@ -383,32 +1161,50 @@ def main() -> int:
             kuru=False,
         )
         print("[yaz] etiketler güncellendi")
+        if not yorum_ok:
+            # Yorum düşmediyse PR sayfasında karar YOK: kapanış ölçütleri geliştiriciye ulaşmaz ve
+            # envanter PR'ı "incelenmemiş" sayar. Sessizce devam etmek yerine yüksek sesle düş.
+            print(f"[yaz] ✗ KARAR YORUMU DÜŞMEDİ (HTTP {yorum_kod}) — commit durumu yazıldı ama PR "
+                  f"yorumu yok. Kapı bunu başarı saymaz: aynı komutu yeniden koş "
+                  f"(status aynı sha'ya yeniden yazılır, zararsız).", file=sys.stderr)
+            return 5
 
         if a.birlestir and durum == "success":
-            basarili, neden = birlestir(a.depo_adresi, token, int(pr_no), sha, kuru=False, cift_onay=a.cift_onay)
+            if tek_onay:
+                _kapi_red_yaz(karar, makine,
+                              [f"--tek-onay: ikinci kapı atlandı; gerekçe: {a.gerekce.strip()}"],
+                              atlandi=True)
+                print("[yaz] ⚠ TEK ONAY: ikinci kapı (guvenlik/inceleme) aranmadan birleştiriliyor; "
+                      "gerekçe kapi-red.log'a yazıldı")
+            basarili, neden = birlestir(a.depo_adresi, token, int(pr_no), sha, kuru=False,
+                                        cift_onay=not tek_onay)
             print(f"[yaz] otomatik birleştirme: {'✓' if basarili else '✗'} {neden}")
             if not basarili:
                 # nedeni PR'a yaz (görünür olsun, sessizce kalmasın)
-                istek(
-                    f"/repos/{a.depo_adresi}/issues/{pr_no}/comments",
-                    token,
-                    "POST",
-                    {"body": f"⚙️ **Otomatik birleştirme yapılmadı:** {neden}\n\n"
-                             "Düzeltme gerekmiyorsa PR'ı elle birleştirebilirsiniz; "
-                             "yeniden denemek için `hermes cron run <job_id>`."},
+                yazildi, kodu = yorum_yaz(
+                    a.depo_adresi, token, int(pr_no),
+                    f"⚙️ **Otomatik birleştirme yapılmadı:** {neden}\n\n"
+                    "Düzeltme gerekmiyorsa PR'ı elle birleştirebilirsiniz; "
+                    "yeniden denemek için `hermes cron run <job_id>`.",
                 )
+                if not yazildi:
+                    print(f"[yaz] uyarı: birleştirme engeli PR'a yazılamadı (HTTP {kodu}); gerekçe "
+                          f"yukarıda ve kapi-red.log'da", file=sys.stderr)
     else:
         # PR YOK (main'e düşen/rebase edilmiş commit): tam rapor günlük konusuna yazılır,
         # aksi hâlde yalnız 140 karakterlik durum açıklaması kalır ve gerekçe kaybolur.
         no = gunluk_no(a.depo_adresi, token)
         if no:
             baslik = f"#### `{sha[:12]}` · {karar.get('zaman') or ''} · {makine}\n\n"
-            kod, yanit = istek(
-                f"/repos/{a.depo_adresi}/issues/{no}/comments", token, "POST", {"body": baslik + govde}
-            )
-            print(f"[yaz] günlük #{no} yorumu: HTTP {kod}" + ("" if kod < 400 else f" → {yanit}"))
+            yazildi, kodu = yorum_yaz(a.depo_adresi, token, int(no), baslik + govde)
+            if not yazildi:
+                print(f"[yaz] ✗ TAM RAPOR DÜŞMEDİ (günlük #{no}, HTTP {kodu}) — yalnız 140 "
+                      f"karakterlik durum açıklaması kaldı; komutu yeniden koş.", file=sys.stderr)
+                return 5
         else:
-            print("[yaz] uyarı: günlük konusu bulunamadı/oluşturulamadı (PR'sız commit raporu kaydedilemedi)")
+            print("[yaz] ✗ günlük konusu bulunamadı/oluşturulamadı (PR'sız commit raporu "
+                  "kaydedilemedi) — rapor kayboldu sayılır", file=sys.stderr)
+            return 5
     return 0
 
 

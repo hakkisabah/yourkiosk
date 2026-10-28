@@ -1,0 +1,571 @@
+"""api-sunucu-sertlestir.sh — kontrol noktaları (26 Ekim i5 bulgularının kilidi).
+
+Üç hata sınıfı makineyle doğrulanır:
+1. `--dinle` beyaz listesi: yanlış/yazım hatalı adres sessizce kabul edilmez.
+2. `0.0.0.0` yalnız açık `--kabul-et-lan` ile yazılır (uç = terminal yetkili ajan).
+3. Anahtar hiçbir zaman bir komut satırı argümanına konmaz (argv sızıntısı).
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import unittest
+from pathlib import Path
+
+BETIK = Path(__file__).resolve().parents[1] / "api-sunucu-sertlestir.sh"
+GERI_AL = Path(__file__).resolve().parents[1] / "api-sunucu-geri-al.sh"
+
+
+class DinleBeyazListeTesti(unittest.TestCase):
+    def calistir(self, *argumanlar):
+        return subprocess.run(["bash", str(BETIK), *argumanlar],
+                              capture_output=True, text=True, timeout=60)
+
+    def test_gecersiz_dinle_reddedilir(self):
+        for adres in ("0.0.0.0/0", "192.168.1.5", "localhost", "172.17.0.1/16"):
+            s = self.calistir("--dinle", adres, "--kuru")
+            self.assertEqual(s.returncode, 2, f"{adres} kabul edildi: {s.stdout}{s.stderr}")
+            self.assertIn("geçersiz --dinle", s.stderr)
+
+    def test_lan_icin_acik_onay_gerekir(self):
+        s = self.calistir("--dinle", "0.0.0.0", "--kuru")
+        self.assertEqual(s.returncode, 2)
+        self.assertIn("--kabul-et-lan", s.stderr)
+
+    def test_izinli_adresler_gecer(self):
+        for adres in ("127.0.0.1", "172.17.0.1", "172.18.0.1"):
+            s = self.calistir("--dinle", adres, "--kuru")
+            self.assertEqual(s.returncode, 0, f"{adres}: {s.stdout}{s.stderr}")
+            self.assertIn(adres, s.stdout)
+
+
+class AnahtarSizintisiTesti(unittest.TestCase):
+    def test_anahtar_argv_ile_yazilmaz(self):
+        ham = BETIK.read_text(encoding="utf-8")
+        # Yorumları ayıkla: kural KOD için, açıklama metni değil.
+        kod = "\n".join(s for s in ham.splitlines() if not s.lstrip().startswith("#"))
+        # Değer doğrudan config set'e verilmemeli (argv → /proc/<pid>/cmdline).
+        self.assertNotIn('config set API_SERVER_KEY', kod)
+        self.assertNotIn('cfg_set API_SERVER_KEY', kod)
+        # Anahtar .env'e python ile, yalnız YOL argümanları geçerek yazılmalı.
+        self.assertIn("anahtari_env_yaz", kod)
+
+    def test_env_yazici_gercekten_calisiyor(self):
+        # Betikteki python gövdesini ayrı çalıştırıp .env'i gerçekten güncellediğini gör.
+        import re
+        import tempfile
+        icerik = BETIK.read_text(encoding="utf-8")
+        govde = re.search(r"<<'PY'\n(.*?)\nPY\n", icerik, re.S)
+        self.assertIsNotNone(govde, "gömülü python gövdesi bulunamadı")
+        assert govde is not None
+        kod = govde.group(1)
+        with tempfile.TemporaryDirectory() as dizin:
+            env = Path(dizin) / ".env"
+            env.write_text("BASKA=1\nAPI_SERVER_KEY=eski\nSON=2\n", encoding="utf-8")
+            anahtar = Path(dizin) / "api-server.key"
+            anahtar.write_text("y" * 64 + "\n", encoding="utf-8")
+            s = subprocess.run(["python3", "-", str(env), str(anahtar)], input=kod,
+                               capture_output=True, text=True, timeout=60)
+            self.assertEqual(s.returncode, 0, s.stderr)
+            satirlar = env.read_text(encoding="utf-8").splitlines()
+            self.assertIn("API_SERVER_KEY=" + "y" * 64, satirlar)
+            self.assertIn("BASKA=1", satirlar)   # diğer satırlar korunur
+            self.assertEqual(len(satirlar), 3)   # satır çoğaltmaz
+            self.assertEqual(env.stat().st_mode & 0o777, 0o600)
+
+    def test_env_gecici_dosyasi_tahmin_edilemez(self):
+        """26 Ekim i5 bulgusu: sabit `.env.tmp` sembolik bağ saldırısına açıktı → mkstemp."""
+        ham = BETIK.read_text(encoding="utf-8")
+        self.assertNotIn('with_suffix(env_yolu.suffix + ".tmp")', ham)
+        self.assertIn("tempfile.mkstemp", ham)
+        self.assertIn("import tempfile", ham)
+
+
+class KodAlArgvTesti(unittest.TestCase):
+    """26 Ekim i5 bulgusu: anahtar `-H "Authorization: Bearer $2"` ile curl ARGV'sine giriyordu.
+
+    Sahte curl ile kod_al gerçekten koşturulur: argv'de anahtar OLMAMALI, başlık STDIN'den
+    (`--config -`) gelmeli. Eski biçim bu testte kırmızıya döner (mutasyon: `-H` satırını geri koy).
+    """
+
+    ANAHTAR = "s" * 24 + "GIZLI-ANAHTAR"
+
+    def _kod_al(self) -> str:
+        import re
+        ham = BETIK.read_text(encoding="utf-8")
+        m = re.search(r"^kod_al\(\) \{.*?\n\}\n", ham, re.S | re.M)
+        self.assertIsNotNone(m, "kod_al fonksiyonu bulunamadı")
+        assert m is not None
+        return m.group(0)
+
+    def test_anahtar_argv_degil_stdin_ile_gider(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as dizin:
+            bin_dizin = Path(dizin) / "bin"
+            bin_dizin.mkdir()
+            argv_kayit = Path(dizin) / "argv"
+            stdin_kayit = Path(dizin) / "stdin"
+            sahte = bin_dizin / "curl"
+            sahte.write_text(
+                "#!/usr/bin/env bash\n"
+                f"printf '%s\\n' \"$@\" > {argv_kayit}\n"
+                f"cat > {stdin_kayit}\n"
+                "printf '200'\n",
+                encoding="utf-8",
+            )
+            sahte.chmod(0o755)
+            betik = Path(dizin) / "kod_al.sh"
+            betik.write_text(self._kod_al() + '\nkod_al "http://127.0.0.1:8642/v1/models" "$1"\n',
+                             encoding="utf-8")
+            ortam = {**os.environ, "PATH": f"{bin_dizin}:{os.environ.get('PATH', '')}"}
+            s = subprocess.run(["bash", str(betik), self.ANAHTAR], capture_output=True,
+                               text=True, timeout=60, env=ortam)
+            self.assertEqual(s.returncode, 0, s.stderr)
+            self.assertEqual(s.stdout.strip(), "200")
+            argv = argv_kayit.read_text(encoding="utf-8")
+            self.assertNotIn(self.ANAHTAR, argv, f"anahtar argv'de: {argv!r}")
+            self.assertIn("--config", argv)
+            self.assertIn("-", argv)
+            self.assertIn(self.ANAHTAR, stdin_kayit.read_text(encoding="utf-8"))
+
+    def test_anahtarsiz_istek_baslik_gondermez(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as dizin:
+            bin_dizin = Path(dizin) / "bin"
+            bin_dizin.mkdir()
+            argv_kayit = Path(dizin) / "argv"
+            sahte = bin_dizin / "curl"
+            sahte.write_text("#!/usr/bin/env bash\n"
+                             f"printf '%s\\n' \"$@\" > {argv_kayit}\n"
+                             "cat >/dev/null\nprintf '401'\n", encoding="utf-8")
+            sahte.chmod(0o755)
+            betik = Path(dizin) / "kod_al.sh"
+            betik.write_text(self._kod_al() + '\nkod_al "http://127.0.0.1:8642/v1/models"\n',
+                             encoding="utf-8")
+            ortam = {**os.environ, "PATH": f"{bin_dizin}:{os.environ.get('PATH', '')}"}
+            s = subprocess.run(["bash", str(betik)], capture_output=True, text=True, timeout=60, env=ortam)
+            self.assertEqual(s.returncode, 0, s.stderr)
+            self.assertEqual(s.stdout.strip(), "401")
+            self.assertNotIn("--config", argv_kayit.read_text(encoding="utf-8"))
+
+
+class GeriAlDinleBeyazListeTesti(unittest.TestCase):
+    """26 Ekim i5 bulgusu: api-sunucu-geri-al.sh `--dinle` değerini doğrulamadan config'e yazıyordu.
+
+    Betik SAHTE PATH ile koşturulur: `hermes` sahte (config set çağrılarını dosyaya yazar), `id` 0
+    döner (sudo yolu kapanır), `nft`/`systemctl`/`ss`/`rm`/`rmdir` sahtedir. Gerçek config'e, gerçek
+    nftables'a ve /etc'ye hiç dokunulmaz.
+    """
+
+    def setUp(self):
+        import tempfile
+        self.dizin = tempfile.TemporaryDirectory()
+        self.kok = Path(self.dizin.name)
+        self.bin = self.kok / "bin"
+        self.bin.mkdir()
+        self.kayit = self.kok / "hermes-cagri"
+        self.kayit.write_text("", encoding="utf-8")
+
+        def sahte(ad: str, govde: str) -> None:
+            yol = self.bin / ad
+            yol.write_text("#!/usr/bin/env bash\n" + govde, encoding="utf-8")
+            yol.chmod(0o755)
+
+        sahte("id", 'if [ "${1:-}" = "-u" ]; then echo 0; else echo "uid=0(root)"; fi\n')
+        sahte("hermes", f'printf \'%s\\n\' "$*" >> {self.kayit}\n'
+                        'case "$1" in config) exit 0;; esac\nexit 0\n')
+        sahte("nft", "exit 1\n")                  # tablo yok
+        sahte("systemctl", "echo disabled\n")     # servis kapalı
+        sahte("ss", "exit 0\n")
+        sahte("rm", "exit 0\n")
+        sahte("rmdir", "exit 0\n")
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def calistir(self, *argumanlar):
+        ortam = {**os.environ, "PATH": f"{self.bin}:{os.environ.get('PATH', '')}",
+                 "HOME": str(self.kok)}
+        return subprocess.run(["bash", str(GERI_AL), *argumanlar], capture_output=True,
+                              text=True, timeout=60, env=ortam)
+
+    def _yazilan_host(self) -> str:
+        for satir in self.kayit.read_text(encoding="utf-8").splitlines():
+            parcalar = satir.split()
+            if parcalar[:3] == ["config", "set", "API_SERVER_HOST"]:
+                return parcalar[3]
+        return ""
+
+    def test_gecersiz_dinle_cikis_2_ve_yazilmaz(self):
+        for adres in ("0.0.0.0/0", "192.168.1.5", "localhost", "172.17.0.1/16", "; rm -rf /"):
+            s = self.calistir("--dinle", adres)
+            self.assertEqual(s.returncode, 2, f"{adres} kabul edildi: {s.stdout}{s.stderr}")
+            self.assertIn("geçersiz --dinle", s.stderr)
+            self.assertEqual(self._yazilan_host(), "", f"{adres} config'e yazıldı")
+
+    def test_lan_icin_acik_onay_gerekir(self):
+        s = self.calistir("--dinle", "0.0.0.0")
+        self.assertEqual(s.returncode, 2, s.stdout + s.stderr)
+        self.assertIn("--kabul-et-lan", s.stderr)
+        self.assertEqual(self._yazilan_host(), "")
+
+    def test_izinli_adresler_yazilir(self):
+        for adres in ("127.0.0.1", "172.17.0.1", "172.18.0.1"):
+            self.kayit.write_text("", encoding="utf-8")
+            s = self.calistir("--dinle", adres)
+            self.assertEqual(s.returncode, 0, f"{adres}: {s.stdout}{s.stderr}")
+            self.assertEqual(self._yazilan_host(), adres, f"{adres} yazılmadı: {s.stdout}")
+
+    def test_lan_bayragiyla_0000_yazilir(self):
+        s = self.calistir("--dinle", "0.0.0.0", "--kabul-et-lan")
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertEqual(self._yazilan_host(), "0.0.0.0")
+
+    def test_denetim_kontrol_modunda_da_calisir(self):
+        """--kontrol hiçbir şey yazmaz ama doğrulamayı ATLAMAZ."""
+        s = self.calistir("--dinle", "0.0.0.0", "--kontrol")
+        self.assertEqual(s.returncode, 2, s.stdout + s.stderr)
+        self.assertEqual(self.kayit.read_text(encoding="utf-8"), "")
+
+
+class KontrolLanDenetimiTesti(unittest.TestCase):
+    """`--kontrol` LAN durumunu İKİ kaynaktan denetler (26 Ekim i5 bulgusu).
+
+    Eskiden yalnız `0.0.0.0` kırmızıydı; `192.168.1.50` gibi bir LAN adresi "✓ LAN'a kapalı"
+    görünüyordu. Artık (a) yapılandırılmış `API_SERVER_HOST`, (b) `ss -tlnH` ile GERÇEKTEN dinlenen
+    adres beyaz listede (127.0.0.1 · 172.17.0.1 · 172.18.0.1) değilse çıkış 1 verir.
+
+    Betik SAHTE PATH ile koşturulur: `hermes`/`ss`/`curl`/`nft` taklittir. Gerçek config'e, gerçek
+    dinlenen soketlere ve gerçek ağa dokunulmaz.
+    """
+
+    def setUp(self):
+        import tempfile
+        self.dizin = tempfile.TemporaryDirectory()
+        self.kok = Path(self.dizin.name)
+        self.bin = self.kok / "bin"
+        self.bin.mkdir()
+        self.ev = self.kok / "ev"
+        (self.ev / ".config" / "hermes-secrets").mkdir(parents=True)
+        (self.ev / ".config" / "hermes-secrets" / "api-server.key").write_text("k" * 64 + "\n", encoding="utf-8")
+        # 26 Ekim i5 bulgusu: --kontrol artık anahtar dosyasının İZNİNİ de denetler; "temiz"
+        # senaryoların 0600 olması gerekir (izin testleri ayrı sınıfta).
+        (self.ev / ".config" / "hermes-secrets" / "api-server.key").chmod(0o600)
+        (self.ev / ".config" / "hermes-secrets").chmod(0o700)
+        # 26 Ekim i5 bulgusu: --kontrol .env iznine de bakar → "temiz" senaryoda 0600.
+        (self.ev / ".hermes").mkdir(parents=True, exist_ok=True)
+        (self.ev / ".hermes" / ".env").write_text("API_SERVER_KEY=" + "k" * 64 + "\n", encoding="utf-8")
+        (self.ev / ".hermes" / ".env").chmod(0o600)
+        self.host_dosya = self.kok / "host"
+        self.dinlenen_dosya = self.kok / "dinlenen"
+        self.sayac = self.kok / "sayac"
+
+        def sahte(ad: str, govde: str) -> None:
+            yol = self.bin / ad
+            yol.write_text("#!/usr/bin/env bash\n" + govde, encoding="utf-8")
+            yol.chmod(0o755)
+
+        sahte("hermes", (
+            'case "$1 $2" in\n'
+            '  "config get")\n'
+            '    case "$3" in\n'
+            f'      API_SERVER_HOST) cat "{self.host_dosya}" ;;\n'
+            '      API_SERVER_ENABLED) echo true ;;\n'
+            '      *) echo "" ;;\n'
+            '    esac ;;\n'
+            f'  "config env-path") echo "{self.ev}/.hermes/.env" ;;\n'
+            'esac\n'
+            'exit 0\n'
+        ))
+        # `ss -tlnH "sport = :8642"` → 4. alan adres:port
+        sahte("ss", f'echo "LISTEN 0 4096 $(cat {self.dinlenen_dosya})"\n')
+        # 1. çağrı anahtarlı (200), 2. çağrı anahtarsız (401)
+        sahte("curl", (
+            f'n=$(cat {self.sayac} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {self.sayac}\n'
+            'cat >/dev/null\n'
+            'if [ "$n" -eq 1 ]; then printf 200; else printf 401; fi\n'
+        ))
+        sahte("nft", 'echo "Error: No such file or directory" >&2\nexit 1\n')
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def _senaryo(self, host: str, dinlenen: str):
+        self.host_dosya.write_text(host, encoding="utf-8")
+        self.dinlenen_dosya.write_text(dinlenen, encoding="utf-8")
+        self.sayac.unlink(missing_ok=True)
+        ortam = {**os.environ, "PATH": f"{self.bin}:{os.environ.get('PATH', '')}", "HOME": str(self.ev)}
+        return subprocess.run(["bash", str(BETIK), "--kontrol"], capture_output=True, text=True,
+                              timeout=60, env=ortam)
+
+    def test_beyaz_liste_temiz_yesil(self):
+        for adres in ("127.0.0.1", "172.17.0.1", "172.18.0.1"):
+            s = self._senaryo(adres, f"{adres}:8642")
+            self.assertEqual(s.returncode, 0, f"{adres}: {s.stdout}{s.stderr}")
+            self.assertIn("✓", s.stdout)
+
+    def test_lan_host_kirmizi(self):
+        s = self._senaryo("192.168.1.50", "192.168.1.50:8642")
+        self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
+        self.assertIn("✗", s.stdout)
+        self.assertIn("192.168.1.50 → beyaz liste dışı", s.stdout)
+
+    def test_0000_dinlenirse_kirmizi(self):
+        # Yapılandırılmış host temiz olsa bile GERÇEKTEN dinlenen adres tüm ağlara açıksa kırmızı.
+        s = self._senaryo("172.17.0.1", "0.0.0.0:8642")
+        self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
+        self.assertIn("LAN'a kapalı (dinlenen adres)", s.stdout)
+        self.assertIn("0.0.0.0 → beyaz liste dışı", s.stdout)
+
+    def test_host_lan_dinlenen_loopback_yine_kirmizi(self):
+        # Config LAN'a açık, gerçek dinleyici loopback: "yeniden başlatma bekliyor" sessizce geçmesin.
+        s = self._senaryo("192.168.1.50", "127.0.0.1:8642")
+        self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
+        self.assertIn("LAN'a kapalı (yapılandırılmış host)", s.stdout)
+
+    def test_ipv6_wildcard_kirmizi(self):
+        s = self._senaryo("172.17.0.1", "[::]:8642")
+        self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
+        self.assertIn(":: → beyaz liste dışı", s.stdout)
+
+
+class AnahtarIzinDenetimiTesti(unittest.TestCase):
+    """26 Ekim i5 bulgusu: `--kontrol` anahtar dosyasının iznine hiç bakmıyordu.
+
+    0644 (dünya-okur) bir anahtar dosyası "temiz" görünüyordu; sır dosyası 0600 olmalı.
+    """
+
+    def _kontrol(self, *, dosya_mod: int, dizin_mod: int = 0o700) -> subprocess.CompletedProcess:
+        import tempfile
+        with tempfile.TemporaryDirectory() as dizin:
+            kok = Path(dizin)
+            bin = kok / "bin"; bin.mkdir()
+            ev = kok / "ev"; (ev / ".config" / "hermes-secrets").mkdir(parents=True)
+            anahtar = ev / ".config" / "hermes-secrets" / "api-server.key"
+            anahtar.write_text("k" * 64 + "\n", encoding="utf-8")
+            anahtar.chmod(dosya_mod)
+            (ev / ".config" / "hermes-secrets").chmod(dizin_mod)
+            # 26 Ekim i5 bulgusu: --kontrol artık anahtarın KOPYASINI taşıyan .env'in iznine de
+            # bakar; "temiz" senaryoda .env 0600 olmalı (.env izin testi ayrı sınıfta).
+            (ev / ".hermes").mkdir(parents=True, exist_ok=True)
+            (ev / ".hermes" / ".env").write_text("API_SERVER_KEY=" + "k" * 64 + "\n", encoding="utf-8")
+            (ev / ".hermes" / ".env").chmod(0o600)
+
+            def sahte(ad: str, govde: str) -> None:
+                yol = bin / ad
+                yol.write_text("#!/usr/bin/env bash\n" + govde, encoding="utf-8")
+                yol.chmod(0o755)
+
+            sahte("hermes", (
+                'case "$1 $2" in\n'
+                '  "config get") case "$3" in\n'
+                '    API_SERVER_HOST) echo 172.17.0.1 ;;\n'
+                '    API_SERVER_ENABLED) echo true ;;\n'
+                '    *) echo "" ;;\n'
+                '  esac ;;\n'
+                f'  "config env-path") echo "{ev}/.hermes/.env" ;;\n'
+                'esac\nexit 0\n'
+            ))
+            sahte("ss", 'echo "LISTEN 0 4096 172.17.0.1:8642"\n')
+            sayac = kok / "sayac"
+            sahte("curl", (
+                f'n=$(cat {sayac} 2>/dev/null || echo 0); n=$((n+1)); echo $n > {sayac}\n'
+                'cat >/dev/null\n'
+                'if [ "$n" -eq 1 ]; then printf 200; else printf 401; fi\n'
+            ))
+            sahte("nft", 'echo "Error: No such file or directory" >&2\nexit 1\n')
+            return subprocess.run(
+                ["bash", str(BETIK), "--kontrol"], capture_output=True, text=True, timeout=60,
+                env={**os.environ,
+                     "HOME": str(ev),
+                     "PATH": f"{bin}:{os.environ.get('PATH', '')}"},
+            )
+
+    def test_dunya_okur_anahtar_kirmizi(self):
+        s = self._kontrol(dosya_mod=0o644)
+        self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
+        self.assertIn("anahtar dosyası izni", s.stdout)
+        self.assertIn("0600", s.stdout)
+
+    def test_0600_anahtar_yesil(self):
+        s = self._kontrol(dosya_mod=0o600)
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertIn("✓ anahtar dosyası izni", s.stdout)
+
+    def test_gevsek_sir_dizini_kirmizi(self):
+        s = self._kontrol(dosya_mod=0o600, dizin_mod=0o755)
+        self.assertEqual(s.returncode, 1, s.stdout + s.stderr)
+        self.assertIn("sır dizini izni", s.stdout)
+
+
+class AnahtarUretimHatasiTesti(unittest.TestCase):
+    """26 Ekim i5 bulgusu: `openssl rand` başarısız olunca MEVCUT anahtar boş dosyayla eziliyordu.
+
+    Betik artık: üret → 64 karakter doğrula → geçici dosya → atomik taşı. Hata yolunda hiçbir
+    dosya değişmez ve çıkış kodu 3'tür (başarı bildirimi YOK).
+    """
+
+    def _calistir(self, openssl_govdesi: str) -> tuple[subprocess.CompletedProcess, Path, Path]:
+        import tempfile
+        self.dizin = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dizin.cleanup)
+        kok = Path(self.dizin.name)
+        bin = kok / "bin"; bin.mkdir()
+        ev = kok / "ev"; (ev / ".config" / "hermes-secrets").mkdir(parents=True)
+        anahtar = ev / ".config" / "hermes-secrets" / "api-server.key"
+        anahtar.write_text("a" * 64 + "\n", encoding="utf-8")
+        anahtar.chmod(0o600)
+        (ev / ".config" / "hermes-secrets").chmod(0o700)
+        env_dosya = ev / ".hermes" / ".env"
+        env_dosya.parent.mkdir(parents=True, exist_ok=True)
+        env_dosya.write_text("DOKUNMA=1\n", encoding="utf-8")
+
+        def sahte(ad: str, govde: str) -> None:
+            yol = bin / ad
+            yol.write_text("#!/usr/bin/env bash\n" + govde, encoding="utf-8")
+            yol.chmod(0o755)
+
+        sahte("hermes", (
+            'case "$1 $2" in\n'
+            f'  "config env-path") echo "{env_dosya}" ;;\n'
+            '  "config get") echo "" ;;\n'
+            'esac\nexit 0\n'
+        ))
+        sahte("ss", 'exit 0\n')
+        sahte("curl", 'cat >/dev/null; printf 000\n')
+        sahte("nft", 'echo "Error: No such file or directory" >&2\nexit 1\n')
+        sahte("openssl", openssl_govdesi)
+        s = subprocess.run(
+            ["bash", str(BETIK), "--anahtar-yenile"], capture_output=True, text=True, timeout=60,
+            env={**os.environ, "HOME": str(ev),
+                 "PATH": f"{bin}:{os.environ.get('PATH', '')}"},
+        )
+        return s, anahtar, env_dosya
+
+    def test_openssl_hatasinda_anahtar_korunur(self):
+        s, anahtar, env_dosya = self._calistir("exit 1\n")
+        self.assertEqual(s.returncode, 3, s.stdout + s.stderr)
+        self.assertEqual(anahtar.read_text(encoding="utf-8"), "a" * 64 + "\n",
+                         "mevcut anahtar boşaltılmamalı")
+        self.assertEqual(env_dosya.read_text(encoding="utf-8"), "DOKUNMA=1\n")
+        self.assertIn("KORUNUYOR", s.stderr)
+        self.assertNotIn("yeni anahtar üretildi", s.stdout)
+
+    def test_kisa_ciktida_anahtar_korunur(self):
+        # openssl "başarılı" ama beklenen uzunlukta değil (kaynak tükenmesi/bozuk çıktı).
+        s, anahtar, _ = self._calistir("echo abc\n")
+        self.assertEqual(s.returncode, 3, s.stdout + s.stderr)
+        self.assertEqual(anahtar.read_text(encoding="utf-8"), "a" * 64 + "\n")
+        self.assertIn("KORUNUYOR", s.stderr)
+
+    def test_basarili_uretim_anahtari_degistirir(self):
+        s, anahtar, env_dosya = self._calistir("echo $(printf 'b%.0s' {1..64})\n")
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertEqual(anahtar.read_text(encoding="utf-8").strip(), "b" * 64)
+        self.assertEqual(anahtar.stat().st_mode & 0o777, 0o600)
+        self.assertIn("API_SERVER_KEY=" + "b" * 64, env_dosya.read_text(encoding="utf-8"))
+        self.assertIn("DOKUNMA=1", env_dosya.read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
+
+
+class KontrolNoktalariTesti(unittest.TestCase):
+    """`--kontrol` iki yeni sınıfı da yakalamalı (26 Ekim i5 bulguları).
+
+    1. `.env` izni: anahtarın KOPYASI .env'de; 0644 ise aynı makinedeki her kullanıcı okur.
+    2. `0.0.0.0` kararı: onay kaydı (operatör) varsa ✓ "operatör onaylı", yoksa ✗.
+    """
+
+    def _ortam(self, kok: Path, *, host: str, env_mod: int, onay: bool) -> dict:
+        import os
+        sir = kok / ".config" / "hermes-secrets"
+        sir.mkdir(parents=True, exist_ok=True)
+        (sir / "api-server.key").write_text("k" * 64, encoding="utf-8")
+        os.chmod(sir / "api-server.key", 0o600)
+        os.chmod(sir, 0o700)
+        env = kok / ".hermes.env"
+        env.write_text(f"API_SERVER_HOST={host}\n", encoding="utf-8")
+        os.chmod(env, env_mod)
+        if onay:
+            (sir / "api-server.lan-onay").write_text("test onayı\n", encoding="utf-8")
+        # Sahte `hermes`: `config env-path` → yolu, `config get K` → değeri yazar.
+        sahte = kok / "bin"
+        sahte.mkdir(exist_ok=True)
+        betik = sahte / "hermes"
+        betik.write_text(
+            "#!/usr/bin/env bash\n"
+            "case \"$1 $2\" in\n"
+            "  \"config env-path\") echo " + str(env) + " ;;\n"
+            f"  \"config get\") case \"$3\" in API_SERVER_HOST) echo {host} ;; "
+            "API_SERVER_ENABLED) echo true ;; *) echo '' ;; esac ;;\n"
+            "  *) exit 0 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        os.chmod(betik, 0o755)
+        return {**os.environ, "HOME": str(kok), "PATH": f"{sahte}:{os.environ['PATH']}"}
+
+    def _kontrol(self, kok: Path, ortam: dict):
+        return subprocess.run(["bash", str(BETIK), "--kontrol"],
+                              capture_output=True, text=True, timeout=90, env=ortam)
+
+    def test_env_0644_ise_kontrol_kirmizi(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            kok = Path(d)
+            s = self._kontrol(kok, self._ortam(kok, host="172.17.0.1", env_mod=0o644, onay=False))
+            self.assertIn(".env izni", s.stdout)
+            self.assertRegex(s.stdout, r"✗ \.env izni \(anahtar kopyası\)")
+            self.assertIn("chmod 600", s.stdout)
+
+    def test_env_0600_ise_kontrol_temiz_dal(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            kok = Path(d)
+            s = self._kontrol(kok, self._ortam(kok, host="172.17.0.1", env_mod=0o600, onay=False))
+            self.assertRegex(s.stdout, r"✓ \.env izni \(anahtar kopyası\)")
+
+    def test_lan_onayi_yoksa_0000_kirmizi(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            kok = Path(d)
+            s = self._kontrol(kok, self._ortam(kok, host="0.0.0.0", env_mod=0o600, onay=False))
+            self.assertRegex(s.stdout, r"✗ LAN'a kapalı \(yapılandırılmış host\)")
+            self.assertIn("onay dosyası yok", s.stdout)
+
+    def test_lan_onayi_varsa_0000_onayli(self):
+        """Onay dosyası artık ROOT sahipli /etc altında: root değilsek senaryo kurulamaz."""
+        import os
+        import tempfile
+        if os.geteuid() != 0:  # pragma: no cover - root olmayan geliştirici makinesi
+            self.skipTest("onay dosyası root sahipli olmalı: /etc'ye yazmak root ister")
+        with tempfile.TemporaryDirectory() as d:
+            kok = Path(d)
+            ortam = self._ortam(kok, host="0.0.0.0", env_mod=0o600, onay=True)
+            s = self._kontrol(kok, ortam)
+            self.assertRegex(s.stdout, r"✓ LAN'a açık \(operatör onaylı\)")
+
+    def test_eski_yol_onay_sayilmaz(self):
+        """26 Ekim i5 bulgusu: `~/.config/.../api-server.lan-onay` (ajan yazabiliyordu) onay SAYILMAZ."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            kok = Path(d)
+            s = self._kontrol(kok, self._ortam(kok, host="0.0.0.0", env_mod=0o600, onay=True))
+            self.assertNotRegex(s.stdout, r"✓ LAN'a açık \(operatör onaylı\)")
+            self.assertRegex(s.stdout, r"✗ LAN'a kapalı \(yapılandırılmış host\)")
+            self.assertIn("/etc/yourkiosk-api-lan-onay", s.stdout)
+
+    def test_uygula_lan_onayi_yazar_kuru_modda_soyler(self):
+        s = subprocess.run(["bash", str(BETIK), "--dinle", "0.0.0.0", "--kabul-et-lan", "--kuru"],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertIn("onay dosyası yazılacak", s.stdout)
+        self.assertIn("/etc/yourkiosk-api-lan-onay", s.stdout)
+
+    def test_geri_alma_lan_onay_kaydini_siler(self):
+        ham = GERI_AL.read_text(encoding="utf-8")
+        self.assertIn("/etc/yourkiosk-api-lan-onay", ham)
+        self.assertIn('sudo rm -f "$LAN_ONAY_DOSYA"', ham)
