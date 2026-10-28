@@ -81,6 +81,17 @@ fi
 if [ -n "$PROFIL" ] && [ "$PROFIL" = "$ROL" ]; then
   echo "✗ --profil değeri rol adıyla aynı olamaz ($ROL)" >&2; exit 2
 fi
+# ZAMAN AŞIMI (28 Ekim ölçümü): i5'te bir tur ortalama 46 sn sürüyor (39 API çağrısı / 1800 sn,
+# 147k bağlam; tek çağrı 282 sn). Türetilmiş varsayılan 1860 sn (120 tur × 15 sn) gerçek tur
+# süresini 3 kat küçük varsayıyor → #90 oturumu 31. dakikada öldürüldü, PR'a hiçbir karar
+# yazılmadı. Varsayılan 3600 sn (60 dk); NOBETCI_ZAMAN_ASIMI ile değiştirilebilir.
+ZAMAN_ASIMI="${NOBETCI_ZAMAN_ASIMI:-3600}"
+case "$ZAMAN_ASIMI" in
+  ''|*[!0-9]*) echo "✗ geçersiz NOBETCI_ZAMAN_ASIMI: '$ZAMAN_ASIMI' (sayı olmalı)" >&2; exit 2 ;;
+esac
+if [ "$ZAMAN_ASIMI" -lt 300 ] || [ "$ZAMAN_ASIMI" -gt 7200 ]; then
+  echo "✗ NOBETCI_ZAMAN_ASIMI 300..7200 aralığında olmalı: $ZAMAN_ASIMI" >&2; exit 2
+fi
 # 26 Ekim i5 bulgusu: --profil değeri doğrulanmadan systemd birim METNİNE yazılıyordu; satır sonu
 # taşıyan bir ad birime yeni yönerge enjekte edebiliyordu (`--profil "a\nExecStartPre=..."`).
 # Hermes profil adları küçük harf/rakam/tire/alt çizgi; birim dosyasına giden her değer bu kapıdan geçer.
@@ -182,7 +193,7 @@ TimeoutStopSec=30
 # KOD KAYNAĞI: $KOD_DEPO (makine kopyası) — insan deposu değil. --guncelle nöbetçinin kendini
 # origin/<dal>'a çekmesini sağlar; değişiklik varsa süreç çıkar, Restart=always yeni kodu yükler.
 # DAL: main (varsayılan) ya da düzeltme dalı — main'e merge edilmeden de makine yeni kodu koşabilsin.
-ExecStart=$PYTHON $KOD_DEPO/otomasyon/betik/nobetci.py --rol $ROL --aralik 15 --depo $KOD_DEPO --dal $DAL --guncelle${PROFIL:+ --profil $PROFIL}
+ExecStart=$PYTHON $KOD_DEPO/otomasyon/betik/nobetci.py --rol $ROL --aralik 15 --zaman-asimi $ZAMAN_ASIMI --depo $KOD_DEPO --dal $DAL --guncelle${PROFIL:+ --profil $PROFIL}
 Restart=always
 RestartSec=5
 StandardOutput=append:$HOME/.local/state/yourkiosk-otomasyon/nobetci-$ROL.log
