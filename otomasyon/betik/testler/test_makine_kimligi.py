@@ -382,5 +382,89 @@ class DurumDosyasiCipaTesti(unittest.TestCase):
         self.assertEqual((bayt, ref), (b"", ""))
 
 
+class EslemeTeshisTesti(unittest.TestCase):
+    """28 Ekim saha bulgusu: "YAYINLANMIŞ sürümden doğrulanamadı" mesajı her durumda
+    "fetch eksik" diyordu; gerçek neden `main` dalında dosyanın HENÜZ OLMAMASIydı (PR #93
+    birleşmemiş). i5'te 17 karar kapısı reddi bu yüzden birikti ve operatör yanlış komutu
+    kovaladı. Teşhis üç durumu AYIRMAK zorunda; ağ yoksa uydurma gerekçe yazmamalı.
+    """
+
+    def setUp(self):
+        self.dizin = tempfile.TemporaryDirectory()
+        self.kok = Path(self.dizin.name)
+        self.depo = self.kok / "depo"
+        self.depo.mkdir()
+        subprocess.run(["git", "init", "--initial-branch=main"], cwd=str(self.depo),
+                       capture_output=True, text=True, env={**os.environ, **GIT_ENV}, timeout=60)
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def _git(self, *arg: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(self.depo), *arg], capture_output=True,
+                              text=True, env={**os.environ, **GIT_ENV}, timeout=60)
+
+    def test_yayinlanmis_dalda_dosya_yoksa_pr_onerilir(self):
+        # 1) eşleme OLMADAN bir commit (yayınlanmış main bu)
+        (self.depo / "README.md").write_text("x\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-m", "esleme yok")
+        yayin_sha = self._git("rev-parse", "HEAD").stdout.strip()
+
+        # 2) eşlemeyi ekleyen YEREL commit (henüz birleşmemiş PR'ın karşılığı)
+        esleme = self.depo / "otomasyon" / "makine-kimlikleri.json"
+        esleme.parent.mkdir(parents=True)
+        esleme.write_text('{"i5": {"hostname": "casperi5", "kimlik_ozet": "%s"}}\n' % OZET_I5,
+                          encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-m", "esleme (PR)")
+        self._git("update-ref", "refs/remotes/origin/main", yayin_sha)
+
+        sahte_uzak = lambda depo, uzak="origin": ({"main": yayin_sha}, "")  # noqa: E731
+        with mock.patch.object(yaz, "_uzak_dallar", sahte_uzak):
+            neden = yaz._esleme_teshis(self.depo)
+        self.assertIn("YOK", neden)
+        self.assertIn("PR birleşmemiş", neden)
+        self.assertNotIn("BAYAT", neden)
+
+        # uçtan uca: kimlik reddi artık GERÇEK nedeni yazıyor ("fetch eksik" değil)
+        with mock.patch.object(yaz, "KIMLIK_VARSAYILAN", self.kok / "yok"), \
+             mock.patch.object(yaz, "_uzak_dallar", sahte_uzak):
+            _, mesaj = yaz.kimlik_eslemesi(self.depo)
+        self.assertIn("PR birleşmemiş", mesaj)
+
+    def test_bayat_ref_fetch_komutu_verir(self):
+        (self.depo / "README.md").write_text("x\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-m", "ilk")
+        eski = self._git("rev-parse", "HEAD").stdout.strip()
+        # uzak ilerledi: yerel ref ESKİ commit'te kaldı (gerçek senaryo: fetch edilmemiş)
+        (self.depo / "README.md").write_text("y\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-m", "uzakta ilerledi")
+        yeni = self._git("rev-parse", "HEAD").stdout.strip()
+        self._git("update-ref", "refs/remotes/origin/main", eski)
+        self.assertNotEqual(eski, yeni)
+
+        with mock.patch.object(yaz, "_uzak_dallar", lambda depo, uzak="origin": ({"main": yeni}, "")):
+            neden = yaz._esleme_teshis(self.depo)
+        self.assertIn("BAYAT", neden)
+        self.assertIn("fetch origin", neden)
+        self.assertIn("+refs/heads/main:refs/remotes/origin/main", neden)
+
+    def test_ref_hic_yoksa_fetch_onerilir(self):
+        (self.depo / "README.md").write_text("x\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-m", "ilk")
+        sha = self._git("rev-parse", "HEAD").stdout.strip()
+        with mock.patch.object(yaz, "_uzak_dallar", lambda depo, uzak="origin": ({"main": sha}, "")):
+            neden = yaz._esleme_teshis(self.depo)
+        self.assertIn("ref'i yok", neden)
+
+    def test_ag_yoksa_uydurma_gerekce_yazilmaz(self):
+        with mock.patch.object(yaz, "_uzak_dallar", lambda depo, uzak="origin": ({}, "ağ yok")):
+            self.assertEqual(yaz._esleme_teshis(self.depo), "")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
