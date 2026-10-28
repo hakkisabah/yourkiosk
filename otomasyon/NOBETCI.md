@@ -180,6 +180,8 @@ Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce v
 | Aynı PR'a tekrar tekrar oturum | i5 durumu yazamıyor olabilir; `kapi-red.log` + `yaz.py` çıktısına bak |
 | Ajan karar yazamıyor | `python3 otomasyon/betik/karar_dogrula.py /tmp/karar-<no>.json` → eksik alan/kanıt |
 | Oturum kapanınca duruyor | `loginctl enable-linger $USER` — bazı sistemlerde polkit onayı ister: `sudo loginctl enable-linger $USER` (kurulum betiği uyarı verir, hata değil) |
+| Günlükte `pam_faillock ... account temporarily locked` / `auth could not identify password` | Ajan parolasız `sudo` denedi; 3 denemede hesap kilitlenir. Kontrol 16 ✗ verir. **Sıfırlama sudo GEREKTİRMEZ:** `faillock --reset --user $USER`. Sonra ajanın sudo denemesini kes (prompttaki `SUDO YOK` bloğu); yetki adımı bulgu olarak yazılır |
+| `[v2] sorun` kararı var, yeni oturum yok | **Doğru davranış:** karar (sha + inceleme sürümü) güncel → top geliştiricide. Günlük satırı PR'ları tek tek sayar (`düzeltme bekliyor: #83(sorun, 564 dk)`). Bulgular PR yorumunda; yeni commit gelince sha değişir ve PR kuyruğa döner |
 
 ## Kontrol noktaları (tek komut)
 
@@ -193,16 +195,18 @@ Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce v
 | 2 | systemd servisi | `active` |
 | 3 | `linger` | açık |
 | 4 | Durum dosyası tazeliği | < 60 dk |
-| 5 | Bugünkü oturum | ≤ 24 |
+| 5 | Son 6 saatte açılan oturum (fırtına ölçütü) | ≤ 12 |
 | 6 | **En eski iş yaşı** (kuyruk tıkanıklığı) | < 120 dk |
 | 7 | Son 24s zaman aşımı (`çıkış 124`) | 0 |
-| 8 | Son 24s karar kapısı reddi | < 3 |
+| 8 | Son 6s karar kapısı reddi | < 3 |
 | 9 | **Bellek tavanı birimde** (`MemoryMax` + `NODE_OPTIONS` heap) | tanımlı |
 | 10 | **Boş RAM / takas** | ≥ 500 MB boş · takas <%50 |
 | 11 | **Son 24s OOM / core dump izi** | 0 (`journalctl --user -u …`) |
 | 12 | Ağır komut koşucusu (`agir-komut.sh`) | var + çalıştırılabilir |
 | 13 | **Kod `origin/<izlenen dal>` ile aynı** (eski kod = eski hata) | eşit sha |
 | 14 | **Kod deposu makine kopyası** (insan deposu değil) | klon işareti var |
+| 15 | **Makine kimliği** (karar kapısının ön koşulu) | dosya var + rolle aynı |
+| 16 | **Başarısız `sudo` denemesi** (pam_faillock hesabı kilitler) | 0 |
 
 ## Bellek tavanı (26 Ekim dersi — node core dump)
 
