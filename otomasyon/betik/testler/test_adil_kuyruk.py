@@ -8,6 +8,8 @@ sıralamanın ve `limit`in sırasını kilitler: sıralama ÖNCE, dilimleme SONR
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -39,9 +41,14 @@ def damga(metin: str = "karar", surum: str | None = None) -> str:
     return f"[v{surum or nobetci.inceleme_surumu()}] {metin}"
 
 
-def durum(state: str, metin: str = "karar", surum: str | None = None) -> dict:
-    """Commit durumu kaydı: state + (varsayılan olarak güncel sürüm damgalı) açıklama."""
-    return {"state": state, "description": damga(metin, surum)}
+def durum(state: str, metin: str = "karar", surum: str | None = None,
+          yas_dk: int = 0) -> dict:
+    """Commit durumu kaydı: state + (varsayılan olarak güncel sürüm damgalı) açıklama.
+
+    `yas_dk`: kararın kaç dakika önce yazıldığı (created_at). "DÜZELTME BEKLİYOR" yaşlanma
+    uyarısı KARARIN yaşına bakar, PR'ın yaşına değil.
+    """
+    return {"state": state, "description": damga(metin, surum), "created_at": iso(yas_dk)}
 
 
 class SahteGithub(nobetci.Github):
@@ -302,6 +309,55 @@ class GorevMetniTesti(unittest.TestCase):
     def test_baslik_yoksa_cokmez(self):
         metin = self._metin(None)  # type: ignore[arg-type]
         self.assertIn("#91", metin)
+
+
+class FaillockTesti(unittest.TestCase):
+    """28 Ekim canlı bulgu: oturumdaki ajan parolasız `sudo` deniyor → pam_faillock hesabı kilitliyor.
+
+    i5 günlüğü: `pam_faillock(sudo:auth): Consecutive login failures for user hakki account
+    temporarily locked`. Kilit, ajanın kendi yetki adımlarını ve operatörün sudo erişimini
+    birlikte kesiyordu. Sayım sudo GEREKTİRMEDEN okunmalı (ajan kendi kaydını okuyabilmeli).
+    """
+
+    GECERLI = ("hakki:\n"
+               "When                Type  Source                                           Valid\n"
+               "2026-10-27 20:55:23 SVC   sudo                                             V\n"
+               "2026-10-27 20:55:26 SVC   sudo                                             V\n"
+               "2026-10-27 20:55:28 SVC   sudo                                             V\n")
+
+    def test_sifir_deneme_kilit_yok(self):
+        self.assertEqual(nobetci.faillock_durumu("hakki:\nWhen Type Source Valid\n"), (0, False))
+
+    def test_iki_deneme_henuz_kilit_degil(self):
+        satirlar = [s for s in self.GECERLI.splitlines() if s.endswith("V")][:2]
+        adet, kilitli = nobetci.faillock_durumu("hakki:\n" + "\n".join(satirlar))
+        self.assertEqual(adet, 2)
+        self.assertFalse(kilitli)
+
+    def test_uc_deneme_kilit(self):
+        adet, kilitli = nobetci.faillock_durumu(self.GECERLI)
+        self.assertEqual(adet, 3)
+        self.assertTrue(kilitli)
+
+    def test_gecersiz_kayitlar_sayilmaz(self):
+        """Süresi geçmiş (I) kayıtlar hesabı kilitlemez — yoksa denetim sürekli kırmızı kalırdı."""
+        metin = self.GECERLI.replace("28 SVC   sudo                                             V",
+                                     "28 SVC   sudo                                             I")
+        adet, kilitli = nobetci.faillock_durumu(metin)
+        self.assertEqual(adet, 2)
+        self.assertFalse(kilitli)
+
+    def test_bos_ve_none_cokme(self):
+        self.assertEqual(nobetci.faillock_durumu(""), (0, False))
+        self.assertEqual(nobetci.faillock_durumu(None), (0, False))  # type: ignore[arg-type]
+
+    def test_denetim_noktasi_gecerli_makinede_kosar(self):
+        """Nokta 16 gerçekten çalışıyor mu: sudo'suz, faillock okunabilir olmalı."""
+        cikti = subprocess.run(["faillock", "--user", os.environ.get("USER", "")],
+                               capture_output=True, text=True, timeout=15)
+        self.assertEqual(cikti.returncode, 0, cikti.stderr)
+        adet, _ = nobetci.faillock_durumu(cikti.stdout)
+        self.assertGreaterEqual(adet, 0)
 
 
 if __name__ == "__main__":
