@@ -1083,8 +1083,11 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
         deneme = -1
     satir(deneme == 0, "sudo denemesi yok",
           "temiz" if deneme == 0 else
-          (f"{deneme} başarısız sudo denemesi → hesap kilitleniyor; sıfırla: "
-           f"sudo faillock --user {kullanici} --reset (operatör)" if deneme > 0 else "okunamadı"))
+          # Sıfırlama SUDO GEREKTİRMEZ: `faillock --reset --user <k>` kullanıcının kendi kaydını
+          # siler. Metin `sudo` önerirse kilitlenen kişi çalışmayan komuta yönlendirilir ve sayaç
+          # bir kez daha beslenir (28 Ekim saha bulgusu — eski metin sudo'lu biçimi yazıyordu).
+          (f"{deneme} başarısız sudo denemesi → hesap kilitleniyor; sıfırla (sudo GEREKMEZ): "
+           f"faillock --reset --user {kullanici}" if deneme > 0 else "okunamadı"))
 
     print(f"\n{'✓ tüm kontrol noktaları temiz' if sorun == 0 else f'✗ {sorun} kontrol noktası sorunlu'}")
     return 0 if sorun == 0 else 1

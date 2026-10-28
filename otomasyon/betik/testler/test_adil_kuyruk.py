@@ -359,6 +359,22 @@ class FaillockTesti(unittest.TestCase):
         adet, _ = nobetci.faillock_durumu(cikti.stdout)
         self.assertGreaterEqual(adet, 0)
 
+    def test_sifirlama_metni_sudo_onermez(self):
+        """Kilitlenen kişiye `sudo` öneren metin, çalışmayan komuta yönlendirir ve sayacı besler.
+
+        28 Ekim saha bulgusu: ekran `sudo faillock --user hakki --reset (operatör)` diyordu;
+        doğrusu `faillock --reset --user hakki` (sudo GEREKMEZ). Kural ile ekran metni çelişirse
+        sahada ekran kazanır → metni kaynaktan kilitle.
+        """
+        import inspect
+        kaynak = inspect.getsource(nobetci)
+        self.assertIn("faillock --reset --user", kaynak)
+        self.assertNotIn("sudo faillock", kaynak)
+        # Ekran metnini üreten satırda "sudo" YALNIZ "sudo denemesi"/"sudo GEREKMEZ" olarak geçebilir.
+        for satir in kaynak.splitlines():
+            if "faillock --reset" in satir:
+                self.assertNotIn("sudo faillock", satir)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
