@@ -17,6 +17,7 @@ ayarlar ilçe / bölge / cihaz kapsamında ayrı ayrı verilebilir.
 | **[`kiosk/`](kiosk/README.md)** | Ekran uygulaması. Veri akışı, önbellek, güvenlik denetimleri, yerel web sunucusu, tarayıcı başlatıcı, teşhis araçları | Python + PyQt6 |
 | **[`web/`](web/README.md)** | Qt görünümünün **birebir** web karşılığı (Chromium kiosk modu için) | Vue 3 + Vite + TypeScript |
 | **[`panel/`](panel/README.md)** | Yönetim paneli: veri/ayar/yayın düzenleme, süresi geçenleri temizleme, cihazlara bildirim | Vue 3 + Vuetify 3 + AWS (S3/Cognito veya Lambda) |
+| **[`deploy/`](deploy/README.md)** | Canlı kurulum: systemd servisleri, gece güncellemesi (sağlık kapılı), MQTT broker, yedek tatbikatı, maliyet alarmları, IAM izin listesi | systemd + AWS CLI |
 
 ## Öne çıkan özellikler
 
@@ -27,7 +28,7 @@ ayarlar ilçe / bölge / cihaz kapsamında ayrı ayrı verilebilir.
   artık kullanılmayan görseller cihazdan ve S3'ten silinir.
 * **Nöbet değişikliğini anında yansıtma:** panel `tetikle.json` yazar; cihaz kendi ilçesini
   ilgilendiren tetikleyiciyi görünce **beklemeden** yenilenir (tarayıcı modunda uzun yoklama ile
-  genelde 1 sn, Qt modunda en çok 20 sn). Ayrıntı: [`kiosk/NODET-DEGISIKLIGI.md`](kiosk/NODET-DEGISIKLIGI.md).
+  genelde 1 sn, Qt modunda damga kontrolüyle en çok 120 sn — MQTT bağlı değilse 30 sn). Ayrıntı: [`kiosk/NODET-DEGISIKLIGI.md`](kiosk/NODET-DEGISIKLIGI.md).
 * **Güvenlik:** yalnız beyaz listedeki alan adları, yalnız HTTPS, bayt/piksel bütçesi, SVG/HTML
   reddi, cihaz kimliği hiç sunulmaz, yerel sunucu yalnız `127.0.0.1`. Ayrıntı: [`kiosk/GUVENLIK.md`](kiosk/GUVENLIK.md).
 * **Maliyet bilinci:** S3/veri trafiği ve Lambda alternatifi tablolarla: [`panel/MAALIYET.md`](panel/MAALIYET.md).

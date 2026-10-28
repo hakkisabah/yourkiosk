@@ -1,0 +1,51 @@
+[Unit]
+Description=yourkiosk — güncelleme (imzalı yayın etiketi + arayüz derleme + servis yeniden başlatma)
+Documentation=file:/opt/yourkiosk/deploy/CANLIYA-GECIS.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# YETKİ MODELİ (i5 bulgusu): birim root, ama ROOT'A AİT KOPYAYI çalıştırır — kiosk kullanıcısının
+# YAZABİLDİĞİ dosya root olarak çalıştırılırsa yerel yetki yükseltmesi olur. Depo işlemleri
+# (git/npm/pip/sağlık testi) betik içinde `runuser -u kiosk` ile ayrıcalıksız koşar; root yalnız
+# `systemctl restart` için gerekir. Kurulum (depo temizken, DEPLOY adımı):
+# `sudo deploy/kur-guncelle-betigi.sh` — kopyayı root:root 0755 kurar ve doğrular.
+# Kopya KENDİNİ YENİLEMEZ (root, kiosk'un yazabildiği içeriği /usr/local/lib'e kopyalamamalı;
+# ayrıca ProtectSystem=full altında /usr salt-okunur → EROFS). guncelle.sh değişince bu adımı
+# yineleyin: `install -Dm0755 -o root -g root deploy/guncelle.sh /usr/local/lib/yourkiosk/guncelle.sh`
+User=root
+ExecStart=/usr/local/lib/yourkiosk/guncelle.sh
+# npm/pip kiosk kullanıcısı olarak koşar ve HOME olarak bu KALICI dizini kullanır (betik kendi
+# de ayarlar: KIOSK_HOME). `ProtectHome=yes` ile /home zaten erişilemez — bu yüzden kiosk'un ev
+# dizini HOME olarak VERİLMEZ (i5 bulgusu: npm/pip önbellek yazamıyordu).
+Environment=HOME=/var/lib/yourkiosk-guncelle
+StateDirectory=yourkiosk-guncelle
+StateDirectoryMode=0750
+# canli_test günlüğü /var/log/yourkiosk altına yazılır (guncelle.sh ile aynı yol).
+LogsDirectory=yourkiosk
+LogsDirectoryMode=0750
+# Güncelleme başarısızsa servis "failed" görünür; journal'dan okunur.
+TimeoutStartSec=900
+Nice=10
+IOSchedulingClass=idle
+
+# --- SERTLEŞTİRME (i5 bulgusu: root + sertleştirme yok) --------------------
+PrivateTmp=yes
+NoNewPrivileges=yes
+# `runuser` yeni kullanıcıya geçmek için setuid-root ikili kullanır; NoNewPrivileges bunu
+# engellemez ama SUID kısıtı engeller → bu yüzden RestrictSUIDSGID bu birimde KAPALI.
+RestrictSUIDSGID=no
+ProtectSystem=full
+ProtectHome=yes
+ReadWritePaths=/opt/yourkiosk
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryMax=2G
+TasksMax=512

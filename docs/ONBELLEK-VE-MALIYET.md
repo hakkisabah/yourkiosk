@@ -37,7 +37,7 @@ Ayarlamak için `ayarlar.json` → `calistirma.degisiklik_kontrol_ms` (5000–36
 
 | Bileşen | Ayar | Durum |
 |---|---|---|
-| **S3 yaşam döngüsü** | `kiosk/yayin-gorseller/` 45 gün · eski sürümler 30 gün · yarım multipart 7 gün | `panel/infra/s3-lifecycle.json` (kurulu) |
+| **S3 yaşam döngüsü** | **Yalnız `silinebilir=true` etiketli** `kiosk/yayin-gorselleri/` nesneleri 30 gün · eski sürümler 30 gün · `kiosk/tmp/` 7 gün | `deploy/s3/yasam-dongusu.json` (tek doğru kaynak, kurulu) |
 | **CORS** | cihaz `GET/HEAD` her origin · panel `PUT` panel origin'leri | `panel/infra/s3-cors.json`, her yayında uygulanır |
 | **Panel JS güncellemesi** | `assets/*` 1 yıl `immutable` + `index.html` `no-cache` | `yayinla.sh` |
 | **Veri JSON'ları** | `Cache-Control: no-store` (panel yazımı) | edge'de tutulmaz → cihaz her zaman taze okur; push ile anlık |

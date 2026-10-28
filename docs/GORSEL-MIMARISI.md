@@ -90,7 +90,7 @@ Yani `end = 2026-10-30` bilgisini S3 kendiliğinden okuyamaz.
 |---|---|---|
 | **1. Asıl** | Panel temizliği (VAR): `end + 2 saat` sonra kaydı veriden çıkarır, nesneyi S3'ten siler | panel açıldığında/yayında |
 | **2. Emniyet** | EventBridge + Lambda (günde 1): `lastSystemData.json`'ı okur, `max(end)+pay` geçmiş ve **hiçbir yayında referansı olmayan** nesneleri siler | 1 kez/gün, ~0 maliyet |
-| **3. Son çare** | Lifecycle: `kiosk/yayin-gorselleri/` → **90 gün** (45 değil) | sadece öksüzleri toplar |
+| **3. Son çare** | Lifecycle: `kiosk/yayin-gorselleri/` **VE** `silinebilir=true` etiketi → 30 gün (`deploy/s3/yasam-dongusu.json`) | sadece ETİKETLENMİŞ öksüzleri toplar; kullanımdaki görsel silinmez |
 
 Önek bazlı hızlı çözüm (Lambda istemezsen): yükleme öneki tarih taşısın —
 `kiosk/yayin-gorselleri/2026-10-30/<hash>.webp` + `Expiration.Days=30`. Kaba ama işler;
@@ -122,7 +122,7 @@ Yan kazanç: **bellek**. 1916×1080 → **7,9 MB RAM**; 1280×721 → **3,5 MB**
 
 ## 5) Panelden görsel yükleme hattı (henüz yok — tasarım önerisi)
 
-Bugün panel yalnız **adres** yazıyor (`contentUrl`); dosya yükleme yok. Yükleme eklendiğinde:
+Dosya **yükleme** hâlâ yok; adres **düzenleme** var (§5.1). Yükleme eklendiğinde:
 
 ```
 seçilen dosya
@@ -149,7 +149,8 @@ Dosya **yükleme** yok (5. bölümdeki öneri), ama **adres düzenleme** var ve 
 yapılır. Adımlar (menüdeki adlar görünür; `VeriView` yalnız dosya adıdır):
 
 1. Panelde soldan **Nöbet ve Yayınlar** → üstteki **Yayınlar (N gün)** sekmesi.
-2. Değiştirmek istediğiniz satırda **Görsel** düğmesi → *Yayın görseli* penceresi.
+2. Değiştirmek istediğiniz satırda **Görsel** düğmesi → *Yayın görseli* penceresi →
+   **Görsel adresi (contentUrl)** alanı.
 3. Adresi yazın. Panel cihazın kurallarını uygular: `https`, kullanıcı adı/parola **yok**, port
    **443**, uzantı varsa `png/jpg/jpeg/webp` (uzantısız adres kabul — cihaz `image/png|jpeg|webp`
    içerik türüne bakar). Hata metni adresi geri basmaz (kimlik bilgisi ekrana sızmasın).
@@ -202,7 +203,7 @@ sonra bu geçerli değil**: içerik değişmedikçe gövde inmiyor.
 | 1 | İçerik-adlı anahtar + `immutable` | dedupe, sıfır doğrulama trafiği | 0,5 gün (panel yükleme ile birlikte) | düşük |
 | 2 | Panelde WebP yükleme hattı | %90 küçük dosya, RAM | 1 gün (**UI tasarımı onayı gerekir**) | düşük |
 | 3 | Cihazda "kullanılmıyor" silmesine 24 sa grace | indirme fırtınası yok | 2 saat | çok düşük |
-| 4 | S3 lifecycle 45 → 90 gün + günlük Lambda süpürücü | öksüz dosya yok | 2 saat + 0,5 gün | düşük |
+| 4 | S3 lifecycle **etiket kapılı** 30 gün (önek kuralı kaldırıldı) + günlük Lambda süpürücü | öksüz dosya yok, kullanımdaki görsel silinmez | 2 saat + 0,5 gün | düşük |
 | 5 | Bölge bazlı yayın (`ilceId`) | bölgesel kampanya | 1 gün (veri modeli + panel) | orta |
 
 Sıralama önerisi: **3 → 1 → 2 → 4 → 5**.
@@ -235,8 +236,8 @@ Uygulama noktaları:
 - Testler: `kiosk/tests/test_yayin_kapsam.py` (14) + `web/tests/yayin-kapsam.test.ts`
 
 > Not: `Yayinlar` bugün **bölge alanı taşımıyordu**; bu eklemeyle bölgesel kampanya mümkün.
-> Panelde yayınlar salt-okunur görüntülendiği için **arayüz değişmedi**; alanlar veri dosyasından
-> (ya da ileride yükleme ekranından) yazılır.
+> Kapsam alanları yayın verisinden (veri dosyası / araçlar) yazılır; görsel adresi ise panelden
+> **"Görsel adresi (contentUrl)"** alanıyla düzenlenebilir (bkz. §5.1).
 
 ### 8.2 `durum.json` — yoklama turu 3 istek → 1 istek
 

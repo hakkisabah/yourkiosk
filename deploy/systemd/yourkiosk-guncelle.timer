@@ -1,0 +1,13 @@
+[Unit]
+Description=yourkiosk güncellemesini her gece 04:10'da çalıştır
+Documentation=file:/opt/yourkiosk/deploy/CANLIYA-GECIS.md
+
+[Timer]
+OnCalendar=*-*-* 04:10:00
+# Cihaz kapalıyken saat kaçtıysa açılınca bir kez çalıştır (kaçırılan güncelleme)
+Persistent=true
+RandomizedDelaySec=600
+Unit=yourkiosk-guncelle.service
+
+[Install]
+WantedBy=timers.target

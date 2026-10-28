@@ -1,0 +1,50 @@
+[Unit]
+Description=yourkiosk — eczane nöbet ekranı (Qt / Chromium kiosk)
+Documentation=file:/opt/yourkiosk/kiosk/README.md
+After=network-online.target graphical.target
+Wants=network-online.target
+# Ardışık çökme fırtınasını sınırla (5 dakikada 10'dan fazla çökme → servis durur, journal'da görünür).
+# NOT: StartLimit* anahtarları [Unit] bölümünde olmalı; [Service] içinde systemd bunları yok sayar.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+# Cihazda ayrıcalıksız bir kullanıcı açın (X oturumu ve seri port erişimi yeterli):
+#   useradd -m -G video,input kiosk
+User=kiosk
+Group=kiosk
+WorkingDirectory=/opt/yourkiosk/kiosk
+
+# X11 oturumu: kiosk genelde açılışta otomatik girişle açılan oturumda çalışır.
+# Wayland kullanıyorsanız `QT_QPA_PLATFORM=wayland` + `XDG_RUNTIME_DIR` ayarlayın.
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/kiosk/.Xauthority
+Environment=QT_AUTO_SCREEN_SCALE_FACTOR=0
+Environment=PYTHONUNBUFFERED=1
+
+# run.sh: .venv varsa onu, yoksa sistem python3'ünü kullanır; .qt-libs varsa LD_LIBRARY_PATH'i tamamlar.
+ExecStart=/opt/yourkiosk/kiosk/run.sh
+# Qt kapandığında (Ctrl+Q / Esc / çökme) servis yeniden başlatır: ekran boş kalmaz.
+Restart=always
+RestartSec=5
+
+# --- sertleştirme (kiosk zaten tek amaçlı bir makinedir) ---
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+# ÇALIŞMA ZAMANI YAZIMLARI (i5 bilgi bulgusu): Qt/Chromium $HOME altına yazar (fontconfig önbelleği,
+# QtWebEngine profili, .cache). `ProtectHome=read-only` bunları kapatırsa uygulama her açılışta
+# uyarı üretir / profil oluşturamaz → yalnız gereken dizinler yazılabilir yapılır.
+# Baştaki `-`: dizin yoksa birim yine başlar.
+ReadWritePaths=/opt/yourkiosk/kiosk -/home/kiosk/.cache -/home/kiosk/.config -/home/kiosk/.local
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# Ağ yalnız HTTPS'e çıkar; MQTT (8883) de TCP'dir, ayrıntılı çıkış filtresi için nftables kullanın.
+
+[Install]
+WantedBy=graphical.target
