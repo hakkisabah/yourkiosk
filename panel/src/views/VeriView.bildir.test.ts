@@ -208,3 +208,71 @@ describe('VeriView: Bildir akışı', () => {
     wrapper.unmount()
   })
 })
+
+describe('VeriView: yayın FAIL-CLOSED görünür (27 Ekim i5 bulgusu)', () => {
+  // Vuetify diyaloğu jsdom'da `visualViewport` ister (tarayıcıda var, jsdom'da yok) →
+  // diyalog açılınca ReferenceError. Yayın kimliği diyaloğu FAIL-CLOSED akışın parçası
+  // olduğu için bu testte asgari bir taklit kurulur.
+  beforeEach(() => {
+    ;(globalThis as unknown as { visualViewport: unknown }).visualViewport = {
+      width: 1024,
+      height: 768,
+      offsetLeft: 0,
+      offsetTop: 0,
+      scale: 1,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }
+  })
+
+  it('yayın gitmezse kullanıcı görür ve kimlik diyaloğu açılır', async () => {
+    const { mqttBildir } = await import('@/domain/push')
+    const sahte = vi.mocked(mqttBildir)
+    sahte.mockResolvedValueOnce({ gonderildi: false, hata: 'yayın kimliği yok — yayın parolası bu oturumda girilmedi' })
+    setActivePinia(createPinia())
+    yazilanlar.length = 0
+    for (const k of Object.keys(DEPO)) delete DEPO[k]
+    sessionStorage.clear()
+    const d = useDosyalar()
+    d.sistem.veri = JSON.parse(JSON.stringify(VERI))
+    d.sistem.yuklendi = true
+    DEPO['lastSystemData.json'] = JSON.parse(JSON.stringify(VERI))
+
+    const wrapper = mount(VeriView, { global: { plugins: [createVuetify()] }, attachTo: document.body })
+    await wrapper.vm.$nextTick()
+    await new Promise((r) => setTimeout(r, 20))
+
+    const bildir = dugme(wrapper as never, 'Bildir')
+    await bildir!.trigger('click')
+    await new Promise((r) => setTimeout(r, 80))
+    await wrapper.vm.$nextTick()
+
+    const metin = document.body.textContent ?? ''
+    expect(metin, 'başarısız yayın sessizce yutuldu').toContain("yayın broker'a gitmedi")
+    expect(metin, 'kimlik isteme yolu yok').toContain('Yayın parolasını gir')
+    // kimlik diyaloğu AÇILDI (fail-closed akışın çıkışı: kullanıcı parolayı girer)
+    expect(metin).toContain('Yayın kimliği')
+    wrapper.unmount()
+  })
+
+  it('yayın giderse uyarı kalmaz', async () => {
+    const { mqttBildir } = await import('@/domain/push')
+    vi.mocked(mqttBildir).mockResolvedValue({ gonderildi: true })
+    setActivePinia(createPinia())
+    yazilanlar.length = 0
+    for (const k of Object.keys(DEPO)) delete DEPO[k]
+    sessionStorage.clear()
+    const d = useDosyalar()
+    d.sistem.veri = JSON.parse(JSON.stringify(VERI))
+    d.sistem.yuklendi = true
+    DEPO['lastSystemData.json'] = JSON.parse(JSON.stringify(VERI))
+
+    const wrapper = mount(VeriView, { global: { plugins: [createVuetify()] }, attachTo: document.body })
+    await wrapper.vm.$nextTick()
+    await new Promise((r) => setTimeout(r, 20))
+    await dugme(wrapper as never, 'Bildir')!.trigger('click')
+    await new Promise((r) => setTimeout(r, 80))
+    expect(document.body.textContent ?? '').not.toContain("yayın broker'a gitmedi")
+    wrapper.unmount()
+  })
+})
