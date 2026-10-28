@@ -64,5 +64,26 @@ class BetikYollariTesti(unittest.TestCase):
                                 f"{yol.name}: olmayan betik → otomasyon/betik/{ad}")
 
 
+class SudoYasagiTesti(unittest.TestCase):
+    """28 Ekim canlı bulgu: oturumdaki ajan parolasız `sudo` denedi → pam_faillock hesabı kilitledi.
+
+    Kilit iki taraflı zarar verdi: ajan kendi yetki adımlarını yapamadı, operatör (parolayı bilen
+    tek kişi) de o makineye sudo yapamaz hâle geldi. Kural bu yüzden HER iki promptta yazılı
+    olmalı ve "yetki gereken adımı bulgu olarak yaz" davranışını söylemeli.
+    """
+
+    def test_her_promptta_sudo_yasagi_var(self):
+        for ad in ("i5-guvenlik.md", "i3-karar.md"):
+            metin = (PROMPT / ad).read_text(encoding="utf-8")
+            self.assertIn("SUDO YOK", metin, f"{ad}: sudo yasağı bloğu yok")
+            self.assertIn("faillock", metin, f"{ad}: kilitlenme nedeni (pam_faillock) yazılı değil")
+            self.assertIn("BULGU", metin, f"{ad}: 'yetki adımını bulgu olarak yaz' kuralı yok")
+
+    def test_sudo_yasagi_bellek_kuralindan_sonra_gelir(self):
+        """Ajan promptu sırayla okur: yasak, komut örneklerinden ÖNCE durmalı."""
+        metin = (PROMPT / "i5-guvenlik.md").read_text(encoding="utf-8")
+        self.assertLess(metin.index("SUDO YOK"), metin.index("## Akış"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

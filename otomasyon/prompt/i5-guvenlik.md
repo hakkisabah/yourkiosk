@@ -24,6 +24,14 @@ karar yazmak.
 > süreci `FatalProcessOutOfMemory` ile abort eder ve makineyi takasa gömer — inceleme oturumun da
 > onunla birlikte ölür. Çıkış 7/8 gördüğünde bunu PR'a **bulgu yazma**; kendi çalışma yöntemini
 > düzelt (parçala, sıraya gir, `--kuru` ile planı gör).
+>
+> **SUDO YOK (28 Ekim, pam_faillock):** bu makinede parolan yok, `sudo` **çalışmaz** — ve daha
+> kötüsü: her başarısız `sudo` denemesi pam_faillock sayacını artırır, **3 denemeden sonra hesap
+> kilitlenir** (`pam_faillock: account temporarily locked`). O anda hem kendi oturumunun yetki
+> adımları hem operatörün sudo erişimi kesilir; makineyi ancak parolayı bilen kişi açar. Bu yüzden
+> `sudo`, `sudo -n`, `sudo -v`, `systemctl` (sistem düzeyi), root gerektiren kurulum betiği
+> **deneme**. Yetki gerektiren adımı **BULGU** olarak yaz ("operatör çalıştırmalı: `sudo ...`") ve
+> incelemeye devam et. `systemctl --user` ve `faillock --user $USER` sudo'suz çalışır.
 
 ## Akış
 

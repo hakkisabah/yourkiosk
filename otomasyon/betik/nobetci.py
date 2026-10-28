@@ -377,7 +377,10 @@ def durum_ayrintili(gh: Github, sha: str) -> dict[str, dict]:
     if not isinstance(govde, dict):
         return {}
     return {s.get("context", "?"): {"state": s.get("state", "?"),
-                                    "description": s.get("description") or ""}
+                                    "description": s.get("description") or "",
+                                    # created_at: "sorun" kararının kaç saattir açık olduğunu
+                                    # ölçmek için (düzeltme bekleyen PR sessizce yaşlanmasın).
+                                    "created_at": s.get("created_at") or ""}
             for s in govde.get("statuses", [])}
 
 
@@ -412,6 +415,27 @@ def surum_guncel(aciklama: str | None, surum: str | None = None) -> bool:
     """
     m = SURUM_DAMGASI.search(str(aciklama or ""))
     return bool(m) and m.group(1) == (surum or inceleme_surumu())
+
+
+#: pam_faillock varsayılanı: bu sayıda başarısız denemeden sonra hesap geçici kilitlenir.
+FAILLOCK_ESIK = 3
+
+
+def faillock_durumu(cikti: str) -> tuple[int, bool]:
+    """`faillock --user <kullanıcı>` çıktısından (başarısız deneme sayısı, kilitli mi) üretir.
+
+    Neden: oturumdaki ajan parolasız `sudo` deniyor; pam_faillock 3 denemeden sonra hesabı
+    kilitliyor (i5 günlüğü, 28 Ekim). Kilit; ajanın kendi yetki adımlarını ve operatörün sudo
+    erişimini birlikte keser. Sayım bu yüzden denetim noktasıdır — ve sudo GEREKTİRMEDEN
+    okunabilmelidir (ajan kendi kullanıcısının kaydını okuyabilir).
+    """
+    adet = 0
+    for satirl in str(cikti or "").splitlines():
+        # Biçim: "2026-10-27 20:55:23 SVC   sudo   V"  (son sütun: V=geçerli, I=geçersiz)
+        parcalar = satirl.split()
+        if len(parcalar) >= 5 and parcalar[1].count(":") == 2 and parcalar[-1].upper() == "V":
+            adet += 1
+    return adet, adet >= FAILLOCK_ESIK
 
 
 #: Aynı PR+commit için yeniden oturum açmadan önce beklenecek süre (sn). Üstel artar.
@@ -454,6 +478,23 @@ def yas_dk(iso: str | None, an: float | None = None) -> int:
     return max(0, int(((an if an is not None else time.time()) - t) / 60))
 
 
+#: "sorun" kararı bu süreden (dk) uzun süredir açıksa DÜZELTME BEKLİYOR uyarısı yazılır.
+#: 24 saat: karar yazıldıktan sonra bir iş günü içinde düzeltme commit'i beklenir.
+DUZELTME_UYARI_DK = 24 * 60
+
+
+def bekleyen_kaydi(pr_no: int, durum: str | None, ayrinti: dict) -> dict:
+    """Kararı GÜNCEL olan (yeniden incelenmeyecek) PR'ın kaydı.
+
+    `durum` ve `dk` (kararın yaşı, dakika) günlükte "düzeltme bekliyor" ile "birleştirme
+    bekliyor" ayrımını ve sessiz yaşlanma uyarısını mümkün kılar. Kararın yaşı `created_at`ten
+    ölçülür: PR'ın yaşı değil, KARARIN yaşı önemli (yeni commit gelmeden karar eskimez).
+    """
+    return {"pr": pr_no, "durum": durum,
+            "aciklama": str(ayrinti.get("description") or ""),
+            "dk": yas_dk(ayrinti.get("created_at"))}
+
+
 def isler(gh: Github, rol: str, limit: int) -> list[dict]:
     """Rol için yapılacak işler — **EN ESKİ PR ÖNCE**.
 
@@ -475,7 +516,7 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
     an = time.time()
     surum = inceleme_surumu()
     cikti: list[dict] = []
-    atlanan = 0  # bu sha için kararı zaten yazılmış PR'lar (top geliştiricide)
+    bekleyen: list[dict] = []  # kararı GÜNCEL olan PR'lar (yeniden oturum açılmaz)
     bayat = 0    # kararı eski inceleme sürümüyle yazılmış PR'lar (yeniden incelenecek)
     for pr in govde:
         if pr.get("draft"):
@@ -513,7 +554,7 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
                 bayat += 1
                 cikti.append(kayit)
             else:
-                atlanan += 1  # karar yazılmış, düzeltme geliştiricide
+                bekleyen.append(bekleyen_kaydi(no, inceleme, inceleme_d))  # karar yazılmış, düzeltme/birleştirme geliştiricide
         else:  # i3 — yalnız i5 onay verdikten sonra çalışır
             if inceleme != "success":
                 continue
@@ -524,7 +565,7 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
                     bayat += 1
                 cikti.append(kayit)
             else:
-                atlanan += 1  # karar verilmiş (düzeltme/red), geliştiricide
+                bekleyen.append(bekleyen_kaydi(no, karar, karar_d))  # karar verilmiş (düzeltme/red), geliştiricide
 
     # yaş büyük = daha eski → başa. Eşitlikte PR numarası küçük olan (daha eski) önce.
     cikti.sort(key=lambda i: (-i["yas_dk"], i["pr"]))
@@ -537,10 +578,32 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
     if bayat:
         gunluk_seyrek(getattr(gh, "gunluk_yolu", None), f"{rol}:bayat:{surum}",
                       f"{rol}: {bayat} PR eski inceleme sürümünden → yeniden inceleme (v{surum})")
-    if atlanan:
+    if bekleyen:
+        # KARAR YAZILMIŞ PR'LAR GÖRÜNÜR OLMALI (28 Ekim bulgusu): tek satır "zaten karara bağlı →
+        # yeni commit bekleniyor" hem "onay verildi, birleştir" hem "sorun verildi, düzelt" demekti.
+        # Canlı vakada #83/#86 "sorun" kararıyla DÜZELTME bekliyordu ama günlük "i5 susuyor" gibi
+        # okunuyordu. Artık iki grup ayrı ayrı, PR numarası + karar yaşıyla yazılır.
+        duzeltme = [b for b in bekleyen if b["durum"] != "success"]
+        birlesme = [b for b in bekleyen if b["durum"] == "success"]
+        parcalar = []
+        if duzeltme:
+            parcalar.append("düzeltme bekliyor: " + ", ".join(
+                f"#{b['pr']}(sorun, {b['dk']} dk)" for b in duzeltme))
+        if birlesme:
+            parcalar.append("birleştirme bekliyor: " + ", ".join(
+                f"#{b['pr']}(onay, {b['dk']} dk)" for b in birlesme))
         gunluk_seyrek(getattr(gh, "gunluk_yolu", None), f"{rol}:atlanan:{len(govde)}",
-                      f"{rol}: {atlanan} PR bu commit için zaten karara bağlı "
-                      f"→ yeni commit bekleniyor (yeniden karar yazılmaz)")
+                      f"{rol}: {len(bekleyen)} PR bu commit için zaten karara bağlı → "
+                      + "; ".join(parcalar) + " (yeniden karar yazılmaz)")
+        # SESSİZ YAŞLANMA FRENİ: "sorun" kararı 24 saati geçtiyse düzeltme gelmiyor demektir.
+        # Bu satır olmadan PR sonsuza kadar ne kuyrukta ne uyarıda görünüyordu.
+        geciken = [b for b in duzeltme if b["dk"] >= DUZELTME_UYARI_DK]
+        if geciken:
+            gunluk_seyrek(getattr(gh, "gunluk_yolu", None), f"{rol}:duzeltme-bekliyor:{surum}",
+                          "DÜZELTME BEKLİYOR: " + ", ".join(
+                              f"#{b['pr']} {b['dk'] // 60} saattir 'sorun' kararıyla bekliyor"
+                              for b in geciken)
+                          + " — yeni commit gelmedi; bulgular PR yorumunda")
     return cikti[:limit]
 
 
@@ -1003,6 +1066,25 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
     else:
         satir(False, "makine kimliği",
               f"{kimlik_neden} · düzelt: bash otomasyon/betik/makine-kimligi-kur.sh --kaydet {rol}")
+
+    # 16) SUDO/KİLİTLENME — 28 Ekim canlı bulgu: i5 günlüğünde
+    #   "pam_faillock: Consecutive login failures for user hakki account temporarily locked"
+    # Oturumdaki ajan parolası olmadığı hâlde `sudo` deniyor; pam_faillock 3 denemeden sonra
+    # hesabı kilitliyor. Sonuç: ajan kendi oturumunda yetki gereken adımı deneyip makineyi
+    # kilitliyor, operatör de (parolayı bilen tek kişi) o makineye sudo yapamaz hâle geliyordu.
+    # sudo DENENMEMELİ; yetki gereken adım BULGU olarak yazılır. Bu satır sınıfı görünür kılar.
+    kullanici = os.environ.get("USER", "")
+    deneme = -1
+    try:
+        cikti = subprocess.run(["faillock", "--user", kullanici],
+                               capture_output=True, text=True, timeout=15).stdout
+        deneme, _ = faillock_durumu(cikti)
+    except (OSError, subprocess.SubprocessError):
+        deneme = -1
+    satir(deneme == 0, "sudo denemesi yok",
+          "temiz" if deneme == 0 else
+          (f"{deneme} başarısız sudo denemesi → hesap kilitleniyor; sıfırla: "
+           f"sudo faillock --user {kullanici} --reset (operatör)" if deneme > 0 else "okunamadı"))
 
     print(f"\n{'✓ tüm kontrol noktaları temiz' if sorun == 0 else f'✗ {sorun} kontrol noktası sorunlu'}")
     return 0 if sorun == 0 else 1

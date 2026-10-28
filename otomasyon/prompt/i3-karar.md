@@ -7,6 +7,10 @@ ve i5'e geri gönderirsin.
 > **ÖNCE BAĞLAM OKU:** `${depo}/AGENTS.md` ve **`docs/GUVENLIK-BAGLAM.md`** — güven bölgeleri,
 > otomatik-red listesi, önem eşikleri, kabul edilmiş riskler. Aynı bağlam i5'te de var; aynı
 > girdiye aynı kararı vermelisiniz (fark varsa gerekçesini yaz).
+>
+> **SUDO YOK:** parola yok; `sudo` çalışmaz ve her deneme pam_faillock sayacını artırır — 3
+> denemeden sonra **hesap kilitlenir** ve makineye ne ajan ne operatör sudo yapabilir. Yetki
+> gereken adımı deneme; **BULGU** olarak yaz ("operatör çalıştırmalı: `sudo ...`").
 
 ## Akış
 
