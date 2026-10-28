@@ -683,6 +683,46 @@ def _yayinlanmis_esleme(depo: Path, dal: str = "", *,
     return b"", ""
 
 
+def _esleme_teshis(depo: Path) -> str:
+    """Yayınlanmış eşleme okunamadığında NEDEN'i tek satırda söyler (yalnız okuma).
+
+    28 Ekim saha bulgusu: tek mesaj her durumda "fetch eksik" diyordu. Gerçek neden çoğu zaman
+    `main` dalında dosyanın HENÜZ OLMAMASIydı (eşlemeyi ekleyen PR birleşmemiş) → operatör
+    saatlerce yanlış komutu kovaladı (i5'te 17 karar kapısı reddi bu yüzden birikti).
+    Teşhis üç durumu ayırır: dal yok · yerel ref bayat · dosya yayınlanmış dalda yok.
+    Ağ/kabuk hatasında boş döner (uydurma gerekçe yazmamak için).
+    """
+    try:
+        uzak, _ = _uzak_dallar(depo)
+        sha = str(uzak.get(KIMLIK_ESLEME_DALI, "")).strip().lower()
+        if len(sha) != 40:
+            # Uzak okunamıyor (ağ/remote yok) → spesifik teşhis YOK; çağıran genel metni yazar.
+            return ""
+        ref = f"refs/remotes/origin/{KIMLIK_ESLEME_DALI}"
+        yerel = subprocess.run(["git", "-C", str(depo), "rev-parse", "--verify", "-q", ref],
+                               capture_output=True, text=True, timeout=60)
+        if yerel.returncode != 0:
+            return (f"yerel `origin/{KIMLIK_ESLEME_DALI}` ref'i yok (fetch hiç çalışmamış?) → "
+                    f"git -C {depo} fetch origin "
+                    f"+refs/heads/{KIMLIK_ESLEME_DALI}:{ref}")
+        yerel_sha = yerel.stdout.strip().lower()
+        if yerel_sha != sha:
+            return (f"yerel `origin/{KIMLIK_ESLEME_DALI}` ref'i BAYAT "
+                    f"({yerel_sha[:8]} ≠ uzak {sha[:8]}) → fetch gerekli: git -C {depo} fetch origin "
+                    f"+refs/heads/{KIMLIK_ESLEME_DALI}:{ref}")
+        var = subprocess.run(["git", "-C", str(depo), "cat-file", "-e",
+                              f"{sha}:{KIMLIK_ESLEME_DOSYASI}"],
+                             capture_output=True, text=True, timeout=60)
+        if var.returncode != 0:
+            return (f"`{KIMLIK_ESLEME_DOSYASI}` yayınlanmış `{KIMLIK_ESLEME_DALI}` dalında "
+                    f"({sha[:8]}) YOK — dosyayı ekleyen PR birleşmemiş; birleştikten sonra "
+                    f"git -C {depo} fetch origin "
+                    f"+refs/heads/{KIMLIK_ESLEME_DALI}:{ref}")
+        return "yayınlanmış blob `git show` ile okunamadı"
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
 def kimlik_eslemesi(depo: Path | None = None, *,
                     yayin_oku=None) -> tuple[dict, str]:
     """Depodaki rol↔machine-id eşlemesi (`otomasyon/makine-kimlikleri.json`).
@@ -715,9 +755,12 @@ def kimlik_eslemesi(depo: Path | None = None, *,
     oku = yayin_oku if yayin_oku is not None else _yayinlanmis_esleme
     yayin, ref = oku(kok)
     if not yayin:
-        return {}, (f"kimlik eşlemesi YAYINLANMIŞ sürümden doğrulanamadı ({kok}) — yerel "
-                    f"uzak-izleme ref'i `git ls-remote origin` ile eşleşmiyor ya da fetch eksik: "
-                    f"git -C {kok} fetch origin")
+        # Teşhis yalnız GERÇEK okuyucuda çalışır (testler enjekte edilen okuyucuyla eski mesajı görür).
+        teshis = "" if yayin_oku is not None else _esleme_teshis(kok)
+        ayrinti = (f" — {teshis}" if teshis else
+                   f" — yerel uzak-izleme ref'i `git ls-remote origin` ile eşleşmiyor ya da fetch "
+                   f"eksik: git -C {kok} fetch origin")
+        return {}, f"kimlik eşlemesi YAYINLANMIŞ sürümden doğrulanamadı ({kok}){ayrinti}"
     if yayin != yerel:
         return {}, (f"kimlik eşlemesi yayınlanmış sürümden FARKLI (yerel ≠ {ref}) — yerel commit "
                     f"rol taklidi sayılır; değişiklik PR ile birleşmeli")
