@@ -82,6 +82,7 @@
   "TETIK_PUSH_PAROLA": "",
   "TETIK_PUSH_PORT": 8883,
   "TETIK_PUSH_SERTIFIKA": "",
+  "TETIK_PUSH_TLS": true,
   "WEB_KLASORU": "web",
   "WEB_SUNUCU_ADRESI": "127.0.0.1",
   "WEB_SUNUCU_PORTU": 8090,
@@ -212,5 +213,5 @@
    "krem": "#f5e8c7"
   }
  },
- "surum_ozeti": "32304b19ec0526b9"
+ "surum_ozeti": "6c6f9a9006b92bd6"
 }

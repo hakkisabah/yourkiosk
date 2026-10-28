@@ -55,8 +55,8 @@ VITE_IDENTITY_POOL_ID=…
 # MQTT push (600+ cihazda anlık tetikleme)
 VITE_MQTT_URL=wss://yourkiosk.hakkisabah.com:8084/mqtt
 VITE_MQTT_KONU=yourkiosk/yayin
-VITE_MQTT_KULLANICI=panel
-VITE_MQTT_PAROLA=…
+# Parola/kullanıcı YAZILMAZ: derleme değişkeni pakete gömülür (paket herkese açık).
+# Panel yayın parolasını çalışma anında sorar (sessionStorage).
 ```
 
 Yayın: `./panel/infra/yayinla.sh` (AWS yayın anahtarı: `docs/AWS-KURULUM.md §10`).

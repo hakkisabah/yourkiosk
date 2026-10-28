@@ -4,15 +4,21 @@
  * NEDEN: 600 cihazda cihaz başına yoklama maliyeti doğrusal büyür (3 sn ≈ 518 M istek/ay).
  * MQTT'de cihaz başına tek kalıcı bağlantı vardır; yayın başına tek mesaj gider (~100 ms).
  *
- * Yapılandırma (panel/.env.local):
+ * Yapılandırma (panel/.env.local — SIR DEĞİL, yalnız adres/konu):
  *   VITE_MQTT_URL=wss://broker.example:8084/mqtt
  *   VITE_MQTT_KONU=yourkiosk/yayin
- *   VITE_MQTT_KULLANICI=panel
- *   VITE_MQTT_PAROLA=…
+ *
+ * YAYIN PAROLASI PAKETE GİRMEZ (27 Ekim i5 bulgusu, yüksek): panel paketi CloudFront'tan kimlik
+ * doğrulamasız indirilebildiği için derleme zamanı parola = herkese açık parola. Parola çalışma
+ * anında `domain/yayinKimligi` üzerinden oturumdan (sessionStorage) okunur; yoksa yayın
+ * FAIL-CLOSED: broker'a hiç bağlanılmaz, sonuç `gonderildi:false` + gerekçe döner.
  *
  * Ayarlanmamışsa sessizce atlanır (cihazlar yoklama emniyet ağıyla çalışmaya devam eder).
  * `mqtt` paketi **dinamik** yüklenir: yapılandırma yoksa ana pakete girmez.
  */
+
+import { guvenliAdresMi } from './izlemeKimligi'
+import { yayinKimligiOku, type YayinKimligi } from './yayinKimligi'
 
 const URL_ = import.meta.env.VITE_MQTT_URL as string | undefined
 
@@ -25,15 +31,34 @@ export interface MqttSonuc {
   hata?: string
 }
 
-/** Yayın bildirimini MQTT konusuna gönderir (QoS 1, sonra bağlantı kapatılır). */
-export async function mqttBildir(ad: string, zaman: string = new Date().toISOString()): Promise<MqttSonuc> {
+/**
+ * Yayın bildirimini MQTT konusuna gönderir (QoS 1, sonra bağlantı kapatılır).
+ *
+ * `kimlik` verilmezse oturumdaki yayın kimliği kullanılır. Kimlik yoksa **hiç bağlanılmaz**:
+ * parolasız bağlanma denemesi broker tarafından reddedilir ve hata kullanıcıya anlamsız gelir.
+ */
+export async function mqttBildir(ad: string, zaman: string = new Date().toISOString(),
+  kimlik?: YayinKimligi | null): Promise<MqttSonuc> {
   if (!URL_) return { gonderildi: false, hata: 'VITE_MQTT_URL tanımlı değil' }
+  // ŞEMA KAPISI (27 Ekim i5 bulgusu): yayın yolu, çalışma anında girilen parolayı doğrudan bu
+  // adrese verir. `ws://` (TLS'siz) uzak bir adres parolayı açık metin gönderir; izleme yolu bu
+  // riski `guvenliAdresMi` ile kapatıyor, yayın yolu kapatmıyordu. Aynı kapı burada da zorunlu.
+  if (!guvenliAdresMi(URL_)) {
+    return {
+      gonderildi: false,
+      hata: 'VITE_MQTT_URL güvenli değil — wss:// bekleniyor (ws:// yalnız localhost/127.0.0.1/::1)',
+    }
+  }
+  const oturumKimligi = kimlik === undefined ? yayinKimligiOku() : kimlik
+  if (!oturumKimligi) {
+    return { gonderildi: false, hata: 'yayın kimliği yok — yayın parolası bu oturumda girilmedi' }
+  }
   try {
     const { connect } = await import('mqtt')
     const istemci = connect(URL_, {
       clientId: `panel-${Math.random().toString(16).slice(2, 10)}`,
-      username: (import.meta.env.VITE_MQTT_KULLANICI as string | undefined) || undefined,
-      password: (import.meta.env.VITE_MQTT_PAROLA as string | undefined) || undefined,
+      username: oturumKimligi.kullanici,
+      password: oturumKimligi.parola,
       connectTimeout: 5000,
       reconnectPeriod: 0,
       clean: true,

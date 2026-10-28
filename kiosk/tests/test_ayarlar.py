@@ -274,3 +274,34 @@ def test_sadece_gorsel_modu(config_yedek, pencere_fabrikasi) -> None:
     assert pencere.stack.currentWidget() is pencere.yayin_widget
     assert pencere.yayin_widget.ticker_strip.isVisible() is False
     assert pencere.nobet_widget.isVisible() is False
+
+
+# ---------------------------------------------------- şema bağlama (regresyon)
+# 27 Ekim i5 bulgusu: `TETIK_PUSH_TLS` config'e eklendi, `core/push.py` onu okudu, AMA
+# `ayarlar.KURALLAR`'a (dolayısıyla ayarlar.json + panel şeması + üretilen belgeye)
+# bağlanmadı. Sonuç: "kapatmak açık bir karar" denen ayar hiç kapatılamıyordu, üretilen
+# web/sema belgeleri bayat kalıyordu. Bu test, aynı sınıf hatayı tekrar imkânsız kılar:
+# config'teki her `TETIK_*` anahtarı şemada olmalı (iç anahtarlar hariç).
+#: Cihazda sabit kalan, panelden değiştirilmesi İSTENMEYEN iç anahtarlar (gerekçeleri burada).
+IC_AYARLAR = {
+    "TETIK_IZLEME_MS": "yerel dosya izleme aralığı; ağa çıkmaz, cihazda sabit (timer_manager)",
+}
+
+
+def test_config_tetik_anahtarlari_semaya_bagli() -> None:
+    semada = {cfg_ad for cfg_ad, *_ in ayarlar.KURALLAR.values()}
+    configte = {ad for ad in dir(config) if ad.startswith("TETIK_")}
+    eksik = sorted(configte - semada - set(IC_AYARLAR))
+    assert not eksik, (
+        "config'te olup ayar şemasına bağlanmayan anahtar(lar): "
+        f"{eksik} → ayarlar.json/panel/üretilen belge bu ayarı göremez. "
+        "KURALLAR'a ekleyin ya da IC_AYARLAR'a gerekçesiyle yazın."
+    )
+
+
+def test_sema_anahtarlari_configte_var() -> None:
+    """Ters yön: şemadaki her anahtar config'te gerçekten bulunmalı (yazım hatası kapısı)."""
+    eksik = sorted(
+        {cfg_ad for cfg_ad, *_ in ayarlar.KURALLAR.values() if not hasattr(config, cfg_ad)}
+    )
+    assert not eksik, f"şemada olup config'te bulunmayan anahtar(lar): {eksik}"

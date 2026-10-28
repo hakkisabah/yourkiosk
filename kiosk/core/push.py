@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -62,6 +64,79 @@ def durum() -> dict:
     return anlik
 
 
+#: Kalp atışı aralığı (sn) — panel 600 cihazın çevrimiçi/çevrimdışı durumunu bundan okur.
+#: 5 dk × 600 cihaz = ayda ~5,2 M küçük mesaj (MQTT'de önemsiz; yoklama maliyeti doğrusal büyür).
+KALP_ATISI_S = 300
+
+
+def cihaz_kimligi() -> str:
+    """Bu cihazın kimliği (clientID) — kalp atışı konusunda kullanılır."""
+    from core import veri_kaynagi
+
+    try:
+        return str(veri_kaynagi.client_id() or "").strip()
+    except Exception:  # noqa: BLE001 - kimlik okunamazsa "bilinmeyen" ile devam
+        return ""
+
+
+def istemci_kimligi(cihaz: str | None = None) -> str:
+    """MQTT clientId — cihaz kimliği + rastgele son ek.
+
+    NEDEN: eski kimlik `yourkiosk-<int(time.time()) % 100000>` idi; 600 cihazın toplu
+    kurulumunda aynı saniyede açılan iki cihaz AYNI clientId'yi alıyor, broker eski oturumu
+    atınca biri diğerinin aboneliğini düşürüyordu (i5 bulgusu). MQTT 3.1.1 clientId sınırı
+    23 karakterdir → kısa tutulur (`yk-` + 12 + `-` + 6 = 22).
+    """
+    ham = str(cihaz or cihaz_kimligi() or "bilinmeyen")
+    temiz = re.sub(r"[^A-Za-z0-9_-]", "-", ham).strip("-")[:12] or "bilinmeyen"
+    return f"yk-{temiz}-{uuid.uuid4().hex[:6]}"
+
+
+def durum_kimligi(cihaz: str | None = None) -> str:
+    """Konu için cihaz kimliği — TEK normalizasyon kuralı (i5 bulgusu).
+
+    Üç tüketici aynı sözleşmeyi uygulamak zorunda: yayıncı (burası), ACL aracı (`cihaz-ekle.sh`,
+    `^[A-Za-z0-9_-]{1,40}$`) ve panel (`cihazIzleme.ts`). Eskiden yayıncı yalnız `/ + #`
+    temizliyordu → `İZMİR 01` gibi bir kimlik ACL'e yazılamayan konu üretiyor, cihaz panelde
+    sonsuza kadar "bilinmiyor" kalıyordu. Kural: ASCII dışı ve joker karakterler `-`, en çok 40.
+    """
+    ham = str(cihaz or cihaz_kimligi() or "bilinmeyen")
+    temiz = re.sub(r"[^A-Za-z0-9_-]", "-", ham).strip("-")[:40] or "bilinmeyen"
+    return temiz
+
+
+def taban_konu() -> str:
+    """Durum konularının tabanı: yayın konusunun SON parçası atılır (`yourkiosk/yayin` → `yourkiosk`).
+
+    Panel aynı kuralı uygular (`panel/src/domain/cihazIzleme.ts: durumKonusu`). İki kapı:
+    (1) sonda eğik çizgi (`yourkiosk/yayin/`) tabanı kaydırıyordu; kırpılır.
+    (2) yayın konusu boş/tek parçasız kaldığında taban boş kalıp konu `/durum/<id>` oluyordu
+    (panel ise `yourkiosk/durum/+` dinler → cihaz sonsuza kadar "bilinmiyor"); `yourkiosk`'a düşer.
+    """
+    temiz = konu().rstrip("/")
+    taban = temiz.rsplit("/", 1)[0] if "/" in temiz else temiz
+    return taban or "yourkiosk"
+
+
+def durum_konusu(cihaz: str | None = None) -> str:
+    """Cihaz durum konusu: `<taban>/durum/<cihazId>` (`yourkiosk/yayin` → `yourkiosk/durum/<id>`).
+
+    Kimlik `durum_kimligi()` ile normalleştirilir; taban `taban_konu()`dan gelir.
+    """
+    return f"{taban_konu()}/durum/{durum_kimligi(cihaz)}"
+
+
+def kalp_atisi_belgesi(cevrimici: bool = True, simdi: datetime | None = None) -> dict:
+    """Kalp atışı gövdesi (retained): panel `cevrimici` + `zaman` alanlarını okur."""
+    an = simdi or datetime.now(timezone.utc)
+    return {
+        "cevrimici": bool(cevrimici),
+        "zaman": an.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "mod": "tarayici" if str(getattr(config, "CALISTIRMA_MODU", "")).lower().startswith("tar") else "qt",
+        "surum": str(getattr(config, "SURUM", "") or ""),
+    }
+
+
 def _tetik_yaz(kaynak: str = "mqtt") -> Path:
     """Yerel `tetikle.json`'u yazar → mevcut imza mekanizması arayüzü yeniler."""
     from core import tetik as tetik_modulu
@@ -101,6 +176,59 @@ def mesaj_isle(govde: bytes | str) -> bool:
     return True
 
 
+def tls_gerekli() -> bool:
+    """TLS VARSAYILAN AÇIK — porttan BAĞIMSIZ (26 Ekim i5 bulgusu).
+
+    Eski kod TLS'i yalnız `port == 8883` iken kuruyordu. `TETIK_PUSH_PORT` başka bir değere
+    (1883, 8884, 443, ters vekil) ayarlanınca TLS hiç devreye girmiyor, kullanıcı/parola ve
+    kalp atışları (filo görünürlüğü) aynı kanaldan ŞİFRESİZ gidiyordu. Kapatmak artık açık bir
+    karar: `TETIK_PUSH_TLS=false` (yalnız yerel/test broker'ı — günlüğe uyarı yazılır).
+    """
+    return bool(getattr(config, "TETIK_PUSH_TLS", True))
+
+
+def tls_kur(istemci) -> None:
+    """TLS bağlamını kurar; istemci sertifikası verilmişse X.509 kimlik (AWS IoT Core) kullanır.
+
+    Hata durumunda istisna yükseltir — çağıran push'u kapatır (cihaz yoklama emniyet ağına döner).
+    """
+    ca = str(getattr(config, "TETIK_PUSH_CA", "") or "").strip()
+    sertifika = str(getattr(config, "TETIK_PUSH_SERTIFIKA", "") or "").strip()
+    anahtar = str(getattr(config, "TETIK_PUSH_ANAHTAR", "") or "").strip()
+    if sertifika and anahtar:
+        # AWS IoT Core: istemci sertifikası ile kimlik doğrulama
+        istemci.tls_set(ca_certs=ca or None, certfile=sertifika, keyfile=anahtar)
+    else:
+        istemci.tls_set(ca_certs=ca or None)  # sistem CA'sı / verilen CA
+
+
+def _adres_ve_port() -> tuple[str, int]:
+    """Broker adresi ve portu — BOZUK AYARDA ÇÖKMEZ (27 Ekim i5 bulgusu).
+
+    Eskiden `int(getattr(config, "TETIK_PUSH_PORT", 8883))` çağrısı `_dongu`nun ilk `try`
+    bloğunun DIŞINDAYDI: `push_port=""` ya da `"tls://8883"` gibi bir değer ValueError/TypeError
+    fırlatıyor, arka plan iş parçacığı `_durum["hata"]` bile yazamadan ölüyordu. Sonuç: cihaz
+    çalışmaya devam eder ama kalp atışı hiç gitmez, filo panelde kalıcı "bilinmiyor" görünür ve
+    log'da tek satır iz kalmaz (sessiz ölüm). Artık hata `_durum`a yazılır, port 8883'e düşülür;
+    adres de bozuksa boş adres döner (çağıran push'u kapatır).
+    """
+    try:
+        return broker(), int(getattr(config, "TETIK_PUSH_PORT", 8883))
+    except (TypeError, ValueError) as hata:
+        _durum["hata"] = f"push_port geçersiz: {hata}"[:200]
+        log.warning("MQTT push portu geçersiz (%s) → 8883'e düşülüyor", hata)
+    except Exception as hata:  # noqa: BLE001 - adres çözümü de bozuk olabilir
+        _durum["hata"] = f"push broker adresi geçersiz: {hata}"[:200]
+        log.warning("MQTT push broker adresi geçersiz (%s) → push kapalı", hata)
+        return "", 0
+    try:
+        return broker(), 8883
+    except Exception as hata:  # noqa: BLE001
+        _durum["hata"] = f"push broker adresi geçersiz: {hata}"[:200]
+        log.warning("MQTT push broker adresi geçersiz (%s) → push kapalı", hata)
+        return "", 0
+
+
 def _dongu(durdur: threading.Event) -> None:
     try:
         import paho.mqtt.client as mqtt  # type: ignore
@@ -109,9 +237,11 @@ def _dongu(durdur: threading.Event) -> None:
         log.warning("MQTT push etkin ama 'paho-mqtt' yok → yoklama modu kullanılacak")
         return
 
-    adres, port = broker(), int(getattr(config, "TETIK_PUSH_PORT", 8883))
+    adres, port = _adres_ve_port()
+    if not adres:
+        return
     # paho-mqtt 2.x CallbackAPIVersion'ı ZORUNLU tutar; 1.x'te yoktur → ikisini de destekle
-    istemci_id = f"yourkiosk-{int(time.time()) % 100000}"
+    istemci_id = istemci_kimligi()
     if hasattr(mqtt, "CallbackAPIVersion"):
         istemci = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=istemci_id)
     else:  # pragma: no cover - eski paho
@@ -119,27 +249,43 @@ def _dongu(durdur: threading.Event) -> None:
 
     if getattr(config, "TETIK_PUSH_KULLANICI", ""):
         istemci.username_pw_set(str(config.TETIK_PUSH_KULLANICI), str(getattr(config, "TETIK_PUSH_PAROLA", "")))
-    if port == 8883:
-        ca = str(getattr(config, "TETIK_PUSH_CA", "") or "").strip()
-        sertifika = str(getattr(config, "TETIK_PUSH_SERTIFIKA", "") or "").strip()
-        anahtar = str(getattr(config, "TETIK_PUSH_ANAHTAR", "") or "").strip()
+    # TLS PORTTAN BAĞIMSIZ (i5 bulgusu): eskiden yalnız `port == 8883` iken kuruluyordu.
+    if tls_gerekli():
         try:
-            if sertifika and anahtar:
-                # AWS IoT Core: istemci sertifikası ile kimlik doğrulama
-                istemci.tls_set(ca_certs=ca or None, certfile=sertifika, keyfile=anahtar)
-            else:
-                istemci.tls_set(ca_certs=ca or None)  # sistem CA'sı / verilen CA
+            tls_kur(istemci)
         except Exception as hata:  # noqa: BLE001 - sertifika hatası push'u kapatır, cihaz çalışır
             _durum["hata"] = f"TLS/sertifika hatası: {hata}"[:200]
             log.error("MQTT TLS kurulamadı (%s) — push devre dışı, yoklama sürüyor", hata)
             return
+    else:
+        log.warning(
+            "MQTT TLS KAPALI (TETIK_PUSH_TLS=false) — kullanıcı/parola ve kalp atışı şifresiz gider"
+        )
 
     def _baglandi(_c, _u, _f, rc, _p=None):  # paho 2.x 5 argüman geçer (properties)
         _durum["bagli"] = rc == 0
         _durum["denendi"] = True
         if rc == 0:
             istemci.subscribe(konu(), qos=1)
-            log.info("MQTT bağlandı (%s:%s) · konu=%s", adres, port, konu())
+            # ÇEVRİMİÇİ BİLDİRİMİ (retained): panel 600 cihazın durumunu buradan görür.
+            try:
+                bilgi = istemci.publish(
+                    durum_konusu(),
+                    json.dumps(kalp_atisi_belgesi(True), ensure_ascii=False),
+                    qos=1,
+                    retain=True,
+                )
+                # i5 bulgusu: MQTT 3.1.1 yetkisiz PUBLISH'i istemciye HATA olarak döndürmez;
+                # `rc` yine de yerel kuyruğa kabul edildiğini söyler. En azından kuyruğa alma
+                # hatasını yutmayalım (ACL yanlışsa cihaz panelde "bilinmiyor" kalır → iz bırak).
+                if getattr(bilgi, "rc", 0) != 0:
+                    log.warning("kalp atışı kuyruğa alınamadı (rc=%s) — ACL/konu denetlenmeli",
+                                getattr(bilgi, "rc", "?"))
+            except Exception:  # noqa: BLE001 - kalp atışı push'u engellememeli
+                log.debug("kalp atışı yayınlanamadı", exc_info=True)
+            # i5 bulgusu: konu (dolayısıyla cihaz kimliği) GÜNLÜĞE yazılmaz — `kiosk.log`
+            # okunabilir bir dosya ve depo kuralı ham clientID/cihaz kimliği yazmayı yasaklar.
+            log.info("MQTT bağlandı (%s:%s) · konu=%s · kalp atışı açık", adres, port, konu())
         else:
             log.warning("MQTT bağlanamadı (rc=%s)", rc)
 
@@ -160,6 +306,18 @@ def _dongu(durdur: threading.Event) -> None:
         istemci.reconnect_delay_set(min_delay=2, max_delay=60)
     except Exception:  # noqa: BLE001
         pass
+    # SON İRADE (LWT): bağlantı koparsa broker cihazın durumunu "çevrimdışı" olarak yayınlar.
+    # `will_set` BAĞLANMADAN ÖNCE kurulmalıdır.
+    try:
+        istemci.will_set(
+            durum_konusu(),
+            json.dumps(kalp_atisi_belgesi(False), ensure_ascii=False),
+            qos=1,
+            retain=True,
+        )
+    except Exception:  # noqa: BLE001
+        log.debug("LWT kurulamadı", exc_info=True)
+    son_kalp = 0.0
     while not durdur.is_set():
         try:
             istemci.connect(adres, port, keepalive=60)
@@ -167,6 +325,20 @@ def _dongu(durdur: threading.Event) -> None:
             while not durdur.is_set():
                 if not istemci.is_connected():
                     _durum["bagli"] = False
+                # KALP ATIŞI: bağlıyken her KALP_ATISI_S saniyede bir retained durum mesajı.
+                elif time.monotonic() - son_kalp >= KALP_ATISI_S:
+                    son_kalp = time.monotonic()
+                    try:
+                        bilgi = istemci.publish(
+                            durum_konusu(),
+                            json.dumps(kalp_atisi_belgesi(True), ensure_ascii=False),
+                            qos=1,
+                            retain=True,
+                        )
+                        if getattr(bilgi, "rc", 0) != 0:
+                            log.warning("kalp atışı kuyruğa alınamadı (rc=%s)", getattr(bilgi, "rc", "?"))
+                    except Exception:  # noqa: BLE001
+                        log.debug("kalp atışı yayınlanamadı", exc_info=True)
                 time.sleep(1.0)
         except Exception as hata:  # noqa: BLE001 - ağ hatasında yeniden dene
             _durum.update(bagli=False, denendi=True, hata=str(hata)[:200])
