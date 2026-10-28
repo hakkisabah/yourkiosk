@@ -166,5 +166,46 @@ class AgirKomutTesti(unittest.TestCase):
         self.assertIn("çıkış=0", metin)
 
 
+    # ── sır sızması (28 Ekim i5 bulgusu, düşük) ─────────────────────────────────────────────────
+    def test_gunluk_argv_maskeler_ve_0600(self):
+        """argv günlüğe MASKELENEREK yazılır; dosya 0600, dizin 0700.
+
+        Eski hâlde tam argv `>> agir-komut.log` ile 0644 bir dosyaya düz yazılıyordu: `--token …`,
+        `Authorization: Bearer …`, `..._authToken=…` gibi her çağrı sırrı kalıcı olarak sızdırıyordu.
+        """
+        mem = sahte_meminfo(self.dizin.name, toplam_mb=3886, bos_mb=2000)
+        s = self.kos("--", "/bin/true", "--token", "gizli-abc-123",
+                     "GH_TOKEN=ghp_ABCDEFGHIJKLMNOPQRSTUV", meminfo=mem)
+        self.assertEqual(s.returncode, 0, s.stderr)
+        gunluk = self.home / ".local" / "state" / "yourkiosk-otomasyon" / "agir-komut.log"
+        metin = gunluk.read_text(encoding="utf-8")
+        self.assertNotIn("gizli-abc-123", metin, "sır günlüğe düz yazıldı")
+        self.assertNotIn("ghp_ABCDEFGHIJKLMNOPQRSTUV", metin, "jeton günlüğe düz yazıldı")
+        self.assertIn("***", metin, "maskeleme izi yok")
+        self.assertEqual(gunluk.stat().st_mode & 0o777, 0o600, "günlük 0600 olmalı")
+        self.assertEqual(gunluk.parent.stat().st_mode & 0o777, 0o700, "günlük dizini 0700 olmalı")
+
+    def test_kuru_cikti_da_maskeli(self):
+        mem = sahte_meminfo(self.dizin.name, toplam_mb=3886, bos_mb=2000)
+        s = self.kos("--kuru", "--", "npm", "test", "--parola", "cok-gizli", meminfo=mem)
+        self.assertEqual(s.returncode, 0, s.stderr)
+        self.assertNotIn("cok-gizli", s.stdout + s.stderr)
+        self.assertIn("***", s.stdout)
+
+    def test_authorization_basligi_maskelenir(self):
+        mem = sahte_meminfo(self.dizin.name, toplam_mb=3886, bos_mb=2000)
+        s = self.kos("--kuru", "--", "curl", "-H", "Authorization: Bearer zz-top-secret",
+                     meminfo=mem)
+        self.assertNotIn("zz-top-secret", s.stdout + s.stderr)
+        self.assertIn("Authorization: Bearer ***", s.stdout)
+
+    def test_maskeleme_kaynaktan_kaldirilmaz(self):
+        """Kaynak taraması: maskele() ve 0700/0600 izinleri betikte kalıcı olmalı."""
+        kaynak = BETIK.read_text(encoding="utf-8")
+        self.assertIn("maskele()", kaynak)
+        self.assertIn("umask 077", kaynak)
+        self.assertIn("komut=$(printf '%s ' \"$@\" | maskele)", kaynak)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

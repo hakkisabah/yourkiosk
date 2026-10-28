@@ -57,6 +57,10 @@ KIMLIK_VARSAYILAN = Path("/etc/yourkiosk-makine-kimligi")
 #: olmak zorundadır → kimlik uydurmak yine PR incelemesine bağlıdır.
 MAKINE_ID_YOLU = Path("/etc/machine-id")
 KIMLIK_ESLEME_DOSYASI = "otomasyon/makine-kimlikleri.json"
+#: Rol eşlemesinin "yayınlanmış" çıpası: depo VARSAYILAN dalı. SABİT — `--dal`, durum dosyası ya da
+#: ortam değişkeni bunu değiştiremez (28 Ekim i5 bulgusu: çıpa ajanın yazabildiği durum dosyasından
+#: okununca tek makine kendini i3 ilan edip iki kapıyı birden geçirebiliyordu).
+KIMLIK_ESLEME_DALI = "main"
 #: Eşleme HAM machine-id YAYINLAMAZ (27 Ekim i5: depo herkese açık, ham makine kimliği kalıcı
 #: cihaz tanımlayıcısıdır). Depoda `kimlik_ozet` = sha256(AYIRAC + machine-id) tutulur. Tuz
 #: (secret salt) GEREKMEZ: machine-id ~122 bit rastgele olduğu için özet tersine çevrilemez;
@@ -119,6 +123,30 @@ def istek(yol: str, token: str, yontem: str = "GET", govde: dict | None = None) 
         return hata.code, {"hata": hata.read().decode("utf-8", "ignore")[:300]}
     except (urllib.error.URLError, TimeoutError, ValueError) as hata:
         return 0, {"hata": str(hata)[:300]}
+
+
+def yorum_yaz(depo: str, token: str, no: int, govde: str, *,
+              deneme: int = 3, bekle=None) -> tuple[bool, int]:
+    """PR yorumunu yaz → (başarılı, son HTTP kodu). Kod ≥ 400 HATA'dır ve tekrar denenir.
+
+    28 Ekim i5 süreç bulgusu (#86): kararın İKİ kanalı var — commit durumu + PR yorumu. Yazma yolu
+    yorum POST'unun HTTP kodunu basıp DEVAM ediyordu, yani yorum düşmese de betik 0 ile çıkıyordu.
+    Sonuç: PR sayfasında karar YOK (geliştirici kapanış ölçütlerini göremiyor, envanter PR'ı
+    "incelenmemiş" sayıyor), status taze olduğu için kuyruk onu yeniden de incelemiyor → sessizlik
+    kalıcı. Artık kod ≥ 400 hata sayılır, kısa beklemeyle yeniden denenir ve çağıran çıkış ≠ 0 verir.
+    """
+    son = 0
+    if bekle is None:
+        bekle = time.sleep
+    for i in range(max(1, deneme)):
+        son, yanit = istek(f"/repos/{depo}/issues/{no}/comments", token, "POST", {"body": govde})
+        print(f"[yaz] PR #{no} yorumu: HTTP {son}" + ("" if 200 <= son < 300 else f" → {yanit}"))
+        # 0 (ağ hatası) da HATA: `son < 400` yazsaydık ağ kesintisi "yorum yazıldı" sayılırdı.
+        if 200 <= son < 300:
+            return True, son
+        if i + 1 < max(1, deneme):
+            bekle(2 * (i + 1))
+    return False, son
 
 
 #: İNCELEME SÖZLEŞME SÜRÜMÜ — `nobetci.py` içindeki INCELEME_SURUMU ile AYNI olmalı (test kilitler).
@@ -614,24 +642,24 @@ def _yayinlanmis_esleme(depo: Path, dal: str = "", *,
     AĞACI temizliğine bakıyordu. Yerel commit atabilen bir ajan eşlemeyi kendi machine-id'sine
     çevirip i5 iken i3 kimliği alabiliyordu → iki kapılı düzen tek makinede çöküyordu.
 
-    27 Ekim i5 bulgusu (orta, bu tur): çapa hâlâ YEREL ref'ti (`origin/<dal>`), ağdan doğrulama
+    27 Ekim i5 bulgusu (orta): çapa hâlâ YEREL ref'ti (`origin/<dal>`), ağdan doğrulama
     yoktu; `update-ref refs/remotes/origin/main …` ile taklit mümkündü. Artık üç koşul birlikte
     aranır: (1) `git ls-remote` uzak sha'sı, (2) yerel uzak-izleme ref'inin sha'sı bununla AYNI,
     (3) blob o sha'dan okunur (ref'ten değil → TOCTOU yok). Biri tutmazsa o aday atlanır.
+
+    28 Ekim i5 bulgusu (orta): çıpa ADAYLARI arasında ajanın YAZABİLDİĞİ durum dosyası
+    (`~/.local/state/yourkiosk-otomasyon/<uygulama>-dal`) vardı. O dosya `--dal` ile yazıldığı için
+    tek makine kendini `i3` ilan eden eşlemeyi bir düzeltme dalına koyup çıpayı oraya çevirebiliyor,
+    iki zorunlu kapıyı (inceleme + karar) tek başına yeşile çeviriyordu — üstelik bu makinedeki
+    token push/admin yetkili olduğu için düzeltmeyi de kendisi yazıyordu. Artık çıpa YALNIZ depo
+    VARSAYILAN dalıdır (`KIMLIK_ESLEME_DALI`), sabittir, hiçbir durum dosyası ya da argüman onu
+    değiştiremez; varsayılan dalda eşleme yoksa fail-closed.
     """
-    adaylar: list[str] = []
-    if dal:
-        adaylar.append(dal.strip().lstrip("/"))
-    else:
-        try:
-            durum_dal = (Path.home() / ".local" / "state" / "yourkiosk-otomasyon" /
-                         "nobetci-dal").read_text(encoding="utf-8").strip()
-        except OSError:
-            durum_dal = ""
-        if durum_dal:
-            adaylar.append(durum_dal.strip().lstrip("/"))
-    if "main" not in adaylar:
-        adaylar.append("main")
+    hedef = (dal or "").strip().lstrip("/")
+    if hedef and hedef != KIMLIK_ESLEME_DALI:
+        # Başka daldan okuma isteği reddedilir: çıpa ajanın seçimi olamaz.
+        return b"", ""
+    adaylar = [KIMLIK_ESLEME_DALI]
     oku = uzak_oku if uzak_oku is not None else _uzak_dallar
     uzak, _hata = oku(depo)
     if not uzak:
@@ -1080,8 +1108,7 @@ def main() -> int:
 
     pr_no = karar.get("pr")
     if pr_no:
-        kod, yanit = istek(f"/repos/{a.depo_adresi}/issues/{pr_no}/comments", token, "POST", {"body": govde})
-        print(f"[yaz] PR #{pr_no} yorumu: HTTP {kod}" + ("" if kod < 400 else f" → {yanit}"))
+        yorum_ok, yorum_kod = yorum_yaz(a.depo_adresi, token, int(pr_no), govde)
         etiket_ekle(
             a.depo_adresi,
             token,
@@ -1091,6 +1118,13 @@ def main() -> int:
             kuru=False,
         )
         print("[yaz] etiketler güncellendi")
+        if not yorum_ok:
+            # Yorum düşmediyse PR sayfasında karar YOK: kapanış ölçütleri geliştiriciye ulaşmaz ve
+            # envanter PR'ı "incelenmemiş" sayar. Sessizce devam etmek yerine yüksek sesle düş.
+            print(f"[yaz] ✗ KARAR YORUMU DÜŞMEDİ (HTTP {yorum_kod}) — commit durumu yazıldı ama PR "
+                  f"yorumu yok. Kapı bunu başarı saymaz: aynı komutu yeniden koş "
+                  f"(status aynı sha'ya yeniden yazılır, zararsız).", file=sys.stderr)
+            return 5
 
         if a.birlestir and durum == "success":
             if tek_onay:
@@ -1104,26 +1138,30 @@ def main() -> int:
             print(f"[yaz] otomatik birleştirme: {'✓' if basarili else '✗'} {neden}")
             if not basarili:
                 # nedeni PR'a yaz (görünür olsun, sessizce kalmasın)
-                istek(
-                    f"/repos/{a.depo_adresi}/issues/{pr_no}/comments",
-                    token,
-                    "POST",
-                    {"body": f"⚙️ **Otomatik birleştirme yapılmadı:** {neden}\n\n"
-                             "Düzeltme gerekmiyorsa PR'ı elle birleştirebilirsiniz; "
-                             "yeniden denemek için `hermes cron run <job_id>`."},
+                yazildi, kodu = yorum_yaz(
+                    a.depo_adresi, token, int(pr_no),
+                    f"⚙️ **Otomatik birleştirme yapılmadı:** {neden}\n\n"
+                    "Düzeltme gerekmiyorsa PR'ı elle birleştirebilirsiniz; "
+                    "yeniden denemek için `hermes cron run <job_id>`.",
                 )
+                if not yazildi:
+                    print(f"[yaz] uyarı: birleştirme engeli PR'a yazılamadı (HTTP {kodu}); gerekçe "
+                          f"yukarıda ve kapi-red.log'da", file=sys.stderr)
     else:
         # PR YOK (main'e düşen/rebase edilmiş commit): tam rapor günlük konusuna yazılır,
         # aksi hâlde yalnız 140 karakterlik durum açıklaması kalır ve gerekçe kaybolur.
         no = gunluk_no(a.depo_adresi, token)
         if no:
             baslik = f"#### `{sha[:12]}` · {karar.get('zaman') or ''} · {makine}\n\n"
-            kod, yanit = istek(
-                f"/repos/{a.depo_adresi}/issues/{no}/comments", token, "POST", {"body": baslik + govde}
-            )
-            print(f"[yaz] günlük #{no} yorumu: HTTP {kod}" + ("" if kod < 400 else f" → {yanit}"))
+            yazildi, kodu = yorum_yaz(a.depo_adresi, token, int(no), baslik + govde)
+            if not yazildi:
+                print(f"[yaz] ✗ TAM RAPOR DÜŞMEDİ (günlük #{no}, HTTP {kodu}) — yalnız 140 "
+                      f"karakterlik durum açıklaması kaldı; komutu yeniden koş.", file=sys.stderr)
+                return 5
         else:
-            print("[yaz] uyarı: günlük konusu bulunamadı/oluşturulamadı (PR'sız commit raporu kaydedilemedi)")
+            print("[yaz] ✗ günlük konusu bulunamadı/oluşturulamadı (PR'sız commit raporu "
+                  "kaydedilemedi) — rapor kayboldu sayılır", file=sys.stderr)
+            return 5
     return 0
 
 

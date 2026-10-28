@@ -182,6 +182,8 @@ Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce v
 | Oturum kapanınca duruyor | `loginctl enable-linger $USER` — bazı sistemlerde polkit onayı ister: `sudo loginctl enable-linger $USER` (kurulum betiği uyarı verir, hata değil) |
 | Günlükte `pam_faillock ... account temporarily locked` / `auth could not identify password` | Ajan parolasız `sudo` denedi; 3 denemede hesap kilitlenir. Kontrol 16 ✗ verir. **Sıfırlama sudo GEREKTİRMEZ:** `faillock --reset --user $USER`. Sonra ajanın sudo denemesini kes (prompttaki `SUDO YOK` bloğu); yetki adımı bulgu olarak yazılır |
 | `[v2] sorun` kararı var, yeni oturum yok | **Doğru davranış:** karar (sha + inceleme sürümü) güncel → top geliştiricide. Günlük satırı PR'ları tek tek sayar (`düzeltme bekliyor: #83(sorun, 564 dk)`). Bulgular PR yorumunda; yeni commit gelince sha değişir ve PR kuyruğa döner |
+| Commit'te `[v2]` durumu VAR, PR sayfasında yorum YOK | Yazma yolunun yorum kanalı düşmüş: `yaz.py` çıkış kodu 5 ve `✗ KARAR YORUMU DÜŞMEDİ (HTTP …)` satırı. Aynı komutu yeniden koş (status aynı sha'ya yeniden yazılır, zararsız) |
+| Kimlik `YAYINLANMIŞ sürümden doğrulanamadı` | Çıpa YALNIZ depo varsayılan dalıdır (`main`). `git -C <depo> fetch origin` + eşlemenin main'de olduğunu doğrula. `--dal`/durum dosyası çıpayı **değiştirmez** (tek makine iki kapıyı geçemesin) |
 
 ## Kontrol noktaları (tek komut)
 

@@ -120,6 +120,27 @@ KILIT="$KILIT_DIZIN/yourkiosk-agir-komut.lock"
 GUNLUK_DIZIN="$HOME/.local/state/yourkiosk-otomasyon"
 GUNLUK="$GUNLUK_DIZIN/agir-komut.log"
 
+# ── SIR MASKELEME (28 Ekim i5 bulgusu, düşük) ────────────────────────────────────────────────────
+# Komutun TAM argv'si günlüğe düz yazılıyordu. argv'de token/parola geçen her çağrı (ör.
+# `npm_config_//registry...:_authToken=…`, `curl -H "Authorization: Bearer …"`, `--token …`) sırrı
+# 0644 bir dosyaya kalıcı olarak yazıyordu. Maskeleme günlüğe yazmadan ÖNCE çalışır; sır sınıfları
+# (jeton biçimi, `AD=eğer`, `--bayrak eğer`, `Authorization:` başlığı) ayrı ayrı kapatılır.
+maskele() {
+  sed -E \
+    -e 's/gh[pousr]_[A-Za-z0-9]{10,}/***JETON***/g' \
+    -e 's/github_pat_[A-Za-z0-9_]{10,}/***JETON***/g' \
+    -e 's/([Aa]uthorization:[[:space:]]*(Bearer|token|Basic)[[:space:]]+)[^"[:space:]]+/\1***/g' \
+    -e 's/((TOKEN|PAROLA|PASSWORD|PASSWD|SECRET|ANAHTAR|KEY|APIKEY|API_KEY|CREDENTIAL|AUTH)[A-Za-z0-9_]*=)[^[:space:]]+/\1***/g' \
+    -e 's/((--?)(token|parola|password|passwd|secret|anahtar|apikey|api-key|auth)(=|[[:space:]]+))[^[:space:]]+/\1***/g'
+}
+
+gunluk_yaz() {  # gunluk_yaz <satır>: dizin 0700, dosya 0600, sır maskeli
+  [ -d "$GUNLUK_DIZIN" ] || return 0
+  ( umask 077; printf '%s\n' "$1" >> "$GUNLUK" ) 2>/dev/null || return 0
+  [ -f "$GUNLUK" ] && chmod 600 "$GUNLUK" 2>/dev/null
+  return 0
+}
+
 SCOPE_VAR=0
 if command -v systemd-run >/dev/null 2>&1; then
   # Gerçek bir yoklama: kullanıcı systemd bus'ı yoksa (konteyner, XDG_RUNTIME_DIR taşınmış)
@@ -133,7 +154,7 @@ fi
 
 if [ "$KURU" -eq 1 ]; then
   echo "plan (kuru):"
-  echo "  komut          : $*"
+  echo "  komut          : $(printf '%s ' "$@" | maskele)"
   echo "  toplam/boş RAM : ${TOPLAM_MB} MB / ${MUSAIT_MB} MB"
   echo "  cgroup tavanı  : ${MAX_MB} MB (MemoryHigh $(( MAX_MB * 85 / 100 )) MB)"
   echo "  NODE_OPTIONS   : --max-old-space-size=${NODE_HEAP_MB}"
@@ -159,9 +180,11 @@ esac
 # Vite/vitest iş parçacıkları da aynı tavanı görsün (tinypool çocukları NODE_OPTIONS'ı devralır).
 export AGIR_KOMUT=1
 
-mkdir -p "$GUNLUK_DIZIN" 2>/dev/null || true
-satir="[$(date -Iseconds)] tavan=${MAX_MB}MB heap=${NODE_HEAP_MB}MB bos=${MUSAIT_MB}MB komut=$*"
-[ -w "$GUNLUK_DIZIN" ] && printf '%s\n' "$satir" >> "$GUNLUK" 2>/dev/null || true
+mkdir -p -m 0700 "$GUNLUK_DIZIN" 2>/dev/null || true
+chmod 700 "$GUNLUK_DIZIN" 2>/dev/null || true
+# argv günlüğe MASKELENEREK yazılır (sır sızmasın); bkz. maskele()
+satir="[$(date -Iseconds)] tavan=${MAX_MB}MB heap=${NODE_HEAP_MB}MB bos=${MUSAIT_MB}MB komut=$(printf '%s ' "$@" | maskele)"
+gunluk_yaz "$satir"
 
 kod=0
 if [ "$SCOPE_VAR" -eq 1 ]; then
@@ -179,8 +202,7 @@ else
   timeout "$ZAMAN_S" "$@" || kod=$?
 fi
 
-printf '[%s] çıkış=%s tavan=%sMB heap=%sMB\n' "$(date -Iseconds)" "$kod" "$MAX_MB" "$NODE_HEAP_MB" \
-  >> "$GUNLUK" 2>/dev/null || true
+gunluk_yaz "$(printf '[%s] çıkış=%s tavan=%sMB heap=%sMB' "$(date -Iseconds)" "$kod" "$MAX_MB" "$NODE_HEAP_MB")"
 
 if [ "$kod" -eq 137 ] || [ "$kod" -eq 9 ]; then
   echo "✗ komut bellek tavanında öldürüldü (${MAX_MB} MB). Daha küçük parçalara böl" \
