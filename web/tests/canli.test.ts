@@ -7,13 +7,23 @@
  *     yoklamayla gelir; 20 sn'lik süre 600 cihazda ~$268/ay istek maliyeti demekti):
  *     `lastupdate.json` + `tetikle.json`.
  * Ayrıca panelin yazdığı TETİKLEYİCİ yalnızca ilgili ilçenin cihazında hemen uygulanır.
+ *
+ * SÜRE KAYNAĞI (26 Ekim i5 bulgusu): `YOKLAMA_MS` burada ELLE YAZILMAZ. Eskiden `300_000` sabiti
+ * vardı; gerçek varsayılan 120 sn olduğu hâlde test 300 sn ilerlettiği için *her* değerde yeşil
+ * kalıyordu (yani bu dosya "süreler koddan türetilir" iddiasını doğrulamıyordu). Artık değer
+ * `yerlesim.json`dan (`kiosk/config.py` → `tools/web_disa_aktar.py`) okunur ve iki yön kilitlidir:
+ * `kiosk.ts` yedeği ile eşitlik + yoklamanın aralıktan ÖNCE atmaması.
  */
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-/** kiosk.ts varsayılanı (`sabit('DAMGA_KONTROL_MS', 300_000)`) */
-const YOKLAMA_MS = 300_000
+/** Damga yoklaması periyodu — üretilmiş sabitten (`yerlesim.json`); yedek yalnız güvenlik ağı. */
+const YOKLAMA_MS = sabit('DAMGA_KONTROL_MS', 120_000)
 
 import { createKiosk, tetikUygulanmali } from '@/kiosk'
+import { sabit, sabitler } from '@/stiller/olcu'
 import { Onbellek, type OnbellekDeposu, type Yanit } from '@/veri/onbellek'
 import type { TetikBilgisi } from '@/veri/kaynak'
 
@@ -227,6 +237,50 @@ describe('canlı değişiklik — yansıma', () => {
     expect(kiosk.durum.hata).toBe('')
     expect(kiosk.durum.index).toBe(indexOnce) // yenileme indeksi sıfırlamaz
     expect(kiosk.durum.aktifBlok).toBeGreaterThanOrEqual(0)
+    kiosk.durdur()
+  })
+})
+
+describe('yoklama aralığı — koddan türetilir (26 Ekim i5 bulgusu)', () => {
+  /** `web/src/kiosk.ts` kaynağı (yedek değer + bayat yorum denetimi). */
+  const kioskKaynagi = (): string => readFileSync(resolve(process.cwd(), 'src/kiosk.ts'), 'utf-8')
+
+  it('üretilen sabit ile kiosk.ts yedeği aynı (sapma kilidi)', () => {
+    // yerlesim.json → kiosk/config.py'den üretilir; test ondan okur, elle yazmaz.
+    expect(sabitler.DAMGA_KONTROL_MS).toBe(YOKLAMA_MS)
+    const m = kioskKaynagi().match(/sabit\('DAMGA_KONTROL_MS',\s*([\d_]+)\)/)
+    expect(m, "kiosk.ts içinde sabit('DAMGA_KONTROL_MS', …) çağrısı bulunamadı").not.toBeNull()
+    expect(Number((m as RegExpMatchArray)[1].replace(/_/g, ''))).toBe(YOKLAMA_MS)
+  })
+
+  it('kiosk.ts bayat varsayılan iddia etmez (belge kayması kilidi)', () => {
+    // Eski yorum "varsayılan 300 sn" diyordu, kod 120 sn idi. Artık her "varsayılan N sn"
+    // iddiası ölçülen değeri yazmak zorunda; ayrıca 300 sn'lik bayat iddia tamamen yasak.
+    const kaynak = kioskKaynagi()
+    expect(kaynak).not.toMatch(/varsayılan\s+300\s*sn/i)
+    for (const satir of kaynak.split('\n').filter((s) => s.trimStart().startsWith('*'))) {
+      const m = satir.match(/varsayılan\s+(\d+)\s*sn/i)
+      if (m) expect(Number(m[1]) * 1000).toBe(YOKLAMA_MS)
+    }
+  })
+
+  it('yoklama aralıktan ÖNCE çalışmaz, aralık dolunca çalışır', async () => {
+    const durum: SahteDurum = { damga: 'D1', eczane: 'ESKİ', yuklemeSayisi: 0 }
+    const { kiosk } = kur(durum)
+    kiosk.baslat()
+    await vi.advanceTimersByTimeAsync(50)
+    expect(kiosk.durum.kayitlar[0]?.eczane).toBe('ESKİ')
+
+    durum.damga = 'D2'
+    durum.eczane = 'YENİ'
+    // aralığın 1 sn öncesi: damga yoklaması HENÜZ atmamalı — eski test yalnız üst sınırı
+    // sınadığı için yanlış (büyük) bir sabitle de yeşil kalıyordu.
+    await vi.advanceTimersByTimeAsync(YOKLAMA_MS - 1_050)
+    expect(kiosk.durum.kayitlar[0]?.eczane).toBe('ESKİ')
+
+    // aralık dolunca yenilenmeli
+    await vi.advanceTimersByTimeAsync(1_200)
+    expect(kiosk.durum.kayitlar[0]?.eczane).toBe('YENİ')
     kiosk.durdur()
   })
 })
