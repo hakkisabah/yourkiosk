@@ -221,6 +221,37 @@ class BakimBetigiTesti(unittest.TestCase):
         self.assertEqual(s.returncode, 0, s.stderr + s.stdout)
         self.assertTrue(nobetci.kopya_mi(self.kod_depo))
 
+    def test_makine_klonunun_icinden_calistirilinca_insan_deposu_sanmaz(self):
+        """28 Ekim sahası: `bash <klon>/otomasyon/betik/nobetci-bakim.sh i5` çıkış 4 veriyordu.
+
+        Betik klonun İÇİNDEN koşunca KAYNAK == KOD_DEPO oluyordu ve güvenlik kapısı bunu "insan
+        deposu" sanıp bakımı reddediyordu → i5'te tek komutla güncelleme imkânsızdı. İşaret dosyası
+        (makine kopyası) varsa reset --hard güvenlidir; kapı yalnız İŞARETSİZ depoyu korur.
+        """
+        self.assertEqual(self._calistir().returncode, 0)  # klonu kur + işaretle
+        klon_betik = self.kod_depo / "otomasyon" / "betik" / "nobetci-bakim.sh"
+        self.assertTrue(klon_betik.is_file(), "klonda bakım betiği yok (iskelet eksik)")
+        ortam = {**os.environ, **GIT_ENV, "HOME": str(self.ev),
+                 "NOBETCI_UZAK": str(self.kurulum.origin),
+                 "NOBETCI_KOD_DEPO": str(self.kod_depo), "NOBETCI_SISTEMD_ATLA": "1"}
+        s = subprocess.run(["bash", str(klon_betik), "i5"], capture_output=True, text=True,
+                           timeout=180, env=ortam)
+        self.assertEqual(s.returncode, 0, s.stderr + s.stdout)
+        self.assertNotIn("İNSAN deposuyla aynı", s.stderr)
+
+    def test_isaretsiz_depo_insan_deposu_sayilir(self):
+        """Karşı yön: işaret YOKSA klonun içinden koşmak yine reddedilir (insan deposu ezilmez)."""
+        self.assertEqual(self._calistir().returncode, 0)
+        (self.kod_depo / ".git" / "yourkiosk-nobetci-kopya").unlink()
+        klon_betik = self.kod_depo / "otomasyon" / "betik" / "nobetci-bakim.sh"
+        ortam = {**os.environ, **GIT_ENV, "HOME": str(self.ev),
+                 "NOBETCI_UZAK": str(self.kurulum.origin),
+                 "NOBETCI_KOD_DEPO": str(self.kod_depo), "NOBETCI_SISTEMD_ATLA": "1"}
+        s = subprocess.run(["bash", str(klon_betik), "i5"], capture_output=True, text=True,
+                           timeout=180, env=ortam)
+        self.assertEqual(s.returncode, 4, "işaretsiz aynı-yol durumu hâlâ reddedilmeli")
+        self.assertIn("İNSAN deposuyla aynı", s.stderr)
+
     def test_klon_yolu_git_deposu_degilse_reddeder(self):
         self.kod_depo.mkdir(parents=True)
         (self.kod_depo / "yabanci.txt").write_text("dokunma\n", encoding="utf-8")

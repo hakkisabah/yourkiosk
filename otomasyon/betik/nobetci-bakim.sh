@@ -153,7 +153,13 @@ fi
 # silinmez); `--zorla` ile açıkça istenirse devam edilir.
 INSAN_DEPO="$(cd "${KAYNAK:-/nonexistent}" 2>/dev/null && pwd -P || true)"
 KOD_GERCEK="$(cd "$KOD_DEPO" 2>/dev/null && pwd -P || true)"
-if [ -n "$INSAN_DEPO" ] && [ "$KOD_GERCEK" = "$INSAN_DEPO" ]; then
+# 28 Ekim: betik MAKİNE KLONUNUN İÇİNDEN çalıştırılınca KAYNAK == KOD_DEPO oluyor ve aşağıdaki
+# güvenlik kapısı "insan deposu" sanıp bakımı reddediyordu (sahada: i5'te tek komutla güncelleme
+# imkânsız). İşaret dosyası klonun MAKİNEYE AİT olduğunu söyler; o zaman reset --hard güvenlidir —
+# kapı yalnız işaretsiz (insan) depoyu korur.
+MAKINE_KOPYASI=0
+[ -f "$KOD_DEPO/.git/yourkiosk-nobetci-kopya" ] && MAKINE_KOPYASI=1
+if [ -n "$INSAN_DEPO" ] && [ "$KOD_GERCEK" = "$INSAN_DEPO" ] && [ "$MAKINE_KOPYASI" -eq 0 ]; then
   hata "kod deposu İNSAN deposuyla aynı: $KOD_DEPO"
   hata "  nöbetçi makineye ait AYRI klondan çalışmalı; insan deposu ezilmez."
   hata "  (yine de istiyorsanız: --zorla)"
