@@ -302,5 +302,85 @@ class UzakCapaTesti(unittest.TestCase):
         self.assertIn("git ls-remote", neden)
 
 
+class DurumDosyasiCipaTesti(unittest.TestCase):
+    """28 Ekim i5 bulgusu (orta): çıpa ADAYLARI arasında ajanın yazabildiği durum dosyası vardı.
+
+    `~/.local/state/yourkiosk-otomasyon/nobetci-dal` `--dal` ile yazıldığı için tek makine kendini
+    `i3` ilan eden eşlemeyi bir düzeltme dalına koyup çıpayı oraya çevirebiliyor, iki zorunlu kapıyı
+    (inceleme + karar) tek başına yeşile çeviriyordu. Kapanış ölçütü: çıpa yalnız depo VARSAYILAN
+    dalıdır; durum dosyası ve `dal` argümanı onu değiştiremez.
+    """
+
+    def setUp(self):
+        self.dizin = tempfile.TemporaryDirectory()
+        self.kok = Path(self.dizin.name)
+        self.depo = self.kok / "depo"
+        self.depo.mkdir()
+        self._git("init", "--initial-branch=main")
+        self.esleme = self.depo / "otomasyon" / "makine-kimlikleri.json"
+        self.esleme.parent.mkdir(parents=True)
+        # main: i5 — doğru/operatör onaylı eşleme
+        self.esleme.write_text(json.dumps({"i5": {"kimlik_ozet": OZET_I5}}) + "\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-m", "esleme")
+        self.main_sha = self._git("rev-parse", "HEAD").stdout.strip()
+        # düzeltme dalı: i3 — ajanın kendi yazdığı "faydalı" eşleme taklidi
+        self._git("checkout", "-b", "duzeltme/sahte")
+        self.esleme.write_text(json.dumps({"i3": {"kimlik_ozet": OZET_I3}}) + "\n", encoding="utf-8")
+        self._git("add", "-A")
+        self._git("commit", "-m", "taklit")
+        self.kol_sha = self._git("rev-parse", "HEAD").stdout.strip()
+        self._git("update-ref", "refs/remotes/origin/main", self.main_sha)
+        self._git("update-ref", "refs/remotes/origin/duzeltme/sahte", self.kol_sha)
+        # ajanın yazabildiği durum dosyası: çıpayı düzeltme dalına çevirmeye çalışıyor
+        self.durum_dizin = self.kok / "state"
+        self.durum_dizin.mkdir()
+        (self.durum_dizin / "nobetci-dal").write_text("duzeltme/sahte\n", encoding="utf-8")
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def _git(self, *arg: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(self.depo), *arg], capture_output=True,
+                              text=True, env={**os.environ, **GIT_ENV}, timeout=60)
+
+    def _uzak(self, depo):
+        return ({"main": self.main_sha, "duzeltme/sahte": self.kol_sha}, "")
+
+    def test_durum_dosyasi_cipayi_degistirmez(self):
+        """`nobetci-dal` düzeltme dalını gösterse bile eşleme MAIN'den okunur."""
+        ev = self.kok / "home"
+        (ev / ".local" / "state" / "yourkiosk-otomasyon").mkdir(parents=True)
+        (ev / ".local" / "state" / "yourkiosk-otomasyon" / "nobetci-dal").write_text(
+            "duzeltme/sahte\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"HOME": str(ev)}):
+            bayt, ref = yaz._yayinlanmis_esleme(self.depo, uzak_oku=self._uzak)
+        self.assertEqual(ref, "origin/main", "çıpa yalnız varsayılan dal olmalı")
+        self.assertEqual(json.loads(bayt.decode()), {"i5": {"kimlik_ozet": OZET_I5}})
+        self.assertNotIn("i3", bayt.decode(), "ajanın kolundaki taklit eşleme okunmamalı")
+
+    def test_baska_dal_argumani_reddedilir(self):
+        bayt, ref = yaz._yayinlanmis_esleme(self.depo, "duzeltme/sahte", uzak_oku=self._uzak)
+        self.assertEqual((bayt, ref), (b"", ""), "varsayılan dal dışı çıpa isteği fail-closed")
+
+    def test_durum_dosyasi_kaynakta_okunmuyor(self):
+        """Kaynak taraması: durum dosyası yolu yaz.py'de GEÇMEMELİ (sınıf geri gelmesin)."""
+        kaynak = Path(yaz.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("nobetci-dal", kaynak)
+        self.assertIn("KIMLIK_ESLEME_DALI", kaynak)
+
+    def test_varsayilan_dalda_esleme_yoksa_fail_closed(self):
+        """main'de eşleme yoksa başka dal denenmez (fail-closed)."""
+        self._git("checkout", "main")
+        (self.esleme).unlink()
+        self._git("add", "-A")
+        self._git("commit", "-m", "esleme-yok")
+        bos_main = self._git("rev-parse", "HEAD").stdout.strip()
+        self._git("update-ref", "refs/remotes/origin/main", bos_main)
+        bayt, ref = yaz._yayinlanmis_esleme(
+            self.depo, uzak_oku=lambda d: ({"main": bos_main, "duzeltme/sahte": self.kol_sha}, ""))
+        self.assertEqual((bayt, ref), (b"", ""))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

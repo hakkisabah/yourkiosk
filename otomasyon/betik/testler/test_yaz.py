@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import karar_dogrula as kd  # noqa: E402
@@ -103,6 +104,109 @@ class DurumMetniTesti(unittest.TestCase):
         import nobetci  # aynı dizin, sys.path testte eklenmiş olmalı
         self.assertEqual(yaz.INCELEME_SURUMU, nobetci.INCELEME_SURUMU)
         self.assertEqual(yaz.inceleme_surumu(), nobetci.inceleme_surumu())
+
+
+class YorumKanaliTesti(unittest.TestCase):
+    """28 Ekim i5 süreç bulgusu: yorum POST'unun HTTP kodu basılıp DEVAM ediliyordu.
+
+    Sonuç sessiz bir kilitlenme: status commit'e yazıldığı için kuyruk PR'ı "karara bağlı" sayıyor,
+    ama PR sayfasında karar YOK — geliştirici kapanış ölçütlerini göremiyor, envanter PR'ı
+    "incelenmemiş" sayıyor. Bu yüzden yorum kanalı artık hata sayılır + tekrar denenir.
+    """
+
+    def test_basarisiz_yorum_hata_doner(self):
+        kodlar = iter([500, 502, 503])
+        with mock.patch.object(yaz, "istek", lambda *a, **k: (next(kodlar), {"hata": "x"})):
+            ok, kod = yaz.yorum_yaz("sahip/depo", "t", 90, "gövde", bekle=lambda s: None)
+        self.assertFalse(ok, "üç deneme de başarısızsa yorum yazılmış sayılmamalı")
+        self.assertEqual(kod, 503)
+
+    def test_ikinci_denemede_basarili(self):
+        kodlar = iter([500, 201])
+        with mock.patch.object(yaz, "istek", lambda *a, **k: (next(kodlar), {})):
+            ok, kod = yaz.yorum_yaz("sahip/depo", "t", 90, "gövde", bekle=lambda s: None)
+        self.assertTrue(ok)
+        self.assertEqual(kod, 201)
+
+    def test_ag_hatasi_sifir_kodu_basari_sayilmaz(self):
+        """`istek` ağ hatasında 0 döner; `kod < 400` yazsaydık ağ kesintisi 'yazıldı' olurdu."""
+        with mock.patch.object(yaz, "istek", lambda *a, **k: (0, {"hata": "ağ"})):
+            ok, kod = yaz.yorum_yaz("sahip/depo", "t", 90, "gövde", deneme=2,
+                                    bekle=lambda s: None)
+        self.assertFalse(ok)
+        self.assertEqual(kod, 0)
+
+    def test_bekleme_artan_araliklarla_cagrilir(self):
+        gecikmeler: list[float] = []
+        with mock.patch.object(yaz, "istek", lambda *a, **k: (500, {})):
+            yaz.yorum_yaz("sahip/depo", "t", 90, "gövde", deneme=3, bekle=gecikmeler.append)
+        self.assertEqual(gecikmeler, [2, 4], "iki başarısız denemeden sonra artan bekleme olmalı")
+
+    def test_ham_yorum_postu_kalmadi(self):
+        """main() içindeki HER yorum yazımı `yorum_yaz()` sarmalayıcısından geçmeli.
+
+        Kaynak taraması: `istek(...)` çağrılarının hiçbiri doğrudan `/comments` yoluna gitmemeli —
+        yoksa yeni bir yazma yolu eklenirken aynı sessiz yutma hatası geri gelir.
+        """
+        import ast
+        kaynak = Path(yaz.__file__).read_text(encoding="utf-8")
+        agac = ast.parse(kaynak)
+        ana = [d for d in agac.body if isinstance(d, ast.FunctionDef) and d.name == "main"]
+        self.assertEqual(len(ana), 1, "main() bulunamadı")
+        ham: list[int] = []
+        for dugum in ast.walk(ana[0]):
+            if not (isinstance(dugum, ast.Call) and isinstance(dugum.func, ast.Name)
+                    and dugum.func.id == "istek"):
+                continue
+            if not dugum.args:
+                continue
+            ilk = dugum.args[0]
+            metin = ""
+            if isinstance(ilk, ast.JoinedStr):
+                metin = "".join(v.value for v in ilk.values
+                                if isinstance(v, ast.Constant) and isinstance(v.value, str))
+            elif isinstance(ilk, ast.Constant) and isinstance(ilk.value, str):
+                metin = ilk.value
+            if "/comments" in metin:
+                ham.append(dugum.lineno)
+        self.assertEqual(ham, [], f"ham /comments POST hattı var (satır {ham}) — yorum_yaz() kullan")
+
+
+class YorumKanaliUctanUcaTesti(unittest.TestCase):
+    """`main()` yorum kanalı düşünce GERÇEKTEN çıkış ≠ 0 veriyor mu? (mutasyonla doğrulandı)"""
+
+    def setUp(self):
+        self.dizin = tempfile.TemporaryDirectory()
+        self.kok = Path(self.dizin.name)
+        self.karar_yolu = self.kok / "karar.json"
+        self.karar_yolu.write_text(json.dumps(dogru_karar()), encoding="utf-8")
+        self.token = self.kok / "token"
+        self.token.write_text("sahte", encoding="utf-8")
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def _kos(self, yorum_kodu: int) -> int:
+        def sahte_istek(yol, token, yontem="GET", govde=None):
+            if "/comments" in yol:
+                return yorum_kodu, {"hata": "yorum düşmedi"}
+            return 201, {}
+
+        kapi = type("Kapi", (), {"gecti": True, "uyarilar": [], "hatalar": []})()
+        with mock.patch.object(yaz, "makine_kimligi_denetle", lambda *a, **k: ("i5", "")), \
+             mock.patch.object(yaz, "token_oku", lambda *a, **k: "sahte"), \
+             mock.patch.object(yaz, "istek", sahte_istek), \
+             mock.patch.object(yaz.time, "sleep", lambda s: None), \
+             mock.patch.object(kd, "dogrula_karar", lambda *a, **k: kapi), \
+             mock.patch.object(sys, "argv",
+                               ["yaz.py", str(self.karar_yolu), "--token-dosya", str(self.token)]):
+            return yaz.main()
+
+    def test_yorum_dusmezse_cikis_5(self):
+        self.assertEqual(self._kos(500), 5, "yorum düşmediği hâlde başarı dönüldü (sessiz kilit)")
+
+    def test_yorum_duserse_cikis_0(self):
+        self.assertEqual(self._kos(201), 0)
 
 
 class _BiletDestekli(unittest.TestCase):
