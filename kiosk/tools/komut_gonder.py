@@ -15,7 +15,9 @@ KULLANIM
     python3 tools/komut_gonder.py --komut uygulamayi-yeniden-baslat --cihaz 98273648723468273
     python3 tools/komut_gonder.py --komut ekrani-yenile            # tüm cihazlar
 
-    # 3) Üretilen dosyayı S3'e koy (araç komutu ekrana yazar), cihaz 20 sn içinde alır
+    # 3) Üretilen dosyayı S3'e koy (araç komutu ekrana yazar).
+    #    Cihaz komutu 10 yoklama turunda bir çapraz kontrolde alır: en çok 20 dk (push bağlı),
+    #    5 dk (push kopuk). Ayrıntı: KOMUTLAR.md §3.
 
     # Yardımcılar
     python3 tools/komut_gonder.py --durum                # bu cihazdaki son komut durumu
@@ -85,7 +87,7 @@ def _imzala(komut_adi: str, cihaz: str, aciklama: str, yol: Path, anahtar_yolu: 
     print("komut hazır:", yol)
     print(json.dumps(belge, ensure_ascii=False, indent=1))
     print()
-    print("S3'e koyun (cihaz `DAMGA_KONTROL_MS` içinde alır):")
+    print("S3'e koyun (cihaz en çok 10 yoklama turunda alır: push bağlı 20 dk, kopuk 5 dk):")
     print(f"  aws s3 cp {yol} {s3_yol}")
     print("  # ya da paneldeki S3 tarayıcısından aynı anahtara yükleyin")
     print()

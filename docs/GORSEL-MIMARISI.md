@@ -268,26 +268,27 @@ Değerler **koddan** gelir (`kiosk/config.py` + `pharmacy_app.yoklama_araligi()`
 ### 8.4 WebP hattı
 
 - `panel/src/domain/gorselYukleme.ts`: doğrula → küçült (≤1920 px) → WebP q82 → `sha256[:16]` →
-  `kiosk/yayin-gorselleri/<hash>.webp` → `Cache-Control: immutable`. 14 test.
+  `kiosk/yayin-gorselleri/<hash>.webp` → `Cache-Control: immutable`.
 - `kiosk/tools/gorsel_webp.py`: mevcut görselleri toplu çevirir (`--s3` ile yükler).
   **Gerçek ölçüm (Qt kodlayıcısı):** `a.png 2473 KB → 221 KB (%91)`, `b.png 366 KB → 31 KB (%92)`.
 
 ## 9) MALİYET — yeni mimari (600 cihaz)
 
-Birim fiyat: CloudFront $0,75/M istek · S3 GET $0,40/M istek. `durum.json` yolu 1 istek/tur.
-İstek/ay = 600 cihaz × (30,44 gün × 86 400 sn ÷ aralık).
+Birim fiyat: CloudFront $0,75/M istek · S3 GET $0,40/M istek. Qt `durum.json` yolu **1,3 istek/tur** (taban 1 + her 10 turda bir 3 ek istek: `lastupdate.json`,
+`tetikle.json`, `komut.json` → 10 tur = 13 istek).
+İstek/ay = 600 cihaz × (30,44 gün × 86 400 sn ÷ aralık) × 1,3.
 
 | Senaryo | İstek/ay | CloudFront | S3 GET | **Toplam** |
 |---|---|---|---|---|
-| Eski: 3 dosya · 300 sn (yoklama öncesi taban) | 15,55 M | $11,66 | $6,22 | **$17,88** |
-| `durum.json` · **30 sn — BUGÜNKÜ VARSAYILAN** (`TETIK_PUSH_AKTIF=false`) | 52,60 M | $39,45 | $21,04 | **~$60,49** |
-| `durum.json` · 120 sn (push bağlı, `DAMGA_KONTROL_MS_PUSH`) | 13,15 M | $9,86 | $5,26 | **~$15,12** |
-| `durum.json` · 300 sn (elle ayarlanırsa) | 5,26 M | $3,95 | $2,10 | **~$6,05** |
-| `durum.json` · 1800 sn (elle ayarlanırsa) | 0,88 M | $0,66 | $0,35 | **~$1,01** |
+| Eski: 3 dosya · 300 sn (yoklama öncesi taban) | 15,78 M | $11,84 | $6,31 | **$18,15** |
+| `durum.json` · **30 sn — BUGÜNKÜ VARSAYILAN** (`TETIK_PUSH_AKTIF=false`) | 68,38 M | $51,29 | $27,35 | **~$78,64** |
+| `durum.json` · 120 sn (push bağlı, `DAMGA_KONTROL_MS_PUSH`) | 17,10 M | $12,82 | $6,84 | **~$19,66** |
+| `durum.json` · 300 sn (elle ayarlanırsa) | 6,84 M | $5,13 | $2,74 | **~$7,86** |
+| `durum.json` · 1800 sn (elle ayarlanırsa) | 1,14 M | $0,85 | $0,46 | **~$1,31** |
 
 **Sonuç:** tasarruf 1800 sn'den değil, *3 isteğin 1 isteğe inmesinden* ve push'un açık olmasından
-gelir. Push kapalıyken (bugünkü varsayılan) filo ~$60/ay yoklama isteği üretir; `tetik.push_*`
-açılıp bağlantı 120 sn'lik emniyet ağına geçince ~$15/ay'a iner. Broker maliyeti ayrı kalemdir
+gelir. Push kapalıyken (bugünkü varsayılan) filo ~$79/ay yoklama isteği üretir; `tetik.push_*`
+açılıp bağlantı 120 sn'lik emniyet ağına geçince ~$20/ay'a iner. Broker maliyeti ayrı kalemdir
 (bkz. `docs/ONBELLEK-VE-MALIYET.md`).
 
 Görsel egress (içerik adlı + immutable, 304 yok):
@@ -305,7 +306,7 @@ Görsel egress (içerik adlı + immutable, 304 yok):
 ## 10) HEDEF SEÇİMİ (panel UX) + veri modeli tek kaynağı (24.10.2026)
 
 ### 10.1 Panel arayüzü
-`VeriView → Yayınlar` sekmesinde yayın tablosu:
+`Nöbet ve Yayınlar` (dosya: `VeriView.vue`) ekranındaki **Yayınlar** sekmesinde yayın tablosu:
 
 | Kolon | İçerik |
 |---|---|

@@ -452,7 +452,7 @@ def degisiklik_bekle(imza: str, sure_s: float, izinli: bool = True, uzak_kaynak:
         return {"degisti": True, "imza": ilk, "tetik": tetik_oku(), "damga": lastupdate_damgasi()}
     bitis = time.monotonic() + max(0.0, sure_s)
     # https modunda veri UZAKTA: yerel `tetikle.json` ancak indirilince imza değişir. Uzun yoklama
-    # sırasında tetikleyiciyi KENDİMİZ çekiyoruz; aksi hâlde yenileme arka plan turunu (20 sn)
+    # sırasında tetikleyiciyi KENDİMİZ çekiyoruz; aksi hâlde yenileme arka plan turunu (120 sn)
     # bekliyordu — "anlık" beklentisini karşılamıyordu.
     # ÜST SINIR: `ayarlar.json` içinde `tetik.kontrol_ms` 300000 (5 dk) yazılı olabiliyor.
     # Uzun yoklamada tetikleyici çekimi bu değere uyarsa "anlık" beklentisi 5 dakikaya düşer.
@@ -659,7 +659,7 @@ class _IstekIsleyici(http.server.BaseHTTPRequestHandler):
 
         Uzun yoklama (long poll): imza değişmediyse istek `sure` saniye (en çok
         `DEGISIKLIK_BEKLEME_S`) açık kalır, değiştiği an yanıt döner. Arayüz böylece
-        20 sn'lik yoklamayı beklemeden (tipik olarak <1 sn) nöbet değişikliğini gösterir.
+        120 sn'lik yoklamayı beklemeden (tipik olarak <1 sn) nöbet değişikliğini gösterir.
         Yalnızca 127.0.0.1'e açıktır ve yalnızca imza/tetikleyici bilgisi döner.
         """
         from urllib.parse import parse_qs
@@ -725,11 +725,16 @@ class _IstekIsleyici(http.server.BaseHTTPRequestHandler):
             return
         # kök dışına çıkma / sembolik bağ denetimi
         izinli_kokler = (web_kok().resolve(), KOK.resolve())
-        if not any(gercek == k or k in gercek.parents for k in izinli_kokler):
+        kok = next((k for k in izinli_kokler if gercek == k or k in gercek.parents), None)
+        if kok is None:
             self._hata(403, "izin yok")
             return
-        # makinebilgileri (cihaz kimliği) ve gizli klasörler asla sunulmaz
-        if gercek.name == "makinebilgileri.json" or any(p.startswith(".") for p in gercek.parts):
+        # makinebilgileri (cihaz kimliği) ve gizli dosya/klasörler asla sunulmaz.
+        # 26 Ekim i5 bulgusu: gizli-parça denetimi MUTLAK yolun tamamına bakıyordu → depo kökü
+        # nokta içeren bir dizin altındaysa (`~/.hermes/…`) sunulabilecek her dosya 403 alıyordu.
+        # Denetim artık köke GÖRELİ parçalara bakar (asıl koruma: servis edilen ağaçta gizli yol).
+        goreli = gercek.relative_to(kok) if gercek != kok else Path()
+        if gercek.name == "makinebilgileri.json" or any(p.startswith(".") for p in goreli.parts):
             self._hata(403, "izin yok")
             return
         if gercek.suffix.lower() not in IZINLI_UZANTILAR:
@@ -988,7 +993,7 @@ def baslat(
 
     izleyici = threading.Thread(
         target=_uzak_kontrol_dongusu,
-        args=(durdur, surec_kutusu, str(client_id), float(getattr(config, "DAMGA_KONTROL_MS", 20000)) / 1000.0),
+        args=(durdur, surec_kutusu, str(client_id), float(getattr(config, "DAMGA_KONTROL_MS", 120_000)) / 1000.0),
         name="uzak-kontrol",
         daemon=True,
     )

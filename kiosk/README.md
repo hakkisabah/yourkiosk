@@ -25,7 +25,7 @@ kiosk/
 │   ├── shift_dates.py     # tarih kaydırıcı (üretim aracı)
 │   ├── setup_qt_libs.py   # (geliştirme makinesi) eksik Qt kütüphanelerini aşamalar
 │   └── test.sh            # test çalıştırıcı
-└── tests/                 # 58 test
+└── tests/                 # birim + belge testleri
 ```
 
 ---
@@ -309,9 +309,11 @@ Veri saatte bir kontrol edilir; bir nöbet değişikliğinde cihazın beklemesin
 * **Panel → `tetikle.json`**: yönetici kaydı düzenleyip *Kaydet*'ten sonra *Cihazlara hemen
   bildir* düğmesine basar. Dosya kapsam taşır (`ilceId` boş/`*` = tüm cihazlar, dolu = o ilçe).
 * **Cihaz**: yalnızca KÜÇÜK dosyaları (`lastupdate.json`, `tetikle.json`) kısa aralıklarla okur.
-  Tarayıcı modunda yerel sunucudaki `/degisiklik` ucu ile **uzun yoklama** yapılır (tipik <1 sn),
-  Qt modunda `DAMGA_KONTROL_MS` (varsayılan 20 sn) yoklaması devrededir. Büyük veri dosyası
-  damga değişmedikçe indirilmez.
+  Tarayıcı modunda yerel sunucudaki `/degisiklik` ucu ile **uzun yoklama** yapılır (tipik <1 sn).
+  Qt modunda damga yoklaması `DAMGA_KONTROL_MS` ile çalışır: **MQTT push bağlıysa 120 sn, kopukken
+  30 sn** (`DAMGA_KONTROL_MS_PUSH` / `DAMGA_KONTROL_MS_PUSH_YOK`), ayrıca yerel dosya izleyici
+  `TETIK_IZLEME_MS` (2 sn) ve 10 turda bir `tetikle.json`/`komut.json` çapraz kontrolü devrededir.
+  Büyük veri dosyası damga değişmedikçe indirilmez.
 * Kural tek yerde: `core/tetik.py` (Qt uygulaması, web sunucusu ve komut satırı aracı aynı kuralı
   kullanır). Aynı tetikleyici iki kez uygulanmaz; başka ilçenin tetikleyicisi bu cihazı etkilemez.
 * Cihazda elle denemek için: `python3 tools/nobet_tetikle.py --ilce <ilceId>`.
@@ -321,8 +323,10 @@ Ayrıntılı akış, ayarlar ve uçtan uca doğrulama adımları: **[NODET-DEGIS
 ## 1.9 Uzaktan komut: yeniden başlat / uygulamayı yeniden başlat / ekranı yenile
 
 Cihazın bulunduğu yere gitmeden **imzalı** bir komut gönderilebilir. Taşıma yolu §1.8'deki
-tetikleyiciyle **aynıdır** (`komut.json`, 20 sn içinde alınır); fark, komutun çalıştırılmadan önce
-imza + beyaz liste denetiminden geçmesidir.
+tetikleyiciyle **aynıdır** (`komut.json`); fark, komutun çalıştırılmadan önce imza + beyaz liste
+denetiminden geçmesidir. Panel `durum.json`a komut işareti yazmadığı için cihaz komut dosyasını
+**10 yoklama turunda bir** çapraz kontrolde indirir: en çok **20 dakika** (push bağlı, 120 sn tur)
+ya da **5 dakika** (push kopuk, 30 sn tur).
 
 | Komut | İşlem (varsayılan) |
 |---|---|
@@ -489,7 +493,7 @@ python3 tools/setup_qt_libs.py     # Arch paketlerini .qt-libs altına aşamalar
 ## 5. Testler
 
 ```bash
-./tools/test.sh            # 290 test (kiosk) · panel: cd ../panel && npm run test (104 test) · arayüz: cd ../web && npm run test (84 test)
+./tools/test.sh            # kiosk · panel: cd ../panel && npm run test · arayüz: cd ../web && npm run test
 ```
 
 | Dosya | Kapsam |
@@ -631,4 +635,4 @@ Adım adım rehber: [`../web/CALISTIRMA.md`](../web/CALISTIRMA.md).
    aynı dosyalardan sunulur.
 
 Ayrıntılar, adres parametreleri ve davranış tablosu: [`web/README.md`](../web/README.md).
-Arayüz testleri: `cd web && npm run test` (84 test).
+Arayüz testleri: `cd web && npm run test`.

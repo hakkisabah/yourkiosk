@@ -128,14 +128,15 @@ alacağı** tanımlı değildi (elle kopyalama varsayılıyordu). Artık cihaz, 
 adı/HTTPS/boyut sınırı; içerik aynıysa dosyaya dokunulmaz → gereksiz bildirim olmaz). Yerel kopya
 değiştiği an yerel sunucunun imzası da değişir → tarayıcı uzun yoklama ile **anında** haber alır.
 
-Kod ve testler hazır (`core/tetik.py`, `/degisiklik` ucu, panel "Cihazlara hemen bildir", 20 sn
-yoklama, `tools/nobet_tetikle.py`); **cihazda canlı** denenmedi.
+Kod ve testler hazır (`core/tetik.py`, `/degisiklik` ucu, panel "Cihazlara hemen bildir",
+tarayıcıda 20 sn tetik yoklaması — `config.TETIK_KONTROL_MS`, `tools/nobet_tetikle.py`);
+**cihazda canlı** denenmedi.
 
 | Adım | Komut / işlem | Kabul ölçütü |
 |---|---|---|
 | Tarayıcı modu, kendi ilçe | `python3 tools/nobet_tetikle.py --ilce 30607352906750376` | `d` kaplamasında `anlık bildirim…→yenileniyor` satırı **≤ 1 sn** |
 | Başka ilçe (etkisiz olmalı) | `python3 tools/nobet_tetikle.py --ilce 47394149001009938` | Yenilenme **yok** (satır görünmez), veri çekilmez |
-| Qt modu | aynı araç + `main.py` | `kiosk.log`'da `tetikleyici uygulanıyor…→hemen yenileniyor` ≤ 20 sn |
+| Qt modu | aynı araç + `main.py` | `kiosk.log`'da `tetikleyici uygulanıyor…→hemen yenileniyor` (yerel izleyici: anında; `TETIK_KONTROL_MS` üst sınır) |
 | Panel | *Nöbet ve Yayınlar* → **Kaydet** → **Bildir** | S3'te `tetikle.json` nesnesi görünür; cihaz yenilenir |
 | Gösterim bozulmuyor | Yenileme sırasında 3. nöbetçi gösteriliyor olsun | Aynı kayıt kalır (indeks sıfırlanmaz), orta/sol panel senkron |
 
@@ -145,8 +146,9 @@ yoklama, `tools/nobet_tetikle.py`); **cihazda canlı** denenmedi.
 
 **Uygulanan tasarım** (`kiosk/core/komut.py`, `kiosk/tools/komut_gonder.py`, `kiosk/KOMUTLAR.md`):
 
-1. **Taşıma:** `komut.json` — tetikleyiciyle aynı yol (S3 → cihazın yerel kopyası → 20 sn'de bir
-   `core/uzak.py` ile tazelenir). Yeni: `core/tetik.py::getir` ve `core/komut.py::getir` (bu,
+1. **Taşıma:** `komut.json` — tetikleyiciyle aynı yol (S3 → cihazın yerel kopyası → `core/uzak.py`).
+   İndirme sıklığı: `durum.json` komut işareti taşıyorsa işaret değişince; taşımıyorsa
+   **10 yoklama turunda bir** çapraz kontrol (push bağlı 120 sn → 20 dk, kopuk 30 sn → 5 dk). Yeni: `core/tetik.py::getir` ve `core/komut.py::getir` (bu,
    İş 2'nin "panel S3'e yazıyor ama cihaz nasıl alıyor" boşluğunu da kapatır).
 2. **Beyaz liste:** `yeniden-baslat`, `uygulamayi-yeniden-baslat`, `ekrani-yenile`; `argv` ayarlardan
    (`KOMUT_*`), `shell` yok, dosyadan metin çalıştırılmaz.
@@ -173,8 +175,9 @@ yoklama, `tools/nobet_tetikle.py`); **cihazda canlı** denenmedi.
 * Tarayıcı modu için **bellek** ölçümü (`tools/bellek_olc.py` Qt içindi; Chromium için RSS/çocuk
   süreç toplamı) ve **ağ trafiği** sayıları (ilk gösterim / ikinci gösterim) → `kiosk/README.md §7`.
 * README'lere **ekran görüntüsü** ekleme (kiosk + panel).
-* `panel/MAALIYET.md` güncelleme: tetikleyici + 20 sn yoklamanın ek maliyeti (ölçülecek: ~40 bayt
-  / 20 sn · cihaz başına aylık ~5 MB'a kadar; gerçek sayı ölçülüp yazılacak).
+* `panel/MAALIYET.md` güncelleme: tetikleyici + damga yoklamasının ek maliyeti (ölçülecek: tur
+  başına 1 istek · 600 cihazda 120 sn ≈ 13,0 M istek/ay ≈ $14,90; 30 sn ≈ $59,62 —
+  `docs/ONBELLEK-VE-MALIYET.md` tablosuyla aynı sayılar).
 
 ---
 
@@ -210,9 +213,11 @@ yeniden başlat), yedekleme (S3 sürümleme), cihaz durumunun panelde izlenmesi.
 * **Görsel köprüsü** `/gorsel?u=…`: CORS engeli olmadan görsel indirme + Qt ile **aynı** cihaz
   önbelleği + güvenlik kapıları (izin listesi, bayt/piksel bütçesi, SVG/HTML reddi).
 * **Eksik ayar dosyaları** 404 yerine varsayılan içerikle sunulur.
-* **Nöbet değişikliğini anında yansıtma**: `tetikle.json` + uzun yoklama `/degisiklik` + 20 sn damga
-  yoklaması + panel düğmesi + Qt `tetik_kontrol()` + `tools/nobet_tetikle.py`.
-* **Test sayıları**: kiosk 352 · web 108 · panel 104.
+* **Nöbet değişikliğini anında yansıtma**: `tetikle.json` + uzun yoklama `/degisiklik` + damga
+  yoklaması (push bağlı 120 sn / kopuk 30 sn) + panel düğmesi + Qt `tetik_kontrol()` +
+  `tools/nobet_tetikle.py`.
+* **Testler**: sayı belgede TUTULMAZ (bayatlıyordu: 352 → 519). Güncel sayı için
+  `cd kiosk && bash tools/test.sh`, `cd web && npm run test`, `cd panel && npm run test`.
 * **İş 1 düzeltmesi**: geçici çoklu-nöbetçi aracı gösterilen bloğu dolduruyor + `lastupdate` damgasını
   tazeliyor; sunucu değişiklik imzasına `lastSystemData.json` eklendi; web'e zorla yenileme yolu.
 * **İş 3 — uzaktan komut**: `core/komut.py` (beyaz liste, HMAC imza, hedef cihaz, tek seferlik, kuru
@@ -244,4 +249,4 @@ yeniden başlat), yedekleme (S3 sürümleme), cihaz durumunun panelde izlenmesi.
 | 10 | 600 cihaz izleme (çevrimiçi/çevrimdışı) | MQTT `$SYS` ya da basit "son görülme" alanı; ölçek testi sonrası |
 | 11 | Yedekten geri dönme provası | S3 sürümleme açık; bir nesneyi eski sürümden geri alma tatbikatı |
 
-**Tamamlananlar (bu oturum):** panel CloudFront yayını · cihaz verisi ikinci dağıtım · giriş/404/structuredClone hataları · `veri.dosya_adresi` görünürlüğü · oto tetikleme (aktif+modlar) · anlık tetik (yoklama) · MQTT push altyapısı · panel yayın anahtarı · kiosk 370+ / web 111 / panel 114 test.
+**Tamamlananlar (bu oturum):** panel CloudFront yayını · cihaz verisi ikinci dağıtım · giriş/404/structuredClone hataları · `veri.dosya_adresi` görünürlüğü · oto tetikleme (aktif+modlar) · anlık tetik (yoklama) · MQTT push altyapısı · panel yayın anahtarı · testler (sayı belgede tutulmaz; çıktıdan okunur).

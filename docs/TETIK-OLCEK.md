@@ -13,6 +13,10 @@ $0,0075/10k · S3 GET $0,0004/1k · önbellek kapalı):
 | 60 sn | 25.920.000 | $19,44 | $10,37 | $29,81 |
 | 5 dk | 5.184.000 | $3,89 | $2,07 | $5,96 |
 
+Bu tablo **aralık → maliyet** ölçümüdür (tek istek/tur). Bugünkü etkin değerler — push kapalı
+**30 sn** ≈ $59,62, push bağlı **120 sn** ≈ $14,90 — [`ONBELLEK-VE-MALIYET.md`](ONBELLEK-VE-MALIYET.md)
+tablosundadır.
+
 **Sonuç:** yoklama ile "anlık" davranış 600 cihazda ayda yüzlerce dolar. Doğru mimari **push**.
 
 ## Çözüm: MQTT push + emniyet ağı yoklama
@@ -25,14 +29,14 @@ Panel (Kaydet) ──publish──► MQTT broker ──message──► 600 cih
                                    └──────────► mevcut imza/uzun yoklama → ANINDA yenileme
 ```
 
-- Gecikme: **~100 ms** (yoklamada 3–20 sn).
+- Gecikme: **~100 ms** (yoklamada push bağlı 120 sn / kopuk 30 sn; yoklama yalnız emniyet ağı).
 - Maliyet: cihaz başına **tek bağlantı**; mesaj yalnız yayın başına.
 
 | Seçenek | Aylık maliyet (600 cihaz) | Not |
 |---|---|---|
 | **AWS IoT Core** | ≈ **$2,10** (25,9 M cihaz-dakika × $0,08/M) + mesaj ≈ $0,02 | Yönetilen, AWS içinde; cihaz sertifikası gerekir |
 | **Kendi Mosquitto'nuz (VPS)** | ≈ **$5** sabit | Kurulumu basit, kullanıcı/parola |
-| Yoklama 20 sn (push yok) | ≈ $89 | Yalnız emniyet ağı olarak kabul edilebilir |
+| Yoklama 30 sn (push yok, bugünkü varsayılan) | ≈ $59,62 | Bugünkü kurulum; emniyet ağı |
 
 ## Cihaz ayarları (panelden yazılır, `tetik` grubu)
 

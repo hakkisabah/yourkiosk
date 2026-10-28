@@ -22,11 +22,14 @@ kiosk/data/id_eslesme.json
 # --- tarayıcı (Chromium kiosk) gösterim modu ---
 kiosk/.tarayici-profil/
 web/node_modules/
-web/dist/
+# Sondaki `/` YOK: `web/dist/` yalnız DİZİNİ yok sayar; adı `dist` olan bir dosya/sembolik bağ
+# kuralı atlar (26 Ekim: depoya mutlak yollu `web/dist` sembolik bağı böyle sızdı).
+web/dist
 
 # --- panel: bağımlılıklar, derleme, ortam ---
 panel/node_modules/
-panel/dist/
+# Aynı sınıf: `panel/dist/` dizine özeldi → adı `dist` olan dosya/bağ kaçıyordu.
+panel/dist
 panel/.env
 panel/.env.*
 !panel/.env.ornek

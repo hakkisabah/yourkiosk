@@ -483,9 +483,13 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
   // ---------------------------------------------------------------- canlı değişiklik
   /**
    * Damga + tetikleyici yoklaması (`DAMGA_KONTROL_MS`).
-   * Maliyet notu: bu yoklama her turda 2-3 küçük dosya isteği demektir; anlık güncelleme
-   * `/degisiklik` uzun yoklaması + MQTT ile gelir, bu yüzden varsayılan 300 sn (600 cihaz
-   * ölçeğinde 20 sn ≈ 233 M istek/ay ≈ $268; 300 sn ≈ 15,6 M ≈ $18).
+   * Maliyet notu: bu tur **en çok İKİ küçük istek** demektir — `lastupdate.json` + `tetikle.json`.
+   * Tarayıcı modu `durum.json`u HİÇ okumaz (o tek isteklik yol Qt moduna aittir, bkz.
+   * `kiosk/core/durum.py`); damga değişirse veri dosyaları ayrıca iner.
+   * Anlık güncelleme `/degisiklik` uzun yoklaması + MQTT ile gelir. Tarayıcı modunda bağlantıya
+   * göre seçim YOK: sabit `DAMGA_KONTROL_MS` kullanılır — Qt modu ise `yoklama_araligi()` ile push
+   * bağlı 120 sn / kopuk 30 sn seçer. 600 cihazda 120 sn ≈ 13,0 M istek/ay ≈ $15;
+   * 30 sn ≈ 51,8 M ≈ $60 (bkz. docs/ONBELLEK-VE-MALIYET.md).
    *
    * Yalnızca KÜÇÜK dosyalar okunur (`lastupdate.json`, `tetikle.json`); büyük veri
    * dosyaları damga değişmedikçe indirilmez. Anlık uç (`/degisiklik`) yoksa tek yol budur.
@@ -508,7 +512,7 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
 
   /**
    * CANLI DÖNGÜ (uzun yoklama): yerel sunucu imza değişene kadar isteği açık tutar →
-   * nöbet değişikliği tipik olarak <1 sn içinde ekrana yansır (20 sn beklenmez).
+   * nöbet değişikliği tipik olarak <1 sn içinde ekrana yansır (yoklama turu beklenmez).
    *
    * HATA SINIFLARI (gerçek olaylarla):
    *  · Döngü TEK istekte ölüyordu: `!bildirim` durumunda `return` ediliyordu. Uç geçici olarak
@@ -674,7 +678,8 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
       // `manage_loop` çağrısı + `cycle_timer.start(CYCLE_INTERVAL_MS)`).
       void dongu()
     })
-    // CANLI DEĞİŞİKLİK: uzun yoklama (anında) — uç yoksa 20 sn damga yoklaması devrede
+    // CANLI DEĞİŞİKLİK: uzun yoklama (anında) — uç yoksa damga yoklaması (push bağlı 120 sn /
+    // kopuk 30 sn) devrede
     void canliBaslat()
     const periyotlar: Array<[number, () => void]> = [
       [sabit('REFRESH_INTERVAL_MS', 3_600_000), () => void yukle()],
@@ -732,7 +737,8 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
  * Cihaz yalnızca KENDİSİNİ ilgilendiren tetikleyiciyi hemen uygular:
  *  · `ilceId` boş/"*" → tüm cihazlar,
  *  · `ilceId`/`bolgeId` kendi konumuyla eşleşiyorsa → bu cihaz,
- *  · başka ilçe → hemen yenilenmez (20 sn damga yoklaması + saatlik kontrol yine çalışır).
+ *  · başka ilçe → hemen yenilenmez (damga yoklaması push bağlı 120 sn / kopuk 30 sn + saatlik
+ *    kontrol yine çalışır).
  * Aynı tetikleyici iki kez uygulanmaz (zaman damgası karşılaştırılır).
  */
 export function tetikUygulanmali(
