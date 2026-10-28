@@ -56,6 +56,26 @@ class UnitTesti(unittest.TestCase):
         self.assertEqual(s.returncode, 2)
         self.assertIn("rol adıyla aynı", s.stderr)
 
+    def test_zaman_asimi_birime_yazilir(self):
+        """28 Ekim ölçümü: tur başına 46 sn gerçek süre → türetilmiş 1860 sn bütçe #90'ı öldürdü."""
+        metin = unit_uret(home=self.home)
+        self.assertIn("--zaman-asimi 3600", metin)
+
+    def test_zaman_asimi_ortamla_degisir(self):
+        ortam = {**os.environ, "HOME": self.home, "NOBETCI_ZAMAN_ASIMI": "5400"}
+        s = subprocess.run(["bash", str(BETIK), "i5", "--kuru"],
+                           capture_output=True, text=True, timeout=60, env=ortam)
+        self.assertEqual(s.returncode, 0, s.stderr)
+        self.assertIn("--zaman-asimi 5400", s.stdout)
+
+    def test_gecersiz_zaman_asimi_reddedilir(self):
+        for deger in ("abc", "0", "299", "7201", "60;rm -rf /"):
+            ortam = {**os.environ, "HOME": self.home, "NOBETCI_ZAMAN_ASIMI": deger}
+            s = subprocess.run(["bash", str(BETIK), "i5", "--kuru"],
+                               capture_output=True, text=True, timeout=60, env=ortam)
+            self.assertEqual(s.returncode, 2, f"kabul edildi: {deger!r}")
+            self.assertNotIn("--zaman-asimi 60;", s.stdout)
+
     def test_profil_degeri_birime_enjeksiyon_yapamaz(self):
         """26 Ekim i5 bulgusu: --profil doğrulanmıyordu → satır sonu birime yönerge ekliyordu."""
         kotu = ["a\nExecStartPre=/bin/touch /tmp/pwn", "guvenlik\n", "Guvenlik", "gu venlik",

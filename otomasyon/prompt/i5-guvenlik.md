@@ -73,7 +73,17 @@ Depo kuralları: `kiosk/GUVENLIK.md`, `kiosk/KOMUTLAR.md`, `docs/AWS-KURULUM.md`
    `onem: "dusuk"` ve `not: "doğrulanmalı: <neyi doğrulayamadığın>"` yaz. (Kapı, özet/notta
    "emin değilim / doğrulanmalı / karar veremedim" görürse `onay` kararını reddeder.)
 
-5. Kararı yaz (`/tmp/karar-<NO>.json`):
+5. Kararı **her oturumda YENİ bir dosyaya** yaz (`/tmp/karar-<NO>.json` YENİDEN KULLANMA):
+
+```bash
+rm -f /tmp/karar-<NO>.json            # eski oturumdan kalan dosya yazmayı kilitler
+```
+
+> **Neden:** `write_file` daha önce görmediği/yarım okuduğu bir dosyanın üzerine yazmayı
+> reddeder ("exists but this task has not seen its full current content"). 28 Ekim'de #90
+> oturumu tam bu yüzden 31 dakika boyunca `/tmp/karar-90.json` yazmayı denedi, dört kez
+> reddedildi ve süre doldu — PR'a hiçbir karar yazılmadı. Önce `rm -f`, sonra yaz.
+
 
 ```json
 {"makine":"i5","pr":16,"sha":"<head_sha>","karar":"onay|sorun|red","onem":"yuksek|orta|dusuk",
