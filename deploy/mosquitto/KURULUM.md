@@ -48,7 +48,9 @@ panel yayınını ben yaparım; sonunda anahtarı kaldırmanızı hatırlatırı
 - **Düz 1883 kapalı** (TLS'siz MQTT yok)
 - `allow_anonymous false` + kullanıcı/parola (`/etc/mosquitto/auth/passwd`, 0640, mosquitto sahipli)
 - **Konu ACL'i**: `panel` → yalnız `yourkiosk/yayin` **yazma**; `cihaz` → yalnız **okuma**
-- `message_size_limit 1024` (yalnız "yenile" mesajı), `max_queued_messages 5`, `persistence false`
+- `message_size_limit 1024` (yalnız "yenile" mesajı), `max_queued_messages 50`,
+  `max_inflight_messages 20` (cihaz başına kuyruk — 30 sn yoklamada 2 turu kapsar),
+  `max_connections 1200` (8883, cihazlar) / `600` (8084, panel WebSocket), `persistence false`
 - Let's Encrypt + **yenileme kancası** (sertifika yenilenince kopyalanır ve mosquitto reload olur)
 - `ufw`: 22/80/8883/8084 (diğer her şey kapalı)
 

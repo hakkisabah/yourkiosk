@@ -54,6 +54,7 @@ ETIKETLER = {
     "gorunum.sol_panel_satir": "Sol panel taban satır sayısı",
     "veri.kaynak": "Veri kaynağı türü",
     "tetik.aktif": "Oto tetikleme",
+    "tetik.push_tls": "MQTT TLS zorunlu",
     "tetik.modlar": "Oto tetikleme modları",
     "veri.dosya_adresi": "Dosya adresi",
     "ag.izinli_hostlar": "İzinli ana makineler",

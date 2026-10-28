@@ -17,6 +17,7 @@
  * `mqtt` paketi **dinamik** yüklenir: yapılandırma yoksa ana pakete girmez.
  */
 
+import { guvenliAdresMi } from './izlemeKimligi'
 import { yayinKimligiOku, type YayinKimligi } from './yayinKimligi'
 
 const URL_ = import.meta.env.VITE_MQTT_URL as string | undefined
@@ -39,6 +40,15 @@ export interface MqttSonuc {
 export async function mqttBildir(ad: string, zaman: string = new Date().toISOString(),
   kimlik?: YayinKimligi | null): Promise<MqttSonuc> {
   if (!URL_) return { gonderildi: false, hata: 'VITE_MQTT_URL tanımlı değil' }
+  // ŞEMA KAPISI (27 Ekim i5 bulgusu): yayın yolu, çalışma anında girilen parolayı doğrudan bu
+  // adrese verir. `ws://` (TLS'siz) uzak bir adres parolayı açık metin gönderir; izleme yolu bu
+  // riski `guvenliAdresMi` ile kapatıyor, yayın yolu kapatmıyordu. Aynı kapı burada da zorunlu.
+  if (!guvenliAdresMi(URL_)) {
+    return {
+      gonderildi: false,
+      hata: 'VITE_MQTT_URL güvenli değil — wss:// bekleniyor (ws:// yalnız localhost/127.0.0.1/::1)',
+    }
+  }
   const oturumKimligi = kimlik === undefined ? yayinKimligiOku() : kimlik
   if (!oturumKimligi) {
     return { gonderildi: false, hata: 'yayın kimliği yok — yayın parolası bu oturumda girilmedi' }

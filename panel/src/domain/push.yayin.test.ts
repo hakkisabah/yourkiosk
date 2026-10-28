@@ -88,3 +88,22 @@ describe('kaynak taraması — parola derleme değişkeni YOK', () => {
     expect(kod).not.toContain('VITE_MQTT_KULLANICI')
   })
 })
+
+describe('şema kapısı — parola TLS\'siz uca gönderilmez (27 Ekim i5 bulgusu)', () => {
+  it('ws:// UZAK adreste broker\'a hiç bağlanmaz, gerekçe döner', async () => {
+    const { mqttBildir } = await modulYukle('ws://uzak.ornek:8084/mqtt')
+    sessionStorage.setItem('yourkiosk.yayin', JSON.stringify({ kullanici: 'panel', parola: 'gizli' }))
+    const sonuc = await mqttBildir('elle-bildirim')
+    expect(sonuc.gonderildi).toBe(false)
+    expect(sonuc.hata).toContain('wss://')
+    expect(connect).not.toHaveBeenCalled()
+  })
+
+  it('ws:// localhost geliştirme için serbest (parola ağa çıkmaz)', async () => {
+    const { mqttBildir } = await modulYukle('ws://127.0.0.1:8084/mqtt')
+    sessionStorage.setItem('yourkiosk.yayin', JSON.stringify({ kullanici: 'panel', parola: 'gizli' }))
+    const sonuc = await mqttBildir('elle-bildirim')
+    expect(sonuc.gonderildi).toBe(true)
+    expect(connect).toHaveBeenCalledTimes(1)
+  })
+})
