@@ -65,18 +65,26 @@ def _tetik_mtime() -> str:
     return datetime.fromtimestamp(yol.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def mqtt_test(sure: float = 15.0) -> tuple[bool, str]:
-    """Broker'a bağlan, konuya abone ol, mesaj bekleyen bir cihaz gibi davran."""
+def mqtt_test(sure: float = 15.0) -> tuple[str, str]:
+    """Broker'a bağlan, konuya abone ol, mesaj bekleyen bir cihaz gibi davran.
+
+    Dönüş: `("ok" | "atlandi" | "hata", metin)`.
+
+    NEDEN ÜÇ DURUM (i5 bulgusu, PR #84): push yapılandırılmamış cihazda (varsayılan:
+    `push_aktif=False`, broker/konu boş) MQTT halkası "hata" sayılıyordu → `guncelle.sh`
+    sağlık kapısı HER ZAMAN düşüyor, cihaz her gece güncellemeyi geri alıyordu. Kapalı bir
+    halka "arıza" değildir; atlanır ve çıkış kodunu etkilemez.
+    """
     try:
         import paho.mqtt.client as mqtt  # type: ignore
     except ImportError:
-        return False, "paho-mqtt yok (venv: .venv/bin/python)"
+        return "hata", "paho-mqtt yok (venv: .venv/bin/python)"
 
     broker = str(getattr(config, "TETIK_PUSH_BROKER", "") or "")
     port = int(getattr(config, "TETIK_PUSH_PORT", 8883))
     konu = str(getattr(config, "TETIK_PUSH_KONU", "") or "")
     if not broker or not konu:
-        return False, "ayarlarda push broker/konu boş"
+        return "atlandi", "push kapalı (ayarlarda broker/konu boş) — MQTT halkası atlandı"
 
     sonuc = {"bagli": False, "mesaj": 0, "hata": ""}
 
@@ -103,7 +111,7 @@ def mqtt_test(sure: float = 15.0) -> tuple[bool, str]:
         istemci.connect(broker, port, keepalive=30)
         istemci.loop_start()
     except Exception as hata:  # noqa: BLE001
-        return False, f"bağlanamadı: {hata}"
+        return "hata", f"bağlanamadı: {hata}"
 
     bitis = time.monotonic() + sure
     while time.monotonic() < bitis and sonuc["mesaj"] == 0:
@@ -115,10 +123,10 @@ def mqtt_test(sure: float = 15.0) -> tuple[bool, str]:
         pass
 
     if not sonuc["bagli"]:
-        return False, "broker bağlantısı KURULAMADI (kullanıcı/parola/TLS)"
+        return "hata", "broker bağlantısı KURULAMADI (kullanıcı/parola/TLS)"
     if sonuc["mesaj"] == 0:
-        return True, f"abonelik tamam, {int(sure)} sn içinde mesaj gelmedi (panelden 'Bildir' deneyin)"
-    return True, f"mesaj ALINDI ({sonuc['mesaj']}) — push halkası sağlam"
+        return "ok", f"abonelik tamam, {int(sure)} sn içinde mesaj gelmedi (panelden 'Bildir' deneyin)"
+    return "ok", f"mesaj ALINDI ({sonuc['mesaj']}) — push halkası sağlam"
 
 
 def surec_denetimi() -> tuple[bool, str]:
@@ -169,7 +177,7 @@ def surec_denetimi() -> tuple[bool, str]:
     return True, " | ".join(satirlar)
 
 
-def main() -> int:
+def main(sure: float = 15.0) -> int:
     print("=" * 62)
     print("CANLI ZİNCİR TESTİ — kiosk çalışırken çalıştırın")
     print("=" * 62)
@@ -215,10 +223,13 @@ def main() -> int:
         print(f"! disk okunamadı: {hata}")
 
     _bas("3) MQTT / PUSH")
-    ok, metin = mqtt_test()
-    print(("✓ " if ok else "✗ ") + metin)
-    if not ok:
-        sorun += 1
+    mqtt_durum, metin = mqtt_test(sure)
+    if mqtt_durum == "atlandi":
+        print(f"- {metin}")
+    else:
+        print(("✓ " if mqtt_durum == "ok" else "✗ ") + metin)
+        if mqtt_durum != "ok":
+            sorun += 1
 
     _bas("4) YEREL TETİK DOSYASI")
     print(f"tetikle.json   : son yazım {_tetik_mtime()}")
@@ -234,4 +245,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import argparse
+
+    _ayristirici = argparse.ArgumentParser(description="Canlı zincir testi (kiosk çalışırken).")
+    _ayristirici.add_argument(
+        "--sure", type=float, default=15.0,
+        help="MQTT mesaj bekleme süresi, saniye (varsayılan 15; guncelle.sh 15 verir)",
+    )
+    _arg = _ayristirici.parse_args()
+    raise SystemExit(main(_arg.sure))

@@ -1,0 +1,46 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AlarmKurSil",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DeleteAlarms"
+      ],
+      "Resource": [
+        "arn:aws:cloudwatch:*:${aws:PrincipalAccount}:alarm:fatura-aylik-esik",
+        "arn:aws:cloudwatch:*:${aws:PrincipalAccount}:alarm:s3-5xx-orani",
+        "arn:aws:cloudwatch:*:${aws:PrincipalAccount}:alarm:cloudfront-5xx-orani",
+        "arn:aws:cloudwatch:*:${aws:PrincipalAccount}:alarm:lambda-hatalari"
+      ]
+    },
+    {
+      "Sid": "AlarmListele",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DescribeAlarms"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BildirimKonusu",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreateTopic",
+        "sns:Subscribe",
+        "sns:DeleteTopic"
+      ],
+      "Resource": "arn:aws:sns:*:${aws:PrincipalAccount}:yourkiosk-alarm"
+    },
+    {
+      "Sid": "FaturaMetrigiOkuma",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListMetrics"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

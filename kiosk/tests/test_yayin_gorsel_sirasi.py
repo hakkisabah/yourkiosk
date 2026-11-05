@@ -13,29 +13,70 @@ from pathlib import Path
 KIOSK = Path(__file__).resolve().parents[1]
 
 #: Görsel adresini okuyan tüketiciler (yeni bir tüketici eklersen buraya da ekle).
-TUKETICILER = (
-    "core/data_handler.py",
-    "core/tarayici.py",
-    "pharmacy_app.py",
-)
+#:
+#: İki tür kilit var (27 Ekim i5 bulgusu: `tools/gorsel_webp.py` `contentUrl` okuyordu ama
+#: bekçiye kayıtlı değildi → testi düşürüyordu; "yeni tüketici" listesi gerçeği anlatmıyordu):
+#:   "sira"          → Qt okuyucu; `y.get("contentUrl") or y.get("contentURL")` sırası zorunlu.
+#:   "alan_listesi"  → toplu işleyici; `YAYIN_ALANLARI` demetinde `contentUrl` İLK olmalı
+#:                     (ilk eşleşen alan yazılır, sıra bozulursa yedek alan ezilir).
+TUKETICILER: dict[str, str] = {
+    "core/data_handler.py": "sira",
+    "core/tarayici.py": "sira",
+    "pharmacy_app.py": "sira",
+    "tools/gorsel_webp.py": "alan_listesi",
+}
 
 
 def _satirlar(ad: str) -> list[str]:
     return (KIOSK / ad).read_text(encoding="utf-8").splitlines()
 
 
+def _sira_tuketicileri() -> list[str]:
+    return [ad for ad, kilit in TUKETICILER.items() if kilit == "sira"]
+
+
+def _alan_listesi_tuketicileri() -> list[str]:
+    return [ad for ad, kilit in TUKETICILER.items() if kilit == "alan_listesi"]
+
+
 def test_gorsel_adresi_ayni_sirada_okunur():
-    """Her tüketici `y.get("contentUrl") or y.get("contentURL")` biçimini kullanmalı."""
+    """Her Qt tüketicisi `y.get("contentUrl") or y.get("contentURL")` biçimini kullanmalı."""
     dogru = 'y.get("contentUrl") or y.get("contentURL")'
     ters = 'y.get("contentURL") or y.get("contentUrl")'
     eksik: list[str] = []
-    for ad in TUKETICILER:
+    for ad in _sira_tuketicileri():
         metin = "\n".join(_satirlar(ad))
         if dogru not in metin:
             eksik.append(f"{ad}: doğru sıra ({dogru}) bulunamadı")
         if ters in metin:
             eksik.append(f"{ad}: TERS sıra ({ters}) — contentURL önce okunuyor")
     assert not eksik, "görsel okuma sırası tutarsız:\n" + "\n".join(eksik)
+
+
+def test_toplu_isleyicide_contenturl_ilk_alan() -> None:
+    """`tools/gorsel_webp.py` adresleri YENİDEN YAZAR: ilk eşleşen alan kazanır.
+
+    `YAYIN_ALANLARI` demetinde `contentUrl` ilk olmazsa yedek alan (`contentURL`) önce
+    bulunur ve panelin yazdığı asıl alan güncellenmeden kalır (27 Ekim i5 bulgusu: bu
+    tüketici bekçiye kayıtlı değildi).
+    """
+    import ast
+
+    for ad in _alan_listesi_tuketicileri():
+        agac = ast.parse("\n".join(_satirlar(ad)))
+        demet = None
+        for dugum in agac.body:
+            if isinstance(dugum, ast.Assign) and any(
+                isinstance(h, ast.Name) and h.id == "YAYIN_ALANLARI" for h in dugum.targets
+            ):
+                demet = ast.literal_eval(dugum.value)
+        assert demet is not None, f"{ad}: YAYIN_ALANLARI bulunamadı"
+        assert demet[0] == "contentUrl", (
+            f"{ad}: YAYIN_ALANLARI[0] 'contentUrl' olmalı, bulunan: {demet!r}"
+        )
+        assert demet.index("contentUrl") < demet.index("contentURL"), (
+            f"{ad}: contentUrl, contentURL'den ÖNCE gelmeli — {demet!r}"
+        )
 
 
 def test_qt_url_okumaz_tarayici_okur_iddiasi_dogru() -> None:
@@ -45,7 +86,7 @@ def test_qt_url_okumaz_tarayici_okur_iddiasi_dogru() -> None:
     okur: `web/src/veri/yayin.ts` → `ADRES_ALANLARI = ['contentUrl', 'contentURL', 'url']`.
     Belge/kod yorumu bu gerçeği yazmak zorunda; `gorsel` alanı hiçbir tüketicide okunmaz.
     """
-    for ad in TUKETICILER:
+    for ad in _sira_tuketicileri():
         for no, satir in enumerate(_satirlar(ad), 1):
             if 'get("url")' in satir or "get('url')" in satir:
                 raise AssertionError(f"{ad}:{no}: Qt `url` alanını okumamalı — {satir.strip()[:120]}")

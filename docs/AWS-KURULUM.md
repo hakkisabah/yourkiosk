@@ -52,7 +52,7 @@ Kurulum bitince bu anahtarı **iptal edeceğiz** (panel Cognito ile geçici anah
 | 2 | Kova oluştur | `aws s3api create-bucket --bucket … --region …` (`eu-central-1` için LocationConstraint gerekmez) | `aws s3api head-bucket` |
 | 3 | Public erişimi kapat | `aws s3api put-public-access-block` (4 ayar `true`) | `get-public-access-block` |
 | 4 | Sürümleme (yedekleme) | `put-bucket-versioning --versioning-configuration Status=Enabled` | `get-bucket-versioning` |
-| 5 | Yaşam döngüsü (maliyet) | `put-bucket-lifecycle-configuration`: `kiosk/yayin-gorseller/` altında `Expiration.InDays=30` + `NoncurrentVersionExpiration` | `get-bucket-lifecycle-configuration` |
+| 5 | Yaşam döngüsü (maliyet) | `put-bucket-lifecycle-configuration file://deploy/s3/yasam-dongusu.json` — **tek doğru kaynak** (etiketli görsel 30 gün, eski sürüm 30 gün, `kiosk/tmp/` 7 gün) | `get-bucket-lifecycle-configuration` |
 | 6 | CORS (panel tarayıcıdan yazar) | `put-bucket-cors` ← `panel/infra/s3-cors.json` | `get-bucket-cors` |
 | 7 | Panel rolü (Cognito authenticated) | `iam create-role` + `put-role-policy` ← `panel/infra/iam-policy.json` (KOVA_ADI/ON_EK doldurulur) | `get-role-policy` |
 | 8 | Cognito Identity Pool | `cognito-identity create-identity-pool` (kimlik doğrulamalı erişim) + `set-identity-pool-roles` | `get-identity-pool-roles` |
@@ -71,9 +71,16 @@ yaşam döngüsü → CORS). Uygulanan üç kural:
 
 | Kural | Ayar | Neyi engeller |
 |---|---|---|
-| `iptal-mpu` | 7 günde yarım kalan çok parçalı yükleme iptali | Görünmeyen, silinemeyen depolama şişmesi |
-| `eski-surumler` | Eski sürümler 30 günde silinir, **son 3 sürüm saklanır** | Sürümleme açıkken sınırsız büyüme |
-| `yayin-gorselleri` | `kiosk/yayin-gorseller/` 45 günde silinir (eski sürümler 15 gün) | Panelin silmediği artık görseller |
+| `iptal-mpu` (`eski-surumler-30-gun` içinde) | 3 günde yarım kalan çok parçalı yükleme iptali | Görünmeyen, silinemeyen depolama şişmesi |
+| `eski-surumler-30-gun` | Eski sürümler 30 günde silinir | Sürümleme açıkken sınırsız büyüme |
+| `yayin-gorselleri-silinecek-etiketli-30-gun` | **Yalnız `silinebilir=true` etiketli** görseller 30 günde silinir | Panelin etiketlediği artık görseller birikir |
+| `gecici-dosyalar-7-gun` | `kiosk/tmp/` altındaki geçici dosyalar 7 günde silinir | Geçici yüklemeler birikir |
+
+> **Tek doğru kaynak:** [`deploy/s3/yasam-dongusu.json`](../deploy/s3/yasam-dongusu.json).
+> Eski panel yaşam döngüsü tanımı (önek + 45 gün, etiketsiz) 27 Ekim i5 bulgusuyla KALDIRILDI:
+> o kural panelde KULLANILAN görselleri de siliyordu (anahtar = içerik sha'sı, `contentUrl`
+> kalıcı). Kural artık etiket kapılıdır; temizliği panel yapar, silme etiketi kanıt sonrası
+> konur (`kiosk/tests/test_deploy_i5_ekim27.py` çelişkiyi kilitler).
 
 Ayrıca: **public erişim tamamen kapalı** (4 ayar `true`) → yanlışlıkla herkese açık nesne olmaz; erişim
 yalnız Cognito rolüyle ve `kiosk/*` ön ekiyle.
@@ -115,7 +122,7 @@ En büyük kalem **istek sayısı**: cihaz yerel önbellek kullandığı için y
 | 21.10 | Kova | `aws s3api create-bucket --bucket yourkiosk-veri --create-bucket-configuration LocationConstraint=eu-central-1` | ✓ `arn:aws:s3:::yourkiosk-veri` |
 | 21.10 | Public erişim | `put-public-access-block` (4 ayar `true`) | ✓ |
 | 21.10 | Sürümleme | `put-bucket-versioning Status=Enabled` | ✓ |
-| 21.10 | Yaşam döngüsü | `put-bucket-lifecycle-configuration file://panel/infra/s3-lifecycle.json` | ✓ 3 kural |
+| 21.10 | Yaşam döngüsü | `put-bucket-lifecycle-configuration file://deploy/s3/yasam-dongusu.json` (tek kaynak; 27 Ekim'de etiket kapılı sürümle değişti) | ✓ 3 kural |
 | 21.10 | CORS | `put-bucket-cors file://panel/infra/s3-cors.json` (`{"CORSRules": […]}`, düz dizi DEĞİL) | ✓ localhost:5173/4173 |
 | 21.10 | Şifreleme/ACL | `put-bucket-encryption`, `put-bucket-ownership-controls` | ⚠ `AccessDenied` → **gerek yok**: yeni kovalarda AWS varsayılanı SSE-S3 + BucketOwnerEnforced |
 | 21.10 | Panel rolü | `iam create-role yourkiosk-panel-s3-v2` (aud = identity pool) + `put-role-policy` (iam-policy.json) | ✓ |
