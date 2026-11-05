@@ -9,6 +9,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { DOSYALAR } from '@/aws/config'
 import {
+  cihazKimligi,
   durumEkle,
   durumEtiketi,
   izlemeBaslat,
@@ -168,9 +169,12 @@ const tumBolgeler = computed(() => cihazlar.value.map((c) => c.bolgeId))
 const kirli = computed(() => JSON.stringify(taslak.value) !== JSON.stringify(dosyalar.match.veri ?? {}))
 
 /** Çevrimiçi özeti (match.json'daki tüm cihazlar üzerinden). */
-const tumCihazIdleri = computed(() => [...new Set(cihazlar.value.flatMap((s) => s.cihazlar))])
+const tumCihazIdleri = computed(() => [...new Set(cihazlar.value.flatMap((s) => s.cihazlar.map(cihazKimligi)))])
 const cevrimiciOzeti = computed(() => izlemeOzeti(durumlar.value, tumCihazIdleri.value, simdi.value))
-const cihazDurumu = (cihaz: string) => durumEtiketi(durumlar.value.get(cihaz), simdi.value)
+// NORMALİZASYON (i5 bulgusu): harita anahtarı yayıncının ürettiği kimliktir; match.json ham
+// kimlik taşır (`İZMİR 01` → yayıncıda `-ZM-R-01`). Ham kimlikle aramak cihazı sonsuza kadar
+// "bilinmiyor" gösteriyordu.
+const cihazDurumu = (cihaz: string) => durumEtiketi(durumlar.value.get(cihazKimligi(cihaz)), simdi.value)
 
 function tasi(satir: CihazSatiri, cihaz: string, hedefBolge: string): void {
   if (hedefBolge === satir.bolgeId) return

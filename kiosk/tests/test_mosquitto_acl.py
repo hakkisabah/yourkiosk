@@ -259,3 +259,28 @@ def test_panel_paketine_yayin_parolasi_gomulmez() -> None:
     assert "sessionStorage" in kimlik and "localStorage" not in kimlik, (
         "yayın kimliği oturum deposunda tutulmuyor (localStorage'a yazılırsa cihazda kalır)"
     )
+
+
+def test_kurulum_belgesi_hesap_sayisini_dogru_yazar() -> None:
+    """Hesap sayısı belgede eksik yazılırsa operatör 4. adımda takılır (28 Ekim i5 bulgusu).
+
+    Gerçek: `kur.sh` ÜÇ hesap üretir (panel, cihaz, panel-izleme) + her cihaz için
+    `cihaz-ekle.sh` ile `cihaz-<id>`. Belge eskiden "iki parola" diyor ve yalnız
+    panel/cihaz listeliyordu; operatör `panel-izleme` parolasını aramıyor, panel izlemesi
+    "kimlik gerekli" ekranında kalıyordu.
+    """
+    belge = _metin(MOSQUITTO / "KURULUM.md")
+    assert "iki parola" not in belge.lower(), "belge hâlâ 'iki parola' diyor"
+    assert "iki parolayı" not in belge.lower(), "belge hâlâ 'iki parolayı' diyor"
+
+    for hesap in ("`panel`", "`cihaz`", "`panel-izleme`"):
+        assert hesap in belge, f"belgede {hesap} hesabı yok"
+    assert "cihaz-ekle.sh" in belge, "cihaz başına hesap (cihaz-<id>) anlatılmıyor"
+    assert "MQTT_PAROLA_IZLEME" in belge, "doğrulama komutu izleme parolasını istemiyor"
+
+    # Belgenin iddiası betikle aynı olmalı: üç hesap üretiliyor.
+    betik = _metin(KUR)
+    for hesap in ("panel", "cihaz", "panel-izleme"):
+        assert f'mosquitto_passwd -b "$PWFILE" {hesap} ' in betik or (
+            f'mosquitto_passwd -b -c "$PWFILE" {hesap} ' in betik
+        ), f"kur.sh {hesap} hesabını üretmiyor"

@@ -7,6 +7,7 @@ import {
   AZAMI_YENIDEN_BAGLANMA,
   VARSAYILAN_ESIK_DK,
   cevrimiciMi,
+  cihazKimligi,
   durumEkle,
   durumEtiketi,
   durumKonusu,
@@ -14,7 +15,9 @@ import {
   izlemeOzeti,
   kalpAtisiCoz,
   konudanCihaz,
+  type CihazDurumu,
 } from './cihazIzleme'
+import kimlikOrnekleri from './cihazKimligi.ornekler.json'
 
 const SIMDI = new Date('2026-10-25T12:00:00.000Z')
 
@@ -234,5 +237,50 @@ describe('izlemeBaslat — yeniden bağlanma sınırı (i5 bulgusu)', () => {
     expect(kapatma.sayi).toBe(1)
     expect(olaylar.at(-1)).toBe('hata')
     expect(hataMetni).toContain('yeniden bağlanılamadı')
+  })
+})
+
+describe('cihazKimligi — yayıncıyla AYNI kural (i5 bulgusu)', () => {
+  it('ortak örnek tablosunu birebir üretir (kiosk testi aynı dosyayı okur)', () => {
+    const hatalar = kimlikOrnekleri.ornekler
+      .map((o) => ({ ham: o.ham, beklenen: o.beklenen, elde: cihazKimligi(o.ham) }))
+      .filter((s) => s.elde !== s.beklenen)
+      .map((s) => `${JSON.stringify(s.ham)}: ${s.elde} ≠ ${s.beklenen}`)
+    expect(hatalar).toEqual([])
+  })
+
+  it('boş kimlikte boş döner (bilinmeyen adına düşüp cihazları toplamaz)', () => {
+    expect(cihazKimligi('')).toBe('')
+    expect(cihazKimligi(undefined)).toBe('')
+    expect(cihazKimligi('---')).toBe('')
+  })
+
+  it('40 karakterde kırpar (yayıncı sınırı)', () => {
+    expect(cihazKimligi('a'.repeat(60))).toHaveLength(40)
+  })
+})
+
+describe('izlemeOzeti — match.json ham kimliği normalleştirilerek aranır', () => {
+  const cevrimici = (cihazId: string): CihazDurumu => ({
+    cihazId,
+    cevrimici: true,
+    zaman: SIMDI.toISOString(),
+    mod: 'qt',
+    alindi: SIMDI.getTime(),
+  })
+
+  it('Türkçe karakterli kimlik yayıncının ürettiği anahtarla eşleşir', () => {
+    const harita = new Map([['ZM-R-01', cevrimici('ZM-R-01')]])
+    // yayıncı `İZMİR 01` için `ZM-R-01` konusu üretir; panel ham kimlikle aradığında
+    // "bilinmiyor" görünüyordu (28 Ekim i5 bulgusu)
+    const ozet = izlemeOzeti(harita, ['İZMİR 01'], SIMDI)
+    expect(ozet).toEqual({ cevrimici: 1, cevrimdisi: 0, bilinmiyor: 0 })
+  })
+
+  it('aynı cihazın farklı yazımları "bilinmiyor" sayılmaz', () => {
+    const harita = new Map([['C-1', cevrimici('C-1')]])
+    const ozet = izlemeOzeti(harita, ['C 1', 'C-1'], SIMDI)
+    expect(ozet.cevrimici).toBe(2)
+    expect(ozet.bilinmiyor).toBe(0)
   })
 })

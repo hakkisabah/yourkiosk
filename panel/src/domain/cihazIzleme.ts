@@ -24,6 +24,8 @@ export const VARSAYILAN_ESIK_DK = 15
  */
 export const AZAMI_GOVDE_BAYT = 512
 export const AZAMI_KIMLIK_UZUNLUK = 64
+/** Durum kimliği (kalp atışı konusu) uzunluk sınırı — `push.py: durum_kimligi()` ile aynı (40). */
+export const AZAMI_DURUM_KIMLIK = 40
 export const AZAMI_CIHAZ = 2000
 /** İzleme oturumunun ardışık yeniden bağlanma denemesi üst sınırı (sonsuz döngüyü keser). */
 export const AZAMI_YENIDEN_BAGLANMA = 5
@@ -58,6 +60,28 @@ export function konudanCihaz(konu: string): string {
   const kimlik = parcalar.length ? parcalar[parcalar.length - 1] : ''
   if (!kimlik || kimlik.length > AZAMI_KIMLIK_UZUNLUK) return ''
   return KIMLIK_DESENI.test(kimlik) ? kimlik : ''
+}
+
+/**
+ * Cihaz kimliği normalizasyonu — YAYINCIYLA AYNI KURAL (i5 bulgusu).
+ *
+ * Kiosk kalp atışı konusunu `kiosk/core/push.py: durum_kimligi()` ile üretir: ASCII dışı ve
+ * joker karakterler `-` olur, baş/son `-` kırpılır, en çok 40 karakter. Panel ise match.json'daki
+ * HAM kimlikle arıyordu: `İZMİR 01` gibi bir kimlik yayıncıda `-ZM-R-01` olurken panelde
+ * `İZMİR 01` olarak aranıyor, cihaz sonsuza kadar "bilinmiyor" görünüyordu (sessiz arıza:
+ * veri geliyor, eşleşme tutmuyor).
+ *
+ * KURAL KOPYALANMAZ, AYNI TUTULUR: `kiosk/tests/test_cihaz_kimligi_parite.py` bu işlevin
+ * çıktısını `durum_kimligi()` ile örnek tablo üzerinden karşılaştırır. Kuralı değiştiren
+ * taraf diğerini de değiştirmek zorunda, aksi hâlde test kırmızı olur.
+ *
+ * Boş kimlik `''` döner (eşleşmez) — `bilinmeyen` gibi bir ada düşürmek farklı cihazları
+ * aynı satırda toplardı.
+ */
+export function cihazKimligi(ham: unknown): string {
+  const metin = String(ham ?? '')
+  const temiz = metin.replace(/[^A-Za-z0-9_-]/g, '-').replace(/^-+/, '').replace(/-+$/, '')
+  return temiz.slice(0, AZAMI_DURUM_KIMLIK)
 }
 
 /** Kalp atışı gövdesini çözer; bozuk/eksik gövdede null.
@@ -140,7 +164,10 @@ export function izlemeOzeti(
   let cevrimdisi = 0
   let bilinmiyor = 0
   for (const cihaz of cihazlar) {
-    const d = durumlar.get(cihaz)
+    // NORMALİZASYON (i5 bulgusu): match.json ham kimlik taşır, haritanın anahtarı yayıncının
+    // normalleştirdiği kimliktir. Ham kimlikle aramak `İZMİR 01` gibi cihazları sonsuza kadar
+    // "bilinmiyor" gösteriyordu.
+    const d = durumlar.get(cihazKimligi(cihaz))
     if (!d) bilinmiyor += 1
     else if (d.cevrimici && tazeMi(d, simdi, esikDk)) cevrimici += 1
     else cevrimdisi += 1

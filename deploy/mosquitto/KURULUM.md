@@ -33,9 +33,14 @@ ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIM73puPcAfsmWFRSrL90cSL+X0wH2935d9BJ7mbvXceh
 sudo bash kur.sh --host broker.<IP>.nip.io --eposta siz@example.com
 ```
 
-Sonunda ekrana **iki parola** basar ve `/root/yourkiosk-mqtt-credentials.txt` (0600) dosyasına yazar:
+Sonunda ekrana **üç hesap** basar ve `/root/yourkiosk-mqtt-credentials.txt` (0600) dosyasına yazar:
 - `panel` → yalnız **yazar** (yayın)
-- `cihaz` → yalnız **okur** (abone)
+- `cihaz` → yalnız yayını **okur**; kalp atışı **yazamaz**
+- `panel-izleme` → yalnız `yourkiosk/durum/+` **okur** (panelde çevrimiçi/çevrimdışı için)
+
+Bir de cihaz **başına** hesap gerekir: `cihaz-ekle.sh <cihazId>` → `cihaz-<cihazId>`, yalnız
+`yourkiosk/durum/<cihazId>` konusuna yazar (bkz. §4 adım 3). Yani toplam hesap sayısı
+`3 + cihaz sayısı`dır; paylaşılan `cihaz` hesabıyla kalp atışı yazılamaz.
 
 ### B) Ben çalıştırayım
 
@@ -47,7 +52,9 @@ panel yayınını ben yaparım; sonunda anahtarı kaldırmanızı hatırlatırı
 - `mosquitto` + `certbot` + `ufw`; **yalnız TLS** dinleyiciler: `8883` (MQTT) ve `8084` (WebSocket/TLS)
 - **Düz 1883 kapalı** (TLS'siz MQTT yok)
 - `allow_anonymous false` + kullanıcı/parola (`/etc/mosquitto/auth/passwd`, 0640, mosquitto sahipli)
-- **Konu ACL'i**: `panel` → yalnız `yourkiosk/yayin` **yazma**; `cihaz` → yalnız **okuma**
+- **Konu ACL'i**: `panel` → yalnız `yourkiosk/yayin` **yazma**; `cihaz` → yalnız o konuyu **okuma**;
+  `panel-izleme` → yalnız `yourkiosk/durum/+` **okuma**; `cihaz-<id>` → yalnız `yourkiosk/durum/<id>` **yazma**
+  (yazma kuralı olmayan hesap yazamaz — `acl_file` varsayılanı ret)
 - `message_size_limit 1024` (yalnız "yenile" mesajı), `max_queued_messages 50`,
   `max_inflight_messages 20` (cihaz başına kuyruk — 30 sn yoklamada 2 turu kapsar),
   `max_connections 1200` (8883, cihazlar) / `600` (8084, panel WebSocket), `persistence false`
@@ -225,12 +232,14 @@ cd yourkiosk
 sudo bash deploy/mosquitto/kur.sh --host yourkiosk.hakkisabah.com --eposta siz@example.com
 ```
 
-Betik sonunda iki parolayı basar ve `/root/yourkiosk-mqtt-credentials.txt` (0600) dosyasına yazar.
+Betik sonunda üç hesabı (`panel`, `cihaz`, `panel-izleme`) basar ve
+`/root/yourkiosk-mqtt-credentials.txt` (0600) dosyasına yazar. Cihaz başına `cihaz-<id>` hesabı
+`cihaz-ekle.sh` ile ayrıca eklenir.
 
 ### 9.6 Doğrulama (kendi makinenizden)
 
 ```bash
-MQTT_PAROLA_PANEL=… MQTT_PAROLA_CIHAZ=… \
+MQTT_PAROLA_PANEL=… MQTT_PAROLA_CIHAZ=… MQTT_PAROLA_IZLEME=… \
   bash deploy/mosquitto/dogrula.sh yourkiosk.hakkisabah.com
 ```
 
