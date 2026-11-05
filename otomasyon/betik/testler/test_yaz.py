@@ -246,12 +246,19 @@ class _BiletDestekli(unittest.TestCase):
     def calistir(self, *ek: str, env_anahtar: bool = False, bilet=None, uid_taklit: bool = False,
                  dizin_gercek: bool = False, kimlik: str | None = "i5",
                  kimlik_dosyasi=None, kimlik_sahip_taklit: bool = True,
-                 kapi_log_env=None):
+                 kapi_log_env=None, ek_ortam: dict | None = None):
         import os
         import subprocess
         ortam = {**os.environ, "HOME": str(self.kok)}
-        for ad in ("YAZ_KAPI_ATLA_ONAY", "YAZ_KAPI_ATLA_BILET", "YAZ_KAPI_LOG"):
+        for ad in ("YAZ_KAPI_ATLA_ONAY", "YAZ_KAPI_ATLA_BILET", "YAZ_KAPI_LOG",
+                   "YAZ_MAKINE_KIMLIGI", "YAZ_KIMLIK_DOSYASI"):
             ortam.pop(ad, None)
+        # 28 Ekim i5 bulgusu (düşük): kimlik yolunu taşıdığı iddia edilen ortam anahtarları
+        # testten verilebilmeli — amaç zaten "YOK SAYILIR" ölçütünü sabit tutmak. Önceden bu
+        # testler `yaz.py`yi doğrudan çağırıyordu; makinede gerçek /etc kimlik dosyası varsa
+        # (i5) kimlik çözülüyor, senaryo sessizce BAŞKA bir şeyi ölçüyordu.
+        if ek_ortam:
+            ortam.update({str(k): str(v) for k, v in ek_ortam.items()})
         if env_anahtar:
             ortam["YAZ_KAPI_ATLA_ONAY"] = "1"
         # 26 Ekim i5 bulgusu: bilet YOLU artık ortam değişkeniyle verilemez (ajan `/proc/1/stat`
@@ -855,17 +862,30 @@ class MakineKimligiTesti(_BiletDestekli):
         self.assertIn("--tek-onay reddedildi", self.log.read_text(encoding="utf-8"))
 
     def test_kimlik_dosyasi_ortam_degiskeniyle_tasinamaz(self):
-        """Üretimde kimlik yolunu taşıyan bir ortam anahtarı YOKTUR (bilet dersi)."""
-        import os
-        import subprocess
-        ortam = {**os.environ, "HOME": str(self.kok),
-                 "YAZ_MAKINE_KIMLIGI": str(self.kimlik_olustur("i3")),
-                 "YAZ_KIMLIK_DOSYASI": str(self.kimlik_olustur("i3"))}
-        s = subprocess.run([sys.executable, str(self.yaz), str(self.karar_yolu), "--kuru",
-                            "--token-dosya", str(self.token)],
-                           capture_output=True, text=True, timeout=120, env=ortam)
+        """Üretimde kimlik yolunu taşıyan bir ortam anahtarı YOKTUR (bilet dersi).
+
+        28 Ekim i5 bulgusu (düşük): bu test `yaz.py`yi doğrudan çağırıyordu ve kimlik kaynağını
+        yalıtmıyordu. Makinede gerçek `/etc/yourkiosk-makine-kimligi` varsa (i5) kimlik ÇÖZÜLÜYOR,
+        ret bekleyen senaryo sessizce başka bir şeyi ölçüyordu — sonuç makineye bağımlıydı.
+        Artık koşum `calistir(kimlik=None)` ile gider: birincil dosya VE yedek kaynak
+        (machine-id + eşleme) kapatılır, ortam anahtarları enjekte edilir. Ölçüt mesaj metni
+        değil, kapının REDDETMESİ + rolün boş kalması.
+        """
+        # 1) Süreç düzeyi: ortam anahtarları kimliği TAŞIYAMAZ → kapı reddeder (çıkış 5).
+        s = self.calistir(kimlik=None, ek_ortam={
+            "YAZ_MAKINE_KIMLIGI": str(self.kimlik_olustur("i3")),
+            "YAZ_KIMLIK_DOSYASI": str(self.kimlik_olustur("i3")),
+        })
         self.assertEqual(s.returncode, 5, s.stdout + s.stderr)
-        self.assertIn("MAKİNE KİMLİĞİ REDDEDİLDİ", s.stderr)
+        # 2) İşlev düzeyi (makineden bağımsız): yol çözücü ortamı hiç OKUMAZ.
+        import os
+        os.environ["YAZ_MAKINE_KIMLIGI"] = str(self.kok / "sahte-i3")
+        os.environ["YAZ_KIMLIK_DOSYASI"] = str(self.kok / "sahte-i3")
+        try:
+            self.assertEqual(yaz.kimlik_yolu(), yaz.KIMLIK_VARSAYILAN)
+        finally:
+            os.environ.pop("YAZ_MAKINE_KIMLIGI", None)
+            os.environ.pop("YAZ_KIMLIK_DOSYASI", None)
 
     def test_kapi_log_yolu_ortam_degiskeniyle_tasinamaz(self):
         """`YAZ_KAPI_LOG=/dev/null` kapı izini silememeli: kayıt VARSAYILAN dosyaya yazılır."""

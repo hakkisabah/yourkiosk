@@ -438,7 +438,31 @@ def faillock_durumu(cikti: str) -> tuple[int, bool]:
     return adet, adet >= FAILLOCK_ESIK
 
 
-#: Aynı PR+commit için yeniden oturum açmadan önce beklenecek süre (sn). Üstel artar.
+def faillock_sayaci(kullanici: str) -> tuple[int, str]:
+    """`faillock` sayacını sudo'suz okur → (deneme sayısı, durum).
+
+    durum: "ok" (okundu) · "yetki" (sayaç dosyası root'a ait, okunamadı) · "yok" (ikili yok) ·
+    "hata" (beklenmedik çıkış). Deneme sayısı okunamadıysa -1.
+
+    28 Ekim saha bulgusu: kontrol noktası yalnız `stdout`'u okuyup çıkış kodunu YOK SAYIYORDU.
+    `faillock` yetki hatası verdiğinde stdout boş kalıyor, sayaç "0" sayılıp satır YEŞİL
+    yanıyordu — yani okunamayan bir şey "temiz" diye raporlanıyordu (fail-open teşhis).
+    Ayrıca bazı makinelerde sayaç dosyası root'a ait olduğu için testler makineye bağımlı
+    kalıyordu; artık "okunamadı" ayrı bir durumdur ve sudo DENENMEZ.
+    """
+    try:
+        s = subprocess.run(["faillock", "--user", kullanici],
+                           capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return -1, "yok"
+    if s.returncode != 0:
+        hata = (s.stderr or "").lower()
+        return -1, ("yetki" if "permission denied" in hata else "hata")
+    adet, _ = faillock_durumu(s.stdout)
+    return adet, "ok"
+
+
+
 BEKLEME_TABANI_S = 600
 BEKLEME_TAVAN_S = 3600
 #: Günlük en çok oturum (oturum fırtınasına karşı sert fren)
@@ -1074,20 +1098,22 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
     # kilitliyor, operatör de (parolayı bilen tek kişi) o makineye sudo yapamaz hâle geliyordu.
     # sudo DENENMEMELİ; yetki gereken adım BULGU olarak yazılır. Bu satır sınıfı görünür kılar.
     kullanici = os.environ.get("USER", "")
-    deneme = -1
-    try:
-        cikti = subprocess.run(["faillock", "--user", kullanici],
-                               capture_output=True, text=True, timeout=15).stdout
-        deneme, _ = faillock_durumu(cikti)
-    except (OSError, subprocess.SubprocessError):
-        deneme = -1
-    satir(deneme == 0, "sudo denemesi yok",
-          "temiz" if deneme == 0 else
-          # Sıfırlama SUDO GEREKTİRMEZ: `faillock --reset --user <k>` kullanıcının kendi kaydını
-          # siler. Metin `sudo` önerirse kilitlenen kişi çalışmayan komuta yönlendirilir ve sayaç
-          # bir kez daha beslenir (28 Ekim saha bulgusu — eski metin sudo'lu biçimi yazıyordu).
-          (f"{deneme} başarısız sudo denemesi → hesap kilitleniyor; sıfırla (sudo GEREKMEZ): "
-           f"faillock --reset --user {kullanici}" if deneme > 0 else "okunamadı"))
+    deneme, durum = faillock_sayaci(kullanici)
+    if durum == "ok":
+        satir(deneme == 0, "sudo denemesi yok",
+              "temiz" if deneme == 0 else
+              # Sıfırlama SUDO GEREKTİRMEZ: `faillock --reset --user <k>` kullanıcının kendi kaydını
+              # siler. Metin `sudo` önerirse kilitlenen kişi çalışmayan komuta yönlendirilir ve sayaç
+              # bir kez daha beslenir (28 Ekim saha bulgusu — eski metin sudo'lu biçimi yazıyordu).
+              f"{deneme} başarısız sudo denemesi → hesap kilitleniyor; sıfırla (sudo GEREKMEZ): "
+              f"faillock --reset --user {kullanici}")
+    else:
+        # OKUNAMAYAN sayaç "temiz" DEĞİLDİR (fail-open teşhis düzeltmesi). Sorun sayılmaz —
+        # ajanın yetkisiyle çözülemez — ama görünür kalır ve sudo DENENMEZ.
+        neden = {"yetki": "sayaç dosyası root'a ait, okunamadı",
+                 "yok": "faillock kurulu değil", "hata": "beklenmedik çıkış"}.get(durum, durum)
+        print(f"· {'sudo denemesi sayacı':<26} {neden} — sudo DENEMEYİN; "
+              f"sıfırlama gerekirse (operatör, sudo GEREKMEZ): faillock --reset --user {kullanici}")
 
     print(f"\n{'✓ tüm kontrol noktaları temiz' if sorun == 0 else f'✗ {sorun} kontrol noktası sorunlu'}")
     return 0 if sorun == 0 else 1

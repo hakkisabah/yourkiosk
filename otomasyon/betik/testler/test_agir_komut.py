@@ -207,5 +207,57 @@ class AgirKomutTesti(unittest.TestCase):
         self.assertIn("komut=$(printf '%s ' \"$@\" | maskele)", kaynak)
 
 
+    def test_npm_ve_sorgu_bicimi_de_maskelenir(self):
+        """28 Ekim i5 bulgusu (düşük): maskele() `--access_token=` ve `?token=` biçimlerini atlıyordu.
+
+        Ölçülen sızıntı: `npm test --access_token=GIZLI123` ve `...?token=GIZLI456` günlüğe DÜZ
+        yazılıyordu. Eski desen yalnız `--token` (tam ad) ve `TOKEN=` (büyük harf) biçimlerini
+        kapatıyordu; `--<önek>_token=` ve sorgu dizesi kaçıyordu.
+        """
+        mem = sahte_meminfo(self.dizin.name, toplam_mb=3886, bos_mb=2000)
+        s = self.kos("--", "/bin/true",
+                     "--access_token=GIZLI123",
+                     "--npm-auth-token", "GIZLI234",
+                     "npm_config_//registry.npmjs.org/:_authToken=GIZLI345",
+                     "https://ornek.test/yol?token=GIZLI456&surum=7",
+                     meminfo=mem)
+        self.assertEqual(s.returncode, 0, s.stderr)
+        gunluk = self.home / ".local" / "state" / "yourkiosk-otomasyon" / "agir-komut.log"
+        metin = gunluk.read_text(encoding="utf-8")
+        for sir in ("GIZLI123", "GIZLI234", "GIZLI345", "GIZLI456"):
+            self.assertNotIn(sir, metin, f"sır günlüğe düz yazıldı: {sir}")
+        # Maskeleme fazla agresif olmamalı: sır olmayan sorgu parametresi görünür kalır.
+        self.assertIn("surum=7", metin, "sır olmayan parametre de maskelendi")
+
+    # ── kilit dosyası (28 Ekim i5 bulgusu, düşük) ────────────────────────────────────────────────
+    def test_kilit_sembolik_bag_reddedilir(self):
+        """Kilit dosyası `${TMPDIR}/sabit-ad` altındaydı ve `exec 9>` bağı izlemiyordu.
+
+        Başka bir yerel kullanıcı /tmp'de aynı ada sembolik bağ koyup yazmayı hedefe
+        yönlendirebiliyordu. Artık kilit 0700 durum dizininde; bağ ise AÇIKÇA reddedilir.
+        """
+        hedef = Path(self.dizin.name) / "kurban.txt"
+        hedef.write_text("KORU\n", encoding="utf-8")
+        durum = self.home / ".local" / "state" / "yourkiosk-otomasyon"
+        durum.mkdir(parents=True)
+        (durum / "yourkiosk-agir-komut.lock").symlink_to(hedef)
+        mem = sahte_meminfo(self.dizin.name, toplam_mb=3886, bos_mb=2000)
+        s = self.kos("--", "/bin/true", meminfo=mem)
+        self.assertEqual(s.returncode, 6, s.stdout + s.stderr)
+        self.assertIn("sembolik bağ", s.stderr)
+        self.assertEqual(hedef.read_text(encoding="utf-8"), "KORU\n",
+                         "bağ reddedilmedi: hedef dosya ezildi")
+
+    def test_kilit_tmp_altinda_degil_durum_dizininde(self):
+        """Kilit kullanıcıya ait 0700 dizinde tutulur — /tmp'de sabit ad kalmaz."""
+        mem = sahte_meminfo(self.dizin.name, toplam_mb=3886, bos_mb=2000)
+        s = self.kos("--kuru", "--", "/bin/true", meminfo=mem)
+        self.assertEqual(s.returncode, 0, s.stderr)
+        beklenen = (self.home / ".local" / "state" / "yourkiosk-otomasyon"
+                    / "yourkiosk-agir-komut.lock")
+        self.assertIn(f"kilit          : {beklenen}", s.stdout)
+        self.assertNotIn("/tmp/yourkiosk-agir-komut.lock", s.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

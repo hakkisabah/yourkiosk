@@ -115,10 +115,13 @@ fi
 NODE_HEAP_MB="$(sinirla $(( MAX_MB * 60 / 100 )) 384 2048)"
 
 # ── kilit: ağır işler sırayla ────────────────────────────────────────────────────────────────────
-KILIT_DIZIN="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
-KILIT="$KILIT_DIZIN/yourkiosk-agir-komut.lock"
+# 28 Ekim i5 bulgusu (düşük): kilit dosyası `${TMPDIR:-/tmp}` altında SABİT adla açılıyordu ve
+# `exec 9>` sembolik bağ denetimi yapmıyordu → başka bir yerel kullanıcı /tmp'de aynı ada sembolik
+# bağ koyup yazma hedefini yönlendirebiliyordu. Kilit artık kullanıcının 0700 durum dizininde
+# tutulur (dizin başkası tarafından yazılamaz) ve dosya sembolik bağsa açıkça reddedilir.
 GUNLUK_DIZIN="$HOME/.local/state/yourkiosk-otomasyon"
 GUNLUK="$GUNLUK_DIZIN/agir-komut.log"
+KILIT="$GUNLUK_DIZIN/yourkiosk-agir-komut.lock"
 
 # ── SIR MASKELEME (28 Ekim i5 bulgusu, düşük) ────────────────────────────────────────────────────
 # Komutun TAM argv'si günlüğe düz yazılıyordu. argv'de token/parola geçen her çağrı (ör.
@@ -131,7 +134,9 @@ maskele() {
     -e 's/github_pat_[A-Za-z0-9_]{10,}/***JETON***/g' \
     -e 's/([Aa]uthorization:[[:space:]]*(Bearer|token|Basic)[[:space:]]+)[^"[:space:]]+/\1***/g' \
     -e 's/((TOKEN|PAROLA|PASSWORD|PASSWD|SECRET|ANAHTAR|KEY|APIKEY|API_KEY|CREDENTIAL|AUTH)[A-Za-z0-9_]*=)[^[:space:]]+/\1***/g' \
-    -e 's/((--?)(token|parola|password|passwd|secret|anahtar|apikey|api-key|auth)(=|[[:space:]]+))[^[:space:]]+/\1***/g'
+    -e 's/((--?)[A-Za-z0-9_-]*(token|parola|password|passwd|secret|anahtar|apikey|api-key|auth)[A-Za-z0-9_-]*(=|[[:space:]]+))[^[:space:]]+/\1***/g' \
+    -e 's/([?&][A-Za-z0-9_-]*(token|key|secret|parola|password|passwd|auth)[A-Za-z0-9_-]*=)[^&[:space:]]+/\1***/g' \
+    -e 's/([A-Za-z0-9_.:-]*(_auth|authToken|_password|_secret|_token)=)[^[:space:]]+/\1***/g'
 }
 
 gunluk_yaz() {  # gunluk_yaz <satır>: dizin 0700, dosya 0600, sır maskeli
@@ -164,6 +169,13 @@ if [ "$KURU" -eq 1 ]; then
   exit 0
 fi
 
+mkdir -p -m 0700 "$GUNLUK_DIZIN" 2>/dev/null || true
+chmod 700 "$GUNLUK_DIZIN" 2>/dev/null || true
+if [ -L "$KILIT" ]; then
+  echo "✗ kilit dosyası sembolik bağ — reddedildi ($KILIT)" >&2
+  echo "  Kaldırın: rm -f '$KILIT' (gerçek dosya olduğundan emin olun)." >&2
+  exit 6
+fi
 exec 9>"$KILIT"
 if ! flock -n 9; then
   echo "✗ başka bir ağır komut sürüyor (kilit: $KILIT)." >&2
@@ -180,8 +192,6 @@ esac
 # Vite/vitest iş parçacıkları da aynı tavanı görsün (tinypool çocukları NODE_OPTIONS'ı devralır).
 export AGIR_KOMUT=1
 
-mkdir -p -m 0700 "$GUNLUK_DIZIN" 2>/dev/null || true
-chmod 700 "$GUNLUK_DIZIN" 2>/dev/null || true
 # argv günlüğe MASKELENEREK yazılır (sır sızmasın); bkz. maskele()
 satir="[$(date -Iseconds)] tavan=${MAX_MB}MB heap=${NODE_HEAP_MB}MB bos=${MUSAIT_MB}MB komut=$(printf '%s ' "$@" | maskele)"
 gunluk_yaz "$satir"

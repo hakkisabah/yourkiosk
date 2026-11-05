@@ -352,12 +352,28 @@ class FaillockTesti(unittest.TestCase):
         self.assertEqual(nobetci.faillock_durumu(None), (0, False))  # type: ignore[arg-type]
 
     def test_denetim_noktasi_gecerli_makinede_kosar(self):
-        """Nokta 16 gerçekten çalışıyor mu: sudo'suz, faillock okunabilir olmalı."""
-        cikti = subprocess.run(["faillock", "--user", os.environ.get("USER", "")],
-                               capture_output=True, text=True, timeout=15)
-        self.assertEqual(cikti.returncode, 0, cikti.stderr)
-        adet, _ = nobetci.faillock_durumu(cikti.stdout)
-        self.assertGreaterEqual(adet, 0)
+        """Nokta 16 sudo'suz koşar ve MAKİNEYE BAĞIMLI DEĞİL.
+
+        28 Ekim i5 bulgusu (düşük): bu test `faillock` çıkış kodunu 0 varsayıyordu. Sayaç dosyası
+        root'a ait makinelerde (aceri5) `faillock` yetki hatası verir → test kırmızı, oysa üretim
+        kodu doğru davranıyor. Ayrıca kontrol noktası çıkış kodunu YOK SAYIP boş stdout'u "0" sayıyor,
+        yani okunamayan sayacı "temiz" diye raporluyordu (fail-open teşhis).
+        """
+        kullanici = os.environ.get("USER", "")
+        deneme, durum = nobetci.faillock_sayaci(kullanici)
+        self.assertIn(durum, {"ok", "yetki", "yok", "hata"})
+        if durum == "ok":
+            self.assertGreaterEqual(deneme, 0)
+        else:
+            self.assertEqual(deneme, -1, "okunamayan sayaç sayı uydurmamalı")
+
+    def test_okunamayan_sayac_temiz_sayilmaz(self):
+        """Kaynak taraması: kontrol noktası `stdout`'u tek başına okumaz, çıkış kodunu denetler."""
+        import inspect
+        kaynak = inspect.getsource(nobetci)
+        self.assertIn('deneme, durum = faillock_sayaci(', kaynak)
+        # Eski fail-open biçimi geri gelirse kırmızı: çıktıyı alıp çıkış kodunu yok sayan kalıp.
+        self.assertNotIn('.stdout\n        deneme, _ = faillock_durumu', kaynak)
 
     def test_sifirlama_metni_sudo_onermez(self):
         """Kilitlenen kişiye `sudo` öneren metin, çalışmayan komuta yönlendirir ve sayacı besler.
