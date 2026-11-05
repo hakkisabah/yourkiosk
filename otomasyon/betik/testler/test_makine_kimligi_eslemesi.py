@@ -1,4 +1,7 @@
-"""Makine kimliği eşlemesi ve operatör betiği — yayınlanmış ağaçta bulunmalı.
+"""Makine kimliği EŞLEMESİ ve operatör betiği (yayınlanmış ağaç sözleşmesi).
+
+NOT: `test_makine_kimligi.py` (kimlik ÇÖZME sözleşmesi) ayrı dosyadır; bu dosya yalnız
+"eşleme dosyası + operatör betiği yayınlanmış ağaçta mı" sorusunu kilitler.
 
 Neden bu test var (gerçek arıza): `otomasyon/betik/makine-kimligi-kur.sh` uzun süre
 yalnız bir çalışma dalında kaldı. Operatöre verilen belgelenmiş komut
