@@ -94,16 +94,23 @@ if [[ -n "$ESKI_SINIF" && "$ESKI_SINIF" != "STANDARD" ]]; then
 fi
 echo "→ şifreleme: ${ESKI_SSE:-yok}${ESKI_KMS:+ (kms $ESKI_KMS)} · depolama sınıfı: ${ESKI_SINIF:-STANDARD}"
 
+# copy-object bayrakları: meta veri REPLACE (yukarıdaki şifreleme/sınıf aktarımı için) +
+# etiket REPLACE. NEDEN etiket REPLACE: AWS varsayılanı COPY'dir ve kaynağın etiketlerini
+# kopyalar; yedek anahtarının politikası s3:PutObjectTagging İÇERMEZ (bilerek daraltıldı),
+# bu yüzden COPY etiket kopyalamaya çalışırsa çağrı AccessDenied ile düşer. REPLACE ile
+# etiket kopyalanmaz; geri dönüş için etiket gerekmez, politika da izin istemez.
+KOPYA_BAYRAK=(--metadata-directive REPLACE --tagging-directive REPLACE)
+
 if [[ "$KURU" == "1" ]]; then
   echo "KURU: aws s3api copy-object --bucket $KOVA --key $ANAHTAR \\"
-  echo "       --copy-source \"$KOVA/$ANAHTAR?versionId=$SURUM\" ${KORUMA[*]}"
+  echo "       --copy-source \"$KOVA/$ANAHTAR?versionId=$SURUM\" ${KOPYA_BAYRAK[*]} ${KORUMA[*]}"
   exit 0
 fi
 
 YENI_ETAG="$(aws "${PROFIL_ARG[@]}" s3api copy-object \
   --bucket "$KOVA" --key "$ANAHTAR" \
   --copy-source "$KOVA/$ANAHTAR?versionId=$SURUM" \
-  --metadata-directive REPLACE \
+  "${KOPYA_BAYRAK[@]}" \
   --content-type "application/json; charset=utf-8" \
   --cache-control "no-store" \
   "${KORUMA[@]}" \

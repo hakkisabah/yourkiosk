@@ -354,3 +354,50 @@ def test_deploy_belgeleri_var_olmayan_test_dosyasina_atif_yapmaz() -> None:
             if not (DEPO / "kiosk" / "tests" / ad).exists():
                 eksik.append(f"{belge.relative_to(DEPO)} → kiosk/tests/{ad}")
     assert not eksik, "var olmayan test dosyasına atıf: " + "; ".join(eksik)
+
+
+# ---------------------------------------- BULGU 5: copy-object etiket yönergesi
+def _politika_eylemleri(yol: Path) -> set[str]:
+    veri = json.loads(yol.read_text())
+    eylemler: set[str] = set()
+    for ifade in veri["Statement"]:
+        ham = ifade["Action"]
+        eylemler |= set(ham if isinstance(ham, list) else [ham])
+    return eylemler
+
+
+def test_geri_donme_copy_object_etiket_yonergesi_tasir() -> None:
+    """copy-object `--tagging-directive REPLACE` taşımalı.
+
+    NEDEN: AWS varsayılanı COPY'dir ve kaynağın etiketlerini kopyalar. Yedek
+    anahtarının politikası s3:PutObjectTagging İÇERMEZ (en-az-yetki), bu yüzden
+    COPY etiket kopyalamaya çalışınca geri dönüş AccessDenied ile düşer —
+    yani felaket anında çalışmayan bir betik.
+    """
+    metin = YEDEK_BETIK.read_text()
+    politika = _politika_eylemleri(YEDEK_POLITIKA)
+
+    # Gerçek çağrı ve KURU çıktısı aynı bayrağı göstermeli (tek kaynak: dizi).
+    assert "KOPYA_BAYRAK=(--metadata-directive REPLACE --tagging-directive REPLACE)" in metin, (
+        "copy-object bayrakları tek dizide toplanmamış; kuru çıktı ile gerçek çağrı ayrışabilir."
+    )
+    assert '"${KOPYA_BAYRAK[@]}"' in metin, "gerçek copy-object çağrısı KOPYA_BAYRAK kullanmıyor."
+    kuru = re.search(r'echo "       --copy-source.*KOPYA_BAYRAK.*', metin)
+    assert kuru, "KURU çıktısı --tagging-directive REPLACE bayrağını göstermiyor."
+
+    if "s3:PutObjectTagging" not in politika:
+        assert "--tagging-directive REPLACE" in metin, (
+            "Politika etiket yazma izni vermiyor ama copy-object REPLACE istemiyor: "
+            "geri dönüş AccessDenied ile düşer."
+        )
+
+
+def test_geri_donme_etiket_izinini_politikaya_geri_koymaz() -> None:
+    """REPLACE bayrağı varken politikaya etiket izni eklemek gereksiz yetkidir."""
+    politika = _politika_eylemleri(YEDEK_POLITIKA)
+    metin = YEDEK_BETIK.read_text()
+    if "--tagging-directive REPLACE" in metin:
+        assert not (politika & {"s3:PutObjectTagging", "s3:GetObjectTagging"}), (
+            "copy-object REPLACE ile etiket kopyalamıyor; politikadaki etiket izinleri "
+            f"gereksiz yetki: {sorted(politika & {'s3:PutObjectTagging', 's3:GetObjectTagging'})}"
+        )
