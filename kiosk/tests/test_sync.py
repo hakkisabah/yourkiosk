@@ -251,14 +251,35 @@ def test_data_handler_uctan_uca(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_data_handler_gosterilen_kayit_penceresi(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Gösterilen kayıtların penceresi şu anı KAPSAMALI (nöbet bitişine kadar)."""
+    """Gösterilen kayıtların penceresi VERİLEN ANI kapsamalı (nöbet bitişine kadar).
+
+    6 Kasım: test duvar saatini (`datetime.now()`) kullanıyordu; örnek veri sabit bir güne
+    ait olduğu için o günün dışında (ör. ertesi gün 14:19) KIRILIYORDU — zaman bombası.
+    Artık "an" veriden türetilir (ilk kaydın başlangıcı + 1 dk) ve `sync.datetime` sabitlenir;
+    test hem deterministik hem de gerçek sözleşmeyi (kapsayan pencere seçilir) ölçer.
+    """
     veri_kaynagi.onbellegi_temizle()
     handler = DataHandler()
     assert handler.load_data() is True
     bas = sync._tarih(handler.pharmacies[0]["baslangic"])
     bit = sync._tarih(handler.pharmacies[0]["bitis"])
-    assert bas and bit
-    assert bas <= datetime.now() < bit, "gösterilen nöbet şu anı kapsamıyor"
+    assert bas and bit and bas < bit
+
+    an = bas + timedelta(minutes=1)
+
+    class SabitDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # noqa: ANN001, D102
+            return an
+
+    monkeypatch.setattr(sync, "datetime", SabitDatetime)
+    veri_kaynagi.onbellegi_temizle()
+    ikinci = DataHandler()
+    assert ikinci.load_data() is True
+    bas2 = sync._tarih(ikinci.pharmacies[0]["baslangic"])
+    bit2 = sync._tarih(ikinci.pharmacies[0]["bitis"])
+    assert bas2 and bit2
+    assert bas2 <= an < bit2, f"gösterilen nöbet {an} anını kapsamıyor ({bas2}–{bit2})"
 
 
 def test_lastupdate_degismediyse_yeniden_yuklemez(monkeypatch: pytest.MonkeyPatch) -> None:

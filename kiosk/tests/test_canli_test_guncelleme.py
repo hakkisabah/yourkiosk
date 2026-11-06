@@ -59,7 +59,7 @@ class MqttUcDurumTesti(unittest.TestCase):
 class SaglikKapisiTesti(unittest.TestCase):
     """`main()` çıkış kodu: güncelle.sh'in kabul ölçütü."""
 
-    def _calistir(self, push_kapali: bool) -> tuple[int, str]:
+    def _calistir(self, push_kapali: bool, arayuz_ok: bool = True) -> tuple[int, str]:
         broker = "" if push_kapali else "127.0.0.1"
         konu = "" if push_kapali else "yourkiosk/yayin"
         with mock.patch.object(config, "TETIK_PUSH_BROKER", broker), \
@@ -67,7 +67,10 @@ class SaglikKapisiTesti(unittest.TestCase):
                 mock.patch.object(config, "TETIK_PUSH_PORT", 1), \
                 mock.patch.object(canli_test, "surec_denetimi", return_value=(True, "pid 1 · test")), \
                 mock.patch.object(canli_test, "_uzak", side_effect=lambda ad: {"lastupdate": "2026-10-25T10:00:00Z"}), \
-                mock.patch.object(canli_test, "_yerel_damga", return_value="2026-10-25T10:00:00Z"):
+                mock.patch.object(canli_test, "_yerel_damga", return_value="2026-10-25T10:00:00Z"), \
+                mock.patch.object(canli_test, "arayuz_test",
+                                  return_value=(arayuz_ok, "index.html · test" if arayuz_ok
+                                                else "index.html HTTP 404 (200 bekleniyordu)")):
             tampon = io.StringIO()
             with redirect_stdout(tampon):
                 kod = canli_test.main(0.2)
@@ -79,6 +82,13 @@ class SaglikKapisiTesti(unittest.TestCase):
         self.assertEqual(kod, 0, cikti)
         self.assertIn("atlandı", cikti)
         self.assertIn("zincir sağlam", cikti)
+
+    def test_bozuk_arayuz_paketi_cikis_1(self):
+        """Beyaz ekran kapısı: arayüz sunulmuyorsa sağlık kapısı GEÇMEMELİ (geri dönülür)."""
+        kod, cikti = self._calistir(push_kapali=True, arayuz_ok=False)
+        self.assertEqual(kod, 1, cikti)
+        self.assertIn("ARAYÜZ PAKETİ", cikti)
+        self.assertIn("index.html HTTP 404", cikti)
 
     def test_broker_acik_ve_kopukken_cikis_1(self):
         kod, cikti = self._calistir(push_kapali=False)

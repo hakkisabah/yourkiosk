@@ -11,6 +11,7 @@ Zincirin her halkasını AYRI ölçer ve nerede koptuğunu yazar:
   2. DİSK        : cihazın disk önbelleğindeki damga (veri indi mi?)
   3. MQTT        : broker bağlantısı, konuya abonelik ve 15 sn içinde mesaj geliyor mu?
   4. YEREL TETİK : `tetikle.json` mtime (push yerel dosyaya yazdı mı?)
+  5. ARAYÜZ      : yerel sunucudan `index.html` + ana JS varlığı (beyaz ekran kapısı)
 
 Çıkış kodu 0 = zincir sağlam, 1 = kopukluk var (hangi halka yazılır).
 """
@@ -177,6 +178,56 @@ def surec_denetimi() -> tuple[bool, str]:
     return True, " | ".join(satirlar)
 
 
+def arayuz_test(port: int | None = None) -> tuple[bool, str]:
+    """Yerel HTTP sunucusundan ARAYÜZ PAKETİNİ doğrular (index.html + ana JS varlığı).
+
+    NEDEN (6 Kasım i5 bulgusu, orta): sağlık kapısı yalnız süreç/veri/disk/MQTT/tetik
+    halkalarına bakıyordu; `vite` derlemesi yarıda kalsa dist boşalır, cihaz BEYAZ EKRANLA
+    açılır ve kapı bunu "sağlıklı" sayardı. Bu halka tam olarak o arızayı ölçer:
+    `index.html` 200 + text/html olmalı ve işaret ettiği ana JS varlığı 200 + JS içerik
+    tipiyle gelmeli (boş/yarım paket yakalanır).
+    """
+    import re
+
+    port = port or int(getattr(config, "WEB_SUNUCU_PORTU", 8090))
+    taban = f"http://127.0.0.1:{port}"
+
+    def get(yol: str) -> tuple[int, str, bytes]:
+        with urllib.request.urlopen(f"{taban}{yol}", timeout=5) as r:  # noqa: S310 — sabit yerel taban
+            return r.status, r.headers.get("Content-Type", ""), r.read()
+
+    try:
+        kod, tur, govde = get("/index.html")
+    except Exception as hata:  # noqa: BLE001
+        return False, f"yerel sunucuya ulaşılamadı ({taban}/index.html): {hata}"
+
+    if kod != 200:
+        return False, f"index.html HTTP {kod} (200 bekleniyordu)"
+    if "text/html" not in tur.lower():
+        return False, f"index.html içerik tipi '{tur}' (text/html bekleniyordu)"
+    metin = govde.decode("utf-8", errors="replace")
+    if "yourkiosk" not in metin.lower():
+        return False, "index.html kiosk işaretini taşımıyor (yanlış/boş paket)"
+
+    # Ana JS varlığı: <script type="module" src="/assets/index-xxxx.js">
+    m = re.search(r'<script[^>]+src="([^"]+\.js)"', metin) or re.search(r'src="([^"]+\.js)"', metin)
+    if not m:
+        return False, "index.html hiçbir JS varlığına işaret etmiyor (derleme yarım kalmış)"
+    varlik = m.group(1)
+    yol = varlik if varlik.startswith("/") else "/" + varlik.lstrip("./")
+    try:
+        k_v, t_v, b_v = get(yol)
+    except Exception as hata:  # noqa: BLE001
+        return False, f"ana JS varlığı indirilemedi ({yol}): {hata}"
+    if k_v != 200:
+        return False, f"ana JS varlığı {yol} HTTP {k_v} (200 bekleniyordu)"
+    if "javascript" not in t_v.lower() and "ecmascript" not in t_v.lower():
+        return False, f"ana JS varlığı içerik tipi '{t_v}' (javascript bekleniyordu)"
+    if len(b_v) < 100:
+        return False, f"ana JS varlığı {yol} yalnız {len(b_v)} bayt (boş paket)"
+    return True, f"index.html + ana JS varlığı ({yol}, {len(b_v) // 1024} KB) sunuluyor"
+
+
 def main(sure: float = 15.0) -> int:
     print("=" * 62)
     print("CANLI ZİNCİR TESTİ — kiosk çalışırken çalıştırın")
@@ -233,6 +284,12 @@ def main(sure: float = 15.0) -> int:
 
     _bas("4) YEREL TETİK DOSYASI")
     print(f"tetikle.json   : son yazım {_tetik_mtime()}")
+
+    _bas("5) ARAYÜZ PAKETİ (beyaz ekran kapısı)")
+    arayuz_var, metin = arayuz_test()
+    print(("✓ " if arayuz_var else "✗ ") + metin)
+    if not arayuz_var:
+        sorun += 1
 
     _bas("SONUÇ")
     if sorun == 0:

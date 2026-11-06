@@ -401,3 +401,63 @@ def test_geri_donme_etiket_izinini_politikaya_geri_koymaz() -> None:
             "copy-object REPLACE ile etiket kopyalamıyor; politikadaki etiket izinleri "
             f"gereksiz yetki: {sorted(politika & {'s3:PutObjectTagging', 's3:GetObjectTagging'})}"
         )
+
+
+# ------------------------ BULGU 6-7: arayüz paketi sağlık kapısı + atomik takas ------------
+GUNCELLE_METIN = GUNCELLE.read_text(encoding="utf-8")
+CANLI_TEST = DEPO / "kiosk" / "tools" / "canli_test.py"
+
+
+def test_arayuz_derlemesi_ayri_dizine_yazilir() -> None:
+    """`npm run build` DOĞRUDAN web/dist'e yazmamalı (emptyOutDir → beyaz ekran riski)."""
+    assert "--outDir dist.yeni" in GUNCELLE_METIN, (
+        "guncelle.sh derlemeyi ayrı dizine almıyor: vite emptyOutDir ile dist'i boşaltır, "
+        "yarım derlemede cihaz beyaz ekranla açılır"
+    )
+    for satir in GUNCELLE_METIN.splitlines():
+        if "npm run build" in satir and not satir.strip().startswith("#"):
+            assert "--outDir dist.yeni" in satir, f"doğrudan dist'e derleme: {satir.strip()}"
+
+
+def test_atomik_takas_sirasi_dogru() -> None:
+    """Sıra: derle → index.html var mı → eski dist'i yedekle → yeni dist'i yerleştir."""
+    i_derle = GUNCELLE_METIN.index("--outDir dist.yeni")
+    i_kontrol = GUNCELLE_METIN.index('[[ -f "$YENI_DIST/index.html" ]]')
+    i_yedek = GUNCELLE_METIN.index('mv web/dist "$ESKI_DIST"')
+    i_takas = GUNCELLE_METIN.index('mv "$YENI_DIST" web/dist')
+    assert i_derle < i_kontrol < i_yedek < i_takas, (
+        "atomik takas sırası bozuk — yarım derleme canlı paketi ezebilir"
+    )
+
+
+def test_geri_donus_eski_paketi_bayt_bayt_geri_koyar() -> None:
+    """`git reset --hard` web/dist'i döndürmez (.gitignore) → yedekten geri konmalı."""
+    geri = GUNCELLE_METIN.split("geri_don() {", 1)[1].split("\n}", 1)[0]
+    assert "web/dist.eski" in geri, "geri dönüş eski arayüz paketini geri koymuyor"
+    assert 'mv web/dist.eski web/dist' in geri
+    # geri dönüş, arızalı olabilecek derlemeyi TEKRAR denememeli
+    assert "npm run build" not in geri, (
+        "geri dönüş yeniden derleme deniyor: derleme arızalıysa geri dönüş de düşer"
+    )
+
+
+def test_basari_sonrasi_yedek_paket_silinir() -> None:
+    kuyruk = GUNCELLE_METIN.rsplit("güncelleme tamam", 1)[-1]
+    assert "rm -rf web/dist.eski" in kuyruk, "başarılı güncelleme sonrası eski paket diski şişirir"
+
+
+def test_saglik_kapisi_arayuz_halkasini_kosar() -> None:
+    """Sağlık kapısı `canli_test.py`yi koşuyor; o araç arayüz halkasını içermeli."""
+    assert "tools/canli_test.py" in GUNCELLE_METIN
+    canli = CANLI_TEST.read_text(encoding="utf-8")
+    assert "def arayuz_test(" in canli, "canli_test arayüz halkası yok — beyaz ekran görülmez"
+    assert "arayuz_test()" in canli.split("def main(", 1)[1], (
+        "arayuz_test tanımlı ama main() içinde çağrılmıyor (kapı ölçmüyor)"
+    )
+    assert "index.html" in canli and "javascript" in canli.lower()
+
+
+def test_gitignore_takas_artiklarini_kapsar() -> None:
+    metin = (DEPO / ".gitignore").read_text(encoding="utf-8")
+    for yol in ("web/dist.yeni/", "web/dist.eski/"):
+        assert yol in metin, f".gitignore {yol} kapsamıyor (takas artığı depoya girebilir)"

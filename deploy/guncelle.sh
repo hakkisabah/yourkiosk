@@ -201,7 +201,7 @@ etiket_dogrula() {
 
 if [[ $KURU -eq 1 ]]; then
   if etiket_dogrula; then
-    log "KURU: git checkout --detach $ETIKET (imza ✓) · npm ci + npm run build (web) · systemctl restart yourkiosk-kiosk"
+    log "KURU: git checkout --detach $ETIKET (imza ✓) · npm ci + npm run build --outDir dist.yeni (atomik takas) · systemctl restart yourkiosk-kiosk"
   else
     log "KURU: imza kapısı geçmedi → gerçek koşuda güncelleme ATLANIR (yukarıdaki satırlara bakın)"
   fi
@@ -221,7 +221,16 @@ geri_don() {
   set +e
   log "GERİ DÖNÜŞ: $ONCEKI commit'ine dönülüyor"
   kiok git reset --hard "$ONCEKI"
-  if [[ -f web/package.json ]]; then ( cd web && kiok npm ci --no-audit --no-fund && kiok npm run build ); fi
+  # ARAYÜZ PAKETİ (i5 orta bulgusu): `git reset --hard` yalnız kaynağı döndürür — `web/dist`
+  # .gitignore'da olduğu için YENİ (yarım) paket yerinde kalırdı. Güncelleme sırasında eski
+  # paket `web/dist.eski` olarak saklandığı için burada BAYT BAYT geri konur; yeniden derleme
+  # denenmez (derleme zaten arızalı olabilir — geri dönüş ona bağlı kalamaz).
+  if [[ -d web/dist.eski ]]; then
+    rm -rf web/dist
+    mv web/dist.eski web/dist
+    log "✓ eski arayüz paketi geri kondu (bayt bayt)"
+  fi
+  rm -rf web/dist.yeni
   systemctl restart yourkiosk-kiosk.service
   log "✗ güncelleme geri alındı — journal: journalctl -u yourkiosk-kiosk -n 100"
 }
@@ -230,9 +239,21 @@ trap 'kod=$?; log "✗ hata (satır $LINENO, kod $kod) — geri dönülüyor"; g
 log "imzalı etiketten güncelleme: $ETIKET"
 kiok git -c advice.detachedHead=false checkout --detach --force "$ETIKET"
 
-log "arayüz derlemesi (web)"
+log "arayüz derlemesi (web) — AYRI dizine, atomik takas"
+# NEDEN AYRI DİZİ (i5 orta bulgusu): `vite` `emptyOutDir: true` ile `web/dist`i baştan boşaltır.
+# Derleme yarıda kalırsa (tip hatası, bellek, kesinti) cihaz BEYAZ EKRANLA açılır; `web/dist`
+# .gitignore'da olduğu için geri dönüş de eski paketi getiremez. Bu yüzden derleme `dist.yeni`ye
+# yazılır; yalnız tamamlanınca (index.html var) `dist` ile atomik olarak takas edilir.
+YENI_DIST="web/dist.yeni"
+ESKI_DIST="web/dist.eski"
 if [[ -f web/package.json ]]; then
-  ( cd web && kiok npm ci --no-audit --no-fund && kiok npm run build )
+  rm -rf "$YENI_DIST"
+  ( cd web && kiok npm ci --no-audit --no-fund && kiok npm run build -- --outDir dist.yeni )
+  [[ -f "$YENI_DIST/index.html" ]] || { log "✗ derleme çıktısı yok ($YENI_DIST/index.html)"; false; }
+  rm -rf "$ESKI_DIST"
+  if [[ -d web/dist ]]; then mv web/dist "$ESKI_DIST"; fi
+  mv "$YENI_DIST" web/dist
+  log "✓ yeni arayüz paketi yerleştirildi (eski paket $ESKI_DIST yedeğinde)"
 fi
 
 log "Python bağımlılıkları (değiştiyse)"
@@ -291,3 +312,5 @@ if [[ -f "$KOPYA" ]] && ! cmp -s "$KOK/deploy/guncelle.sh" "$KOPYA"; then
 fi
 
 log "✓ güncelleme tamam: $(kiok git rev-parse --short HEAD)"
+# Sağlık kapısı geçti → eski paket yedeği artık gerekmiyor (disk şişmesin).
+rm -rf web/dist.eski
