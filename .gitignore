@@ -23,6 +23,9 @@ kiosk/data/id_eslesme.json
 kiosk/.tarayici-profil/
 web/node_modules/
 web/dist/
+# Atomik takas artıkları (deploy/guncelle.sh): yeni paket ve eski paket yedeği depoya girmez.
+web/dist.yeni/
+web/dist.eski/
 
 # --- panel: bağımlılıklar, derleme, ortam ---
 panel/node_modules/

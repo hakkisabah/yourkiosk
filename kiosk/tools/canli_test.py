@@ -11,6 +11,7 @@ Zincirin her halkasını AYRI ölçer ve nerede koptuğunu yazar:
   2. DİSK        : cihazın disk önbelleğindeki damga (veri indi mi?)
   3. MQTT        : broker bağlantısı, konuya abonelik ve 15 sn içinde mesaj geliyor mu?
   4. YEREL TETİK : `tetikle.json` mtime (push yerel dosyaya yazdı mı?)
+  5. ARAYÜZ      : yerel sunucudan `index.html` + ana JS varlığı (beyaz ekran kapısı)
 
 Çıkış kodu 0 = zincir sağlam, 1 = kopukluk var (hangi halka yazılır).
 """
@@ -65,18 +66,26 @@ def _tetik_mtime() -> str:
     return datetime.fromtimestamp(yol.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def mqtt_test(sure: float = 15.0) -> tuple[bool, str]:
-    """Broker'a bağlan, konuya abone ol, mesaj bekleyen bir cihaz gibi davran."""
+def mqtt_test(sure: float = 15.0) -> tuple[str, str]:
+    """Broker'a bağlan, konuya abone ol, mesaj bekleyen bir cihaz gibi davran.
+
+    Dönüş: `("ok" | "atlandi" | "hata", metin)`.
+
+    NEDEN ÜÇ DURUM (i5 bulgusu, PR #84): push yapılandırılmamış cihazda (varsayılan:
+    `push_aktif=False`, broker/konu boş) MQTT halkası "hata" sayılıyordu → `guncelle.sh`
+    sağlık kapısı HER ZAMAN düşüyor, cihaz her gece güncellemeyi geri alıyordu. Kapalı bir
+    halka "arıza" değildir; atlanır ve çıkış kodunu etkilemez.
+    """
     try:
         import paho.mqtt.client as mqtt  # type: ignore
     except ImportError:
-        return False, "paho-mqtt yok (venv: .venv/bin/python)"
+        return "hata", "paho-mqtt yok (venv: .venv/bin/python)"
 
     broker = str(getattr(config, "TETIK_PUSH_BROKER", "") or "")
     port = int(getattr(config, "TETIK_PUSH_PORT", 8883))
     konu = str(getattr(config, "TETIK_PUSH_KONU", "") or "")
     if not broker or not konu:
-        return False, "ayarlarda push broker/konu boş"
+        return "atlandi", "push kapalı (ayarlarda broker/konu boş) — MQTT halkası atlandı"
 
     sonuc = {"bagli": False, "mesaj": 0, "hata": ""}
 
@@ -103,7 +112,7 @@ def mqtt_test(sure: float = 15.0) -> tuple[bool, str]:
         istemci.connect(broker, port, keepalive=30)
         istemci.loop_start()
     except Exception as hata:  # noqa: BLE001
-        return False, f"bağlanamadı: {hata}"
+        return "hata", f"bağlanamadı: {hata}"
 
     bitis = time.monotonic() + sure
     while time.monotonic() < bitis and sonuc["mesaj"] == 0:
@@ -115,10 +124,10 @@ def mqtt_test(sure: float = 15.0) -> tuple[bool, str]:
         pass
 
     if not sonuc["bagli"]:
-        return False, "broker bağlantısı KURULAMADI (kullanıcı/parola/TLS)"
+        return "hata", "broker bağlantısı KURULAMADI (kullanıcı/parola/TLS)"
     if sonuc["mesaj"] == 0:
-        return True, f"abonelik tamam, {int(sure)} sn içinde mesaj gelmedi (panelden 'Bildir' deneyin)"
-    return True, f"mesaj ALINDI ({sonuc['mesaj']}) — push halkası sağlam"
+        return "ok", f"abonelik tamam, {int(sure)} sn içinde mesaj gelmedi (panelden 'Bildir' deneyin)"
+    return "ok", f"mesaj ALINDI ({sonuc['mesaj']}) — push halkası sağlam"
 
 
 def surec_denetimi() -> tuple[bool, str]:
@@ -169,7 +178,57 @@ def surec_denetimi() -> tuple[bool, str]:
     return True, " | ".join(satirlar)
 
 
-def main() -> int:
+def arayuz_test(port: int | None = None) -> tuple[bool, str]:
+    """Yerel HTTP sunucusundan ARAYÜZ PAKETİNİ doğrular (index.html + ana JS varlığı).
+
+    NEDEN (6 Kasım i5 bulgusu, orta): sağlık kapısı yalnız süreç/veri/disk/MQTT/tetik
+    halkalarına bakıyordu; `vite` derlemesi yarıda kalsa dist boşalır, cihaz BEYAZ EKRANLA
+    açılır ve kapı bunu "sağlıklı" sayardı. Bu halka tam olarak o arızayı ölçer:
+    `index.html` 200 + text/html olmalı ve işaret ettiği ana JS varlığı 200 + JS içerik
+    tipiyle gelmeli (boş/yarım paket yakalanır).
+    """
+    import re
+
+    port = port or int(getattr(config, "WEB_SUNUCU_PORTU", 8090))
+    taban = f"http://127.0.0.1:{port}"
+
+    def get(yol: str) -> tuple[int, str, bytes]:
+        with urllib.request.urlopen(f"{taban}{yol}", timeout=5) as r:  # noqa: S310 — sabit yerel taban
+            return r.status, r.headers.get("Content-Type", ""), r.read()
+
+    try:
+        kod, tur, govde = get("/index.html")
+    except Exception as hata:  # noqa: BLE001
+        return False, f"yerel sunucuya ulaşılamadı ({taban}/index.html): {hata}"
+
+    if kod != 200:
+        return False, f"index.html HTTP {kod} (200 bekleniyordu)"
+    if "text/html" not in tur.lower():
+        return False, f"index.html içerik tipi '{tur}' (text/html bekleniyordu)"
+    metin = govde.decode("utf-8", errors="replace")
+    if "yourkiosk" not in metin.lower():
+        return False, "index.html kiosk işaretini taşımıyor (yanlış/boş paket)"
+
+    # Ana JS varlığı: <script type="module" src="/assets/index-xxxx.js">
+    m = re.search(r'<script[^>]+src="([^"]+\.js)"', metin) or re.search(r'src="([^"]+\.js)"', metin)
+    if not m:
+        return False, "index.html hiçbir JS varlığına işaret etmiyor (derleme yarım kalmış)"
+    varlik = m.group(1)
+    yol = varlik if varlik.startswith("/") else "/" + varlik.lstrip("./")
+    try:
+        k_v, t_v, b_v = get(yol)
+    except Exception as hata:  # noqa: BLE001
+        return False, f"ana JS varlığı indirilemedi ({yol}): {hata}"
+    if k_v != 200:
+        return False, f"ana JS varlığı {yol} HTTP {k_v} (200 bekleniyordu)"
+    if "javascript" not in t_v.lower() and "ecmascript" not in t_v.lower():
+        return False, f"ana JS varlığı içerik tipi '{t_v}' (javascript bekleniyordu)"
+    if len(b_v) < 100:
+        return False, f"ana JS varlığı {yol} yalnız {len(b_v)} bayt (boş paket)"
+    return True, f"index.html + ana JS varlığı ({yol}, {len(b_v) // 1024} KB) sunuluyor"
+
+
+def main(sure: float = 15.0) -> int:
     print("=" * 62)
     print("CANLI ZİNCİR TESTİ — kiosk çalışırken çalıştırın")
     print("=" * 62)
@@ -215,13 +274,22 @@ def main() -> int:
         print(f"! disk okunamadı: {hata}")
 
     _bas("3) MQTT / PUSH")
-    ok, metin = mqtt_test()
-    print(("✓ " if ok else "✗ ") + metin)
-    if not ok:
-        sorun += 1
+    mqtt_durum, metin = mqtt_test(sure)
+    if mqtt_durum == "atlandi":
+        print(f"- {metin}")
+    else:
+        print(("✓ " if mqtt_durum == "ok" else "✗ ") + metin)
+        if mqtt_durum != "ok":
+            sorun += 1
 
     _bas("4) YEREL TETİK DOSYASI")
     print(f"tetikle.json   : son yazım {_tetik_mtime()}")
+
+    _bas("5) ARAYÜZ PAKETİ (beyaz ekran kapısı)")
+    arayuz_var, metin = arayuz_test()
+    print(("✓ " if arayuz_var else "✗ ") + metin)
+    if not arayuz_var:
+        sorun += 1
 
     _bas("SONUÇ")
     if sorun == 0:
@@ -234,4 +302,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import argparse
+
+    _ayristirici = argparse.ArgumentParser(description="Canlı zincir testi (kiosk çalışırken).")
+    _ayristirici.add_argument(
+        "--sure", type=float, default=15.0,
+        help="MQTT mesaj bekleme süresi, saniye (varsayılan 15; guncelle.sh 15 verir)",
+    )
+    _arg = _ayristirici.parse_args()
+    raise SystemExit(main(_arg.sure))

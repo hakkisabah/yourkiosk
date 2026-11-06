@@ -13,6 +13,12 @@ interface ImportMetaEnv {
   readonly VITE_BUCKET?: string
   /** Kovadaki ön ek (ör. "kiosk/") */
   readonly VITE_PREFIX?: string
+  /** Panel → cihaz anlık tetikleme: broker WebSocket adresi (sır DEĞİL) */
+  readonly VITE_MQTT_URL?: string
+  /** Yayın konusu (varsayılan `yourkiosk/yayin`; sır DEĞİL) */
+  readonly VITE_MQTT_KONU?: string
+  /** Yayın hesabının kullanıcı adı (sır DEĞİL; parola oturumda sorulur) */
+  readonly VITE_MQTT_KULLANICI?: string
 }
 
 interface ImportMeta {

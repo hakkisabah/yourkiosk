@@ -310,8 +310,9 @@ Veri saatte bir kontrol edilir; bir nöbet değişikliğinde cihazın beklemesin
   bildir* düğmesine basar. Dosya kapsam taşır (`ilceId` boş/`*` = tüm cihazlar, dolu = o ilçe).
 * **Cihaz**: yalnızca KÜÇÜK dosyaları (`lastupdate.json`, `tetikle.json`) kısa aralıklarla okur.
   Tarayıcı modunda yerel sunucudaki `/degisiklik` ucu ile **uzun yoklama** yapılır (tipik <1 sn),
-  Qt modunda `DAMGA_KONTROL_MS` (varsayılan 20 sn) yoklaması devrededir. Büyük veri dosyası
-  damga değişmedikçe indirilmez.
+  Qt modunda `DAMGA_KONTROL_MS` (MQTT bağlıyken **120 sn**, MQTT kopukken **30 sn**) yoklaması
+  devrededir. Büyük veri dosyası damga değişmedikçe indirilmez; kararlı turda inen gövde **0 bayt**
+  (ETag → 304, ölçüm §7.1).
 * Kural tek yerde: `core/tetik.py` (Qt uygulaması, web sunucusu ve komut satırı aracı aynı kuralı
   kullanır). Aynı tetikleyici iki kez uygulanmaz; başka ilçenin tetikleyicisi bu cihazı etkilemez.
 * Cihazda elle denemek için: `python3 tools/nobet_tetikle.py --ilce <ilceId>`.
@@ -321,8 +322,10 @@ Ayrıntılı akış, ayarlar ve uçtan uca doğrulama adımları: **[NODET-DEGIS
 ## 1.9 Uzaktan komut: yeniden başlat / uygulamayı yeniden başlat / ekranı yenile
 
 Cihazın bulunduğu yere gitmeden **imzalı** bir komut gönderilebilir. Taşıma yolu §1.8'deki
-tetikleyiciyle **aynıdır** (`komut.json`, 20 sn içinde alınır); fark, komutun çalıştırılmadan önce
-imza + beyaz liste denetiminden geçmesidir.
+tetikleyiciyle **aynıdır** (`komut.json`, en geç bir sonraki yoklamada — MQTT bağlıyken 120 sn,
+kopukken 30 sn — alınır; komut işareti `durum.json` içinde gelirse anında); fark, komutun
+çalıştırılmadan önce imza + beyaz liste denetiminden geçmesidir. Komut uygulanırken ekranda kısa
+bir bilgi görünür ("Cihaz yeniden başlatılıyor…"), bkz. `core/bildirim.py`.
 
 | Komut | İşlem (varsayılan) |
 |---|---|
@@ -566,6 +569,37 @@ gösterim bittiğinde `QPixmap` serbest bırakılır; diskteki kopya bellek tük
 
 Karşılaştırma fikirleri (isterseniz ölçelim): `onbellek.aktif = false` ile ağ trafiği artar ama
 bellek aynı kalır — bellek farkı yaratması beklenmez, çünkü kazanç **trafik/maliyet** tarafındadır.
+
+### 7.1 Tarayıcı (Chromium) modu — bellek ve ağ
+
+Ölçüm aracı: `tools/tarayici_olcum.py` (Qt'den farklı olarak bellek **süreç ağacının** toplamıdır:
+ana süreç + renderer/GPU/utility).
+
+```bash
+# cihazda, kiosk açıkken: 60 sn boyunca süreç ağacını örnekle
+.venv/bin/python tools/tarayici_olcum.py --bellek --sure 60 --aralik 2
+
+# tarayıcı gerekmez: bir yenileme turunun GERÇEK ağ maliyeti (ETag/304 sunucusuyla)
+.venv/bin/python tools/tarayici_olcum.py --ag --aralik 30
+```
+
+**Ölçülen ağ maliyeti** (bu makine, 30 sn yoklama aralığı, gövde baytları — başlıklar hariç):
+
+| Kalem | Değer |
+|---|---|
+| `durum.json` gövdesi | **114 bayt** |
+| Kararlı turda inen gövde | **0 bayt** (304 → gövde yok) |
+| Günlük küçük dosya trafiği | ~0 KB |
+| Günlük büyük veri (günde 5 yayın varsayımı) | ~1,3 MB |
+| **Aylık toplam (cihaz başına)** | **~39 MB** |
+
+Yani 600 cihazda aylık ≈ **23 GB** trafik ve ≈ **51,8 M istek** (30 sn aralıkta: cihaz başına
+2.880 istek/gün → 86.400/ay × 600) — istek maliyeti `tools/olcek_test.py` ile ölçülür. Bu sayı,
+300 sn aralıkta **10 kat düşer** (≈5,2 M istek/ay); MQTT push ile daha da düşer (kalp atışı 5 dk).
+
+**Bellek:** bu geliştirme makinesinde Chromium kurulu değil → `--bellek` çıkış kodu **3** verir
+("süreç bulunamadı"). Cihazda kiosk açıkken çalıştırıp sonucu buraya yazın; ölçüm RSS/PSS/özel
+bellek ve **RSS değişimi** (sızıntı göstergesi) basar.
 
 ---
 
