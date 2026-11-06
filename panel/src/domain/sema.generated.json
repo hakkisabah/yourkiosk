@@ -763,6 +763,19 @@
           "izinli": null,
           "varsayilan": "",
           "gelismis": false
+        },
+        {
+          "ad": "push_tls",
+          "tam": "tetik.push_tls",
+          "tip": "bool",
+          "etiket": "MQTT TLS zorunlu",
+          "aciklama": "Broker bağlantısında TLS zorunlu olsun mu. Kapatmak AÇIK bir karardır: kullanıcı/parola ve kalp atışı şifresiz gider (yalnız yerel/test broker'ı için)",
+          "birim": "",
+          "alt": null,
+          "ust": null,
+          "izinli": null,
+          "varsayilan": true,
+          "gelismis": false
         }
       ]
     },

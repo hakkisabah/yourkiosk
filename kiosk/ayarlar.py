@@ -87,6 +87,9 @@ KURALLAR: dict[tuple[str, str], tuple] = {
     ("tetik", "push_ca"): ("TETIK_PUSH_CA", str, 0, 512),
     ("tetik", "push_sertifika"): ("TETIK_PUSH_SERTIFIKA", str, 0, 512),
     ("tetik", "push_anahtar"): ("TETIK_PUSH_ANAHTAR", str, 0, 512),
+    # 27 Ekim i5 bulgusu: TETIK_PUSH_TLS config'e eklendi ama AYAR ŞEMASINA bağlanmadı → panelden
+    # `push_tls:false` yazılamıyordu (yorum "kapatmak açık bir karar" diyordu, yol yoktu).
+    ("tetik", "push_tls"): ("TETIK_PUSH_TLS", bool, None, None),
     ("calistirma", "web_veri_modu"): ("WEB_VERI_MODU", "secim", ("yerel", "https"), None),
     ("calistirma", "web_yenileme_ms"): ("WEB_YENILEME_MS", int, 5000, 3600000),
     # ---- nöbet değişikliğini anında yansıtma (tetikleyici) ----
@@ -154,6 +157,7 @@ ACIKLAMALAR: dict[str, str] = {
     "tetik.push_sertifika": "X.509 cihaz sertifikası (cert.pem). AWS IoT Core için zorunlu, Mosquitto'da boş",
     "tetik.push_anahtar": "X.509 cihaz özel anahtarı (private key). AWS IoT Core için zorunlu",
     "tetik.push_parola": "Broker parolası (cihazın kendi ayar dosyasında tutulur)",
+    "tetik.push_tls": "Broker bağlantısında TLS zorunlu olsun mu. Kapatmak AÇIK bir karardır: kullanıcı/parola ve kalp atışı şifresiz gider (yalnız yerel/test broker'ı için)",
     "tetik.kontrol_ms": "https modunda tetikleyicinin kaç ms'de bir yoklanacağı (küçük = daha anlık, daha çok istek)",
     "tetik.modlar": "Oto tetiklemenin geçerli olacağı modlar: 'qt' (masaüstü), 'tarayici' (Chromium kiosk). Boş bırakılırsa hiçbir modda tetiklenmez",
     "calistirma.web_veri_modu": "Tarayıcı modunda veri kaynağı: 'yerel' (cihazdaki dosyalar) veya 'https' (DOSYA_ADRESI)",
