@@ -86,8 +86,10 @@ cd deploy && ./gorseller-yukle.sh --kova yourkiosk-veri \
 ```bash
 # 1) tüm yayın görsellerini WebP'ye çevir + contentUrl'leri veri dosyasına YAZ (yedek: *.bak)
 #    WebP dosyaları lastSystemData.json'un yanındaki yayin-gorselleri/ klasörüne yazılır.
+#    ADRESTE `/kiosk` ÖNEKİ OLMAZ: dağıtımın originPath'i zaten /kiosk, önek yazılırsa
+#    istek /kiosk/kiosk/... olur ve CloudFront 403 döner (cihaz sessizce boş görsel gösterir).
 kiosk/.venv/bin/python kiosk/tools/gorsel_webp.py --veri lastSystemData.json \
-  --url-taban https://<dağıtım>/kiosk/yayin-gorselleri --yaz
+  --url-taban https://<dağıtım>/yayin-gorselleri --yaz
 
 # 2) üretilen WebP'leri S3'e yükle (veri dosyasındaki adresler BUNLARA işaret eder)
 cd deploy && ./gorseller-yukle.sh --kova yourkiosk-veri \

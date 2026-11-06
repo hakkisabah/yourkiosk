@@ -176,7 +176,7 @@ cd kiosk
 # KURU (hiçbir dosya değişmez) — önce planı görün:
 .venv/bin/python tools/gorsel_webp.py --veri lastSystemData.json \
   --klasor onbellek/gorsel --klasor yayin-gorselleri \
-  --url-taban https://<dağıtım>/kiosk/yayin-gorselleri/ --cikti yayin-gorselleri
+  --url-taban https://<dağıtım>/yayin-gorselleri/ --cikti yayin-gorselleri
 # gerçek yazma (yedek: lastSystemData.json.bak):
 ... --yaz
 # sonra: WebP'leri S3'e yükleyin (--s3 kova=önek) + lastupdate.json damgasını tazeleyin

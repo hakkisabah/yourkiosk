@@ -22,6 +22,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 from pathlib import Path
 
 #: Betik `python3 tools/gorsel_webp.py` ile çalıştırıldığında sys.path[0] = tools/ olur;
@@ -262,7 +263,7 @@ def main() -> int:
     # --- veri dosyası modu: yayın görsellerini topluca optimize edip adresleri günceller ---
     a.add_argument("--veri", type=Path, default=None, help="lastSystemData.json")
     a.add_argument("--klasor", action="append", type=Path, default=[], help="yerel görsellerin aranacağı klasör (tekrarlanabilir)")
-    a.add_argument("--url-taban", default="", help="yeni adreslerin tabanı (ör. https://d....cloudfront.net/kiosk/yayin-gorselleri)")
+    a.add_argument("--url-taban", default="", help="yeni adreslerin tabanı — CloudFront'ta `/kiosk` ÖNEKİ OLMAZ (originPath zaten /kiosk; önek 403 üretir): https://d....cloudfront.net/yayin-gorselleri")
     a.add_argument("--yaz", action="store_true", help="veri dosyasını gerçekten güncelle (varsayılan: kuru çalışma)")
     secim = a.parse_args()
 
@@ -272,6 +273,13 @@ def main() -> int:
             return 2
         if not secim.veri.is_file():
             print(f"✗ veri dosyası yok: {secim.veri}", file=sys.stderr)
+            return 2
+        # 6 Kasım i5 bulgusu (orta): depoda İKİ çelişkili talimat vardı (biri `/kiosk` önekli).
+        # Dağıtımın originPath'i zaten /kiosk → önek yazılırsa adres /kiosk/kiosk/... olur,
+        # CloudFront 403 döner, cihaz sessizce boş görsel gösterir. Yanlış taban artık REDDEDİLİR.
+        if "/kiosk/" in urllib.parse.urlparse(secim.url_taban).path:
+            print("✗ --url-taban içinde '/kiosk' öneki var — CloudFront originPath'i zaten /kiosk, "
+                  "önek 403 üretir. Doğrusu: https://<dağıtım>/yayin-gorselleri", file=sys.stderr)
             return 2
         klasorler = secim.klasor or [secim.veri.parent, secim.veri.parent / "yayin-gorselleri"]
         sonuc = veri_dosyasini_optimize(

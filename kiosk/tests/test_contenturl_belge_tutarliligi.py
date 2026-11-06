@@ -147,3 +147,46 @@ def test_kuru_calismada_webp_klasoru_olusturulmaz(tmp_path: Path, monkeypatch):
 
     assert sonuc["cikti_klasoru"] is None
     assert not (tmp_path / "yayin-gorselleri").exists(), "kuru çalışma klasör oluşturdu"
+
+
+# ── 6 Kasım i5 bulgusu (orta): adres tabanı TEK biçim olmalı ────────────────────────────────────
+# ÖLÇÜLEN: `deploy/README.md` ve `gorsel_webp.py --url-taban` yardımı `.../kiosk/yayin-gorselleri`
+# diyordu; `gorseller-yukle.sh` ve `docs/PANEL-ISIM-ALANI.md` ise `.../yayin-gorselleri`. Dağıtımın
+# originPath'i zaten `/kiosk` olduğu için önekli adres `/kiosk/kiosk/...` üretir → CloudFront 403 →
+# cihaz sessizce boş görsel gösterir. Bu testler İKİ yönü kilitler: belge/yardım metni öneki
+# YAZMAZ ve araç yanlış tabanı ÇALIŞMA ANINDA reddeder.
+
+TABAN_BELGELERI = (
+    DEPO / "deploy" / "README.md",
+    DEPO / "panel" / "MAALIYET.md",
+    DEPO / "docs" / "GORSEL-MIMARISI.md",
+    DEPO / "docs" / "PANEL-ISIM-ALANI.md",
+    KIOSK / "tools" / "gorsel_webp.py",
+)
+
+
+@pytest.mark.parametrize("yol", TABAN_BELGELERI, ids=lambda p: p.name)
+def test_url_taban_kiosk_oneki_yazmaz(yol: Path):
+    """`--url-taban`/adres tabanı geçen satırlarda `/kiosk/` öneki OLMAMALI."""
+    if not yol.is_file():
+        pytest.skip(f"{yol.name} yok (bu dalda ilgisiz)")
+    kotu = [f"{i}: {s.strip()}" for i, s in enumerate(yol.read_text(encoding="utf-8").splitlines(), 1)
+            if "--url-taban" in s and "/kiosk/" in s]
+    assert not kotu, "adres tabanında çift önek (/kiosk/kiosk → 403):\n" + "\n".join(kotu)
+
+
+def test_cli_yanlis_tabani_reddeder(tmp_path: Path):
+    """`/kiosk/` önekli taban verilirse araç yazmadan çıkış 2 ile reddetmeli."""
+    import subprocess
+
+    veri = tmp_path / "lastSystemData.json"
+    veri.write_text(json.dumps(BELGE), encoding="utf-8")
+    (tmp_path / "afis.png").write_bytes(b"png")
+    sonuc = subprocess.run(
+        [sys.executable, str(KIOSK / "tools" / "gorsel_webp.py"), "--veri", str(veri),
+         "--url-taban", "https://d2dnrvsx5eevod.cloudfront.net/kiosk/yayin-gorselleri", "--yaz"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert sonuc.returncode == 2, f"yanlış taban kabul edildi (rc={sonuc.returncode})"
+    assert "/kiosk" in sonuc.stderr and "403" in sonuc.stderr
+    assert json.loads(veri.read_text(encoding="utf-8")) == BELGE, "reddedilen çağrı veriyi değiştirdi"
