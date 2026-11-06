@@ -162,6 +162,10 @@ TETIK_MODLAR = ("qt", "tarayici")        # oto tetiklemenin geçerli olduğu ça
 TETIK_PUSH_AKTIF = False                 # True: cihaz broker'a bağlanır, yayında ANINDA yenilenir (~100 ms)
 TETIK_PUSH_BROKER = ""                   # ör. "xxxxx-ats.iot.eu-central-1.amazonaws.com" ya da kendi sunucunuz
 TETIK_PUSH_PORT = 8883                   # 8883 = TLS (önerilir)
+# TLS PORTTAN BAĞIMSIZ AÇIK (i5 bulgusu): eskiden yalnız port 8883 iken TLS kuruluyordu →
+# port değiştirilince kullanıcı/parola ve kalp atışları şifresiz gidiyordu. Yalnız yerel/test
+# broker'ı için False yapın (günlüğe uyarı yazılır).
+TETIK_PUSH_TLS = True
 TETIK_PUSH_KONU = "yourkiosk/yayin"      # panelin yayın yaptığı konu
 TETIK_PUSH_KULLANICI = ""
 TETIK_PUSH_PAROLA = ""

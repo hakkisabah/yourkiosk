@@ -1,0 +1,50 @@
+{
+  "aciklama": "Cihaz kimliği normalizasyonu — TEK sözleşme. Bu dosya hem panelin (panel/src/domain/cihazIzleme.ts: cihazKimligi) hem yayıncının (kiosk/core/push.py: durum_kimligi) aynı çıktıyı ürettiğini kilitler. Kuralı değiştiren taraf bu tabloyu da güncellemek zorunda; aksi hâlde iki test birden kırmızı olur.",
+  "kural": "ASCII dışı ve joker her karakter '-' olur; baş/son '-' kırpılır; en çok 40 karakter.",
+  "ornekler": [
+    {
+      "ham": "C1",
+      "beklenen": "C1"
+    },
+    {
+      "ham": "casper-kiosk_01",
+      "beklenen": "casper-kiosk_01"
+    },
+    {
+      "ham": "İZMİR 01",
+      "beklenen": "ZM-R-01"
+    },
+    {
+      "ham": "çok/uzun#kimlik",
+      "beklenen": "ok-uzun-kimlik"
+    },
+    {
+      "ham": "kiosk.local 1",
+      "beklenen": "kiosk-local-1"
+    },
+    {
+      "ham": "C 1",
+      "beklenen": "C-1"
+    },
+    {
+      "ham": "yourkiosk/durum/+",
+      "beklenen": "yourkiosk-durum"
+    },
+    {
+      "ham": "  ",
+      "beklenen": ""
+    },
+    {
+      "ham": "----------------------------------------",
+      "beklenen": ""
+    },
+    {
+      "ham": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd",
+      "beklenen": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
+    },
+    {
+      "ham": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghi",
+      "beklenen": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
+    }
+  ]
+}

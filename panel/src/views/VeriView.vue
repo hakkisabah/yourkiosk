@@ -21,6 +21,11 @@ import {
 } from '@/domain/veri'
 import { useDosyalar } from '@/stores/dosyalar'
 import { mqttBildir } from '@/domain/push'
+import {
+  VARSAYILAN_YAYIN_KULLANICI,
+  yayinKimligiOku,
+  yayinKimligiYaz,
+} from '@/domain/yayinKimligi'
 import { durumBelgesi } from '@/domain/tetik'
 import { enYeniDamga } from '@/domain/damga'
 import { useBaglanti } from '@/stores/baglanti'
@@ -297,6 +302,38 @@ async function kaydet(sessiz = false): Promise<boolean> {
 const tetikIlce = ref('')
 const tetikGonderiliyor = ref(false)
 const tetikBilgi = ref('')
+/**
+ * YAYIN KİMLİĞİ (27 Ekim i5 bulgusu): parola pakete gömülmez, çalışma anında sorulur.
+ * Kimlik yokken yayın FAIL-CLOSED: MQTT'ye bağlanılmaz, cihazlar yoklama ağıyla çalışır.
+ * Diyalog açılınca başarısız yayının damgası saklanır → kimlik girilince AYNI damga yeniden
+ * gönderilir (kullanıcı "Bildir"e ikinci kez basmak zorunda kalmaz).
+ */
+const yayinDialog = ref(false)
+const yayinKullanici = ref(VARSAYILAN_YAYIN_KULLANICI)
+const yayinParola = ref('')
+const yayinHatasi = ref('')
+const bekleyenYayin = ref('')
+
+function yayinKimligiSor(zaman = ''): void {
+  yayinKullanici.value = yayinKimligiOku()?.kullanici ?? VARSAYILAN_YAYIN_KULLANICI
+  yayinParola.value = ''
+  bekleyenYayin.value = zaman
+  yayinDialog.value = true
+}
+
+async function yayinKimligiKaydet(): Promise<void> {
+  const kullanici = yayinKullanici.value.trim()
+  if (!kullanici || !yayinParola.value) return
+  yayinKimligiYaz({ kullanici, parola: yayinParola.value })
+  yayinDialog.value = false
+  yayinParola.value = ''
+  if (!bekleyenYayin.value) return
+  const zaman = bekleyenYayin.value
+  bekleyenYayin.value = ''
+  const sonuc = await mqttBildir('elle-bildirim', zaman)
+  yayinHatasi.value = sonuc.gonderildi ? '' : (sonuc.hata ?? 'yayın gönderilemedi')
+  if (sonuc.gonderildi) tetikBilgi.value = `${tetikBilgi.value} · yayın broker'a gitti`
+}
 
 const ilceSecenekleri = computed(() => {
   const gorulen = new Map<string, string>()
@@ -358,10 +395,19 @@ async function tetikBildir(): Promise<void> {
     } catch {
       /* durum.json yazılamadı: cihaz eski üç dosyalı yola düşer (tetikle.json yazıldı) */
     }
-    void mqttBildir('elle-bildirim', belge.zaman).catch(() => undefined)
+    const yayin = await mqttBildir('elle-bildirim', belge.zaman)
+    if (!yayin.gonderildi) {
+      // SESSİZ ÖLÜM YOK (27 Ekim i5 bulgusu): sonuç yutuluyordu; kullanıcı "Gönderildi" görüp
+      // cihazların neden yenilenmediğini anlamıyordu. Kimlik yoksa çalışma anında sorulur.
+      yayinHatasi.value = yayin.hata ?? 'yayın gönderilemedi'
+      if (!yayinKimligiOku()) yayinKimligiSor(belge.zaman)
+    } else {
+      yayinHatasi.value = ''
+    }
     const kapsam = tetikIlce.value || 'tüm cihazlar'
     tetikBilgi.value = `Gönderildi (${kapsam}) · ${belge.zaman}` +
-      (kirli.value ? '' : ' · değişiklikler kaydedildi')
+      (kirli.value ? '' : ' · değişiklikler kaydedildi') +
+      (yayin.gonderildi ? '' : ' · yayın broker\'a gitmedi (yoklama ağı devrede)')
   } catch (e) {
     hata.value = `Bildirim gönderilemedi: ${(e as Error).message}`
   } finally {
@@ -703,7 +749,41 @@ async function tetikBildir(): Promise<void> {
           </v-btn>
           <span v-if="tetikBilgi" class="text-caption text-success">{{ tetikBilgi }}</span>
         </div>
+        <div v-if="yayinHatasi" class="text-caption text-warning mt-2">
+          Yayın broker'a gitmedi: {{ yayinHatasi }} — cihazlar yoklama ağıyla yenilenir.
+          <a href="#" @click.prevent="yayinKimligiSor()">Yayın parolasını gir</a>
+        </div>
       </v-card-text>
     </v-card>
+
+    <!-- YAYIN KİMLİĞİ: parola pakete GÖMÜLMEZ, yalnız bu sekmede (sessionStorage) tutulur. -->
+    <v-dialog v-model="yayinDialog" max-width="460">
+      <v-card>
+        <v-card-title class="text-subtitle-1">Yayın kimliği</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-3">
+            Broker'da <strong>yalnız <code>yourkiosk/yayin</code> konusuna yazma</strong> yetkisi olan
+            kullanıcı. Parola derleme paketine gömülmez, yalnız bu sekmede tutulur; sekme kapanınca
+            silinir.
+          </p>
+          <v-text-field v-model="yayinKullanici" label="Kullanıcı" density="compact" autocomplete="username" />
+          <v-text-field
+            v-model="yayinParola"
+            label="Parola"
+            type="password"
+            density="compact"
+            autocomplete="current-password"
+            @keyup.enter="yayinKimligiKaydet"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="yayinDialog = false">Vazgeç</v-btn>
+          <v-btn color="primary" :disabled="!yayinKullanici.trim() || !yayinParola" @click="yayinKimligiKaydet">
+            Yayınla
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>

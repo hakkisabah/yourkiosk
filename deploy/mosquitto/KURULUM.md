@@ -33,9 +33,14 @@ ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIM73puPcAfsmWFRSrL90cSL+X0wH2935d9BJ7mbvXceh
 sudo bash kur.sh --host broker.<IP>.nip.io --eposta siz@example.com
 ```
 
-Sonunda ekrana **iki parola** basar ve `/root/yourkiosk-mqtt-credentials.txt` (0600) dosyasına yazar:
+Sonunda ekrana **üç hesap** basar ve `/root/yourkiosk-mqtt-credentials.txt` (0600) dosyasına yazar:
 - `panel` → yalnız **yazar** (yayın)
-- `cihaz` → yalnız **okur** (abone)
+- `cihaz` → yalnız yayını **okur**; kalp atışı **yazamaz**
+- `panel-izleme` → yalnız `yourkiosk/durum/+` **okur** (panelde çevrimiçi/çevrimdışı için)
+
+Bir de cihaz **başına** hesap gerekir: `cihaz-ekle.sh <cihazId>` → `cihaz-<cihazId>`, yalnız
+`yourkiosk/durum/<cihazId>` konusuna yazar (bkz. §4 adım 3). Yani toplam hesap sayısı
+`3 + cihaz sayısı`dır; paylaşılan `cihaz` hesabıyla kalp atışı yazılamaz.
 
 ### B) Ben çalıştırayım
 
@@ -47,31 +52,49 @@ panel yayınını ben yaparım; sonunda anahtarı kaldırmanızı hatırlatırı
 - `mosquitto` + `certbot` + `ufw`; **yalnız TLS** dinleyiciler: `8883` (MQTT) ve `8084` (WebSocket/TLS)
 - **Düz 1883 kapalı** (TLS'siz MQTT yok)
 - `allow_anonymous false` + kullanıcı/parola (`/etc/mosquitto/auth/passwd`, 0640, mosquitto sahipli)
-- **Konu ACL'i**: `panel` → yalnız `yourkiosk/yayin` **yazma**; `cihaz` → yalnız **okuma**
-- `message_size_limit 1024` (yalnız "yenile" mesajı), `max_queued_messages 5`, `persistence false`
+- **Konu ACL'i**: `panel` → yalnız `yourkiosk/yayin` **yazma**; `cihaz` → yalnız o konuyu **okuma**;
+  `panel-izleme` → yalnız `yourkiosk/durum/+` **okuma**; `cihaz-<id>` → yalnız `yourkiosk/durum/<id>` **yazma**
+  (yazma kuralı olmayan hesap yazamaz — `acl_file` varsayılanı ret)
+- `message_size_limit 1024` (yalnız "yenile" mesajı), `max_queued_messages 50`,
+  `max_inflight_messages 20` (cihaz başına kuyruk — 30 sn yoklamada 2 turu kapsar),
+  `max_connections 1200` (8883, cihazlar) / `600` (8084, panel WebSocket), `persistence false`
 - Let's Encrypt + **yenileme kancası** (sertifika yenilenince kopyalanır ve mosquitto reload olur)
 - `ufw`: 22/80/8883/8084 (diğer her şey kapalı)
 
 ## 4. Kurulumdan sonra (ben yaparım / siz yaparsınız)
 
-1. **Panel** `panel/.env.local`:
+1. **Panel** `panel/.env.local` (yalnız SIR OLMAYAN alanlar):
    ```bash
    VITE_MQTT_URL=wss://broker.<IP>.nip.io:8084/mqtt
    VITE_MQTT_KONU=yourkiosk/yayin
-   VITE_MQTT_KULLANICI=panel
-   VITE_MQTT_PAROLA=<panel parolası>
+   # VITE_MQTT_PAROLA ve VITE_MQTT_KULLANICI **KULLANILMAZ**. Vite derleme değişkenlerini
+   # JS paketine literal gömer; panel paketi CloudFront'tan kimlik doğrulaması olmadan
+   # indirilebildiği için oradaki parola herkese açık olurdu (27 Ekim i5 bulgusu, yüksek).
+   # Panel yayın parolasını ÇALIŞMA ANINDA sorar ve yalnız o sekmede (sessionStorage) tutar
+   # → kod: panel/src/domain/yayinKimligi.ts + push.ts. Kimlik girilmezse yayın FAIL-CLOSED'dır
+   # (broker'a bağlanılmaz; cihazlar yoklama emniyet ağıyla yenilenir).
    ```
    → `./panel/infra/yayinla.sh`
 2. **Cihazlarda**: `pip install paho-mqtt`
-3. **Panelden ayarlar** (Tetikleme grubu):
-   `push_aktif=true` · `push_broker=broker.<IP>.nip.io` · `push_port=8883` ·
-   `push_konu=yourkiosk/yayin` · `push_kullanici=cihaz` · `push_parola=<cihaz parolası>` ·
-   `kontrol_ms=300000` (5 dk emniyet ağı)
-4. **Doğrulama** (herhangi bir makineden):
+3. **Cihaz başına MQTT kimliği** (ZORUNLU — 26 Ekim i5 bulgusu: belge `push_kullanici=cihaz`
+   diyordu; paylaşılan `cihaz` hesabı `durum/<id>` konusuna YAZAMAZ, yani izleme sessizce ölüydü):
    ```bash
-   MQTT_PAROLA_PANEL=… MQTT_PAROLA_CIHAZ=… bash dogrula.sh broker.<IP>.nip.io
+   sudo deploy/mosquitto/cihaz-ekle.sh C1     # → cihaz-C1 kullanıcısı + parolası (bir kez gösterilir)
    ```
-   Beklenen: TLS ✓ · panel yayını ✓ · cihaz aboneliği ✓ · **cihaz yayını RED** ✓ · anonim RED ✓ · 1883 kapalı ✓
+4. **Panelden ayarlar** (Tetikleme grubu):
+   `push_aktif=true` · `push_broker=broker.<IP>.nip.io` · `push_port=8883` ·
+   `push_konu=yourkiosk/yayin` · `push_kullanici=cihaz-<cihazId>` · `push_parola=<cihaz-ekle çıktısı>` ·
+   `kontrol_ms=300000` (5 dk emniyet ağı)
+5. **Doğrulama** (herhangi bir makineden):
+   ```bash
+   MQTT_PAROLA_PANEL=… MQTT_PAROLA_CIHAZ=… MQTT_PAROLA_IZLEME=… \
+     MQTT_CIHAZ_ID=C1 MQTT_CIHAZ_PAROLA=… bash dogrula.sh broker.<IP>.nip.io
+   ```
+   Beklenen: TLS ✓ · panel yayını ✓ · cihaz aboneliği ✓ · **cihaz yayını RED** ✓ ·
+   **taklit RED** ✓ · anonim RED ✓ · **kalp atışı zinciri** ✓ · 1883 kapalı ✓
+
+> **panel-izleme hesabı**: yalnız `yourkiosk/durum/+` konusunu OKUR (parolası `kur.sh` çıktısında).
+> Panel paketine GÖMÜLMEZ; panelde *Cihazlar → İzlemeyi bağla* ile bir kez girilir.
 
 ## 5. Maliyet ve kapasite
 
@@ -209,12 +232,14 @@ cd yourkiosk
 sudo bash deploy/mosquitto/kur.sh --host yourkiosk.hakkisabah.com --eposta siz@example.com
 ```
 
-Betik sonunda iki parolayı basar ve `/root/yourkiosk-mqtt-credentials.txt` (0600) dosyasına yazar.
+Betik sonunda üç hesabı (`panel`, `cihaz`, `panel-izleme`) basar ve
+`/root/yourkiosk-mqtt-credentials.txt` (0600) dosyasına yazar. Cihaz başına `cihaz-<id>` hesabı
+`cihaz-ekle.sh` ile ayrıca eklenir.
 
 ### 9.6 Doğrulama (kendi makinenizden)
 
 ```bash
-MQTT_PAROLA_PANEL=… MQTT_PAROLA_CIHAZ=… \
+MQTT_PAROLA_PANEL=… MQTT_PAROLA_CIHAZ=… MQTT_PAROLA_IZLEME=… \
   bash deploy/mosquitto/dogrula.sh yourkiosk.hakkisabah.com
 ```
 
@@ -222,9 +247,9 @@ Beklenen: TLS ✓ · panel yayını ✓ · cihaz aboneliği ✓ · **cihaz yayı
 
 ### 9.7 Devamı
 
-1. Panel `.env.local`: `VITE_MQTT_URL=wss://yourkiosk.hakkisabah.com:8084/mqtt` (+ konu/kullanıcı/parola) → `./panel/infra/yayinla.sh`
+1. Panel `.env.local`: `VITE_MQTT_URL=wss://yourkiosk.hakkisabah.com:8084/mqtt` + `VITE_MQTT_KONU=yourkiosk/yayin` (parola YAZILMAZ: çalışma anında sorulur) → `./panel/infra/yayinla.sh`
 2. Cihazlarda `pip install paho-mqtt`
-3. Panel → Tetikleme: `push_aktif=true` · `push_broker=yourkiosk.hakkisabah.com` · `push_port=8883` · `push_kullanici=cihaz` · `push_parola=…` · `kontrol_ms=300000`
+3. Panel → Tetikleme: `push_aktif=true` · `push_broker=yourkiosk.hakkisabah.com` · `push_port=8883` · `push_kullanici=cihaz-<cihazId>` (cihaz-ekle.sh) · `push_parola=…` · `kontrol_ms=300000`
 4. (Öneri) Lightsail → **Snapshots** → otomatik snapshot aç (yapılandırma yeniden üretilebilir, ama geri dönüş hızlı olur)
 
 ### 9.8 Maliyet
