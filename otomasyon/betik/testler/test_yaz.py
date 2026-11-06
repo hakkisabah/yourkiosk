@@ -645,11 +645,25 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
         self.addCleanup(lambda: setattr(yaz, "istek", self._gercek))
 
     def _sahte_istek(self, acik_kod: int = 200, commit_kod: int = 200, yabanci: bool = False,
-                     kontroller=None, diger_commitler=None, kendi_commitler=None):
+                     kontroller=None, diger_commitler=None, kendi_commitler=None,
+                     acik_sayfa_boyu: int | None = None, acik_pr_sayisi: int | None = None,
+                     uzak_yabanci: tuple[int, str] | None = None):
+        """Sahte API. `acik_sayfa_boyu` verilirse açık PR listesi SAYFALI döner (100 kayıt/sayfa)."""
         def sahte(yol, token, yontem="GET", govde=None):
+            sayfa = 1
+            if "page=" in yol:
+                sayfa = int(yol.rsplit("page=", 1)[1].split("&")[0])
+                yol = yol.split("&page=")[0]
             if "/pulls?state=open" in yol:
                 if acik_kod != 200:
                     return acik_kod, {"message": f"HTTP {acik_kod}"}
+                if acik_pr_sayisi is not None:
+                    # Sayfalı liste: page başına `acik_sayfa_boyu` (varsayılan 100) kayıt.
+                    boy = acik_sayfa_boyu or 100
+                    basla = (sayfa - 1) * boy
+                    kalan = max(0, acik_pr_sayisi - basla)
+                    return 200, [{"number": 1000 + i, "head": {"sha": f"{i:040d}"}}
+                                 for i in range(basla, basla + min(boy, kalan))]
                 return 200, ([{"number": 88, "head": {"sha": "c" * 40}}] if yabanci or diger_commitler else [])
             if yol == f"/repos/{self.DEPO}/pulls/88/commits?per_page=100":
                 if commit_kod != 200:
@@ -660,6 +674,18 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
             if yol.endswith("/commits?per_page=100"):
                 if commit_kod != 200:
                     return commit_kod, {"message": f"HTTP {commit_kod}"}
+                if acik_pr_sayisi is not None:
+                    # Sayfalı senaryoda: yalnız `uzak_yabanci` indeksli PR yabancı commit taşır.
+                    if uzak_yabanci and yol.startswith(f"/repos/{self.DEPO}/pulls/{1000 + uzak_yabanci[0]}/"):
+                        if kendi_commitler is not None:
+                            # Hedef PR değil; yalnız yabancı sha'sını taşır.
+                            return 200, [{"sha": uzak_yabanci[1]}]
+                        return 200, [{"sha": uzak_yabanci[1]}]
+                    if yol.startswith(f"/repos/{self.DEPO}/pulls/90/"):
+                        if kendi_commitler is not None:
+                            return 200, [{"sha": s} for s in kendi_commitler]
+                        return 200, [{"sha": self.SHA}]
+                    return 200, [{"sha": f"e{i:039d}"} for i in range(1)]
                 if kendi_commitler is not None:
                     return 200, [{"sha": s} for s in kendi_commitler]
                 return 200, [{"sha": "c" * 40}] if yabanci else [{"sha": self.SHA}]
@@ -707,7 +733,45 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
         self.assertFalse(uygun, mesaj)
         self.assertIn("#88", mesaj)
 
-    # ── 27 Ekim i5 bulgusu: HEAD OLMAYAN yabancı commit ────────────────────────────────────
+    # ── 6 Kasım i5 bulgusu (orta): 20 PR kırpması sessiz örneklemeydi ──────────────────────
+    def test_yirmi_birinci_pr_da_yabanci_commit_yakalanir(self):
+        """Yabancı commit 21. PR'dan sonra (2. sayfada) olsa da kapı görür → birleştirme DURUR.
+
+        Eski kod `digerleri[:20]` ile kırpıyordu: 120. PR'daki onaysız iş taşıyan bir dal
+        denetimden kaçıp birleşebiliyordu.
+        """
+        uzak = "f" * 40
+        self._sahte_istek(acik_pr_sayisi=150, uzak_yabanci=(120, uzak), kendi_commitler=[self.SHA, uzak])
+        uygun, mesaj = self._birlestir()
+        self.assertFalse(uygun, mesaj)
+        self.assertIn(f"#{1000 + 120}", mesaj)
+        self.assertIn(uzak[:7], mesaj)
+
+    def test_sayfalama_tavanina_dayanirsa_denetim_kapanir(self):
+        """Sayfalama güvenlik tavanına dayanırsa denetim 'kısmi' sayılır: boş liste DEĞİL hata."""
+        self._sahte_istek(acik_pr_sayisi=1000)  # sayfa başına 100 → tavan 2'de hep dolu sayfa
+        kayitlar, hata = yaz._sayfala(f"/repos/{self.DEPO}/pulls?state=open&per_page=100",
+                                      "sahte-token", tavan=2)
+        self.assertEqual(kayitlar, [])
+        self.assertIn("tavanına dayandı", hata)
+        self.assertIn("kısmi", hata)
+
+    def test_tam_sayfa_ikinci_sayfayi_ister(self):
+        """100 kayıtlık TAM sayfa 'liste bitti' sayılmaz; ikinci sayfa okunur (kırpma yok)."""
+        self._sahte_istek(acik_pr_sayisi=100)
+        kayitlar, hata = yaz._sayfala(f"/repos/{self.DEPO}/pulls?state=open&per_page=100",
+                                      "sahte-token", tavan=5)
+        self.assertEqual(hata, "")
+        self.assertEqual(len(kayitlar), 100)
+
+    def test_yirmi_pr_siniri_koddan_kalkti(self):
+        """Sabit 20 PR kırpması geri gelmemeli (kaynak nöbeti)."""
+        self.assertFalse(hasattr(yaz, "_YABANCI_PRLER"),
+                         "_YABANCI_PRLER sabiti geri gelmiş: sessiz örnekleme yasağı")
+        kaynak = (Path(yaz.__file__).read_text(encoding="utf-8"))
+        self.assertNotIn("for p in digerleri[:", kaynak,
+                         "PR listesi yine dilimleniyor: sessiz örnekleme yasağı")
+
     def test_baska_prin_head_olmayan_commiti_de_engellenir(self):
         """#88'in eski (artık head olmayan) commit'i bu dalda taşınıyorsa birleştirme DURUR."""
         eski = "d" * 40

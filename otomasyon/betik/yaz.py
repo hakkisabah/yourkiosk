@@ -67,11 +67,11 @@ KIMLIK_ESLEME_DALI = "main"
 #: ayraç yalnız alan ayrımı içindir (aynı değerin başka amaçla kullanılan özetleriyle karışmasın).
 KIMLIK_OZET_AYRACI = "yourkiosk-makine-kimligi-v1|"
 
-#: Yabancı-commit denetiminde commit listesi okunacak açık PR sayısı üst sınırı.
-#: Neden sınır: her PR için bir API çağrısı gerekir; 600 cihazlık depoda açık PR sayısı
-#: arttığında birleştirme turu saatlik kotayı (5000) yakmasın. 20 PR × 1 çağrı + PR listesi
-#: tek birleştirmede ~21 çağrı; sıradaki PR'lar bir sonraki turda denetlenir.
-_YABANCI_PRLER = 20
+#: Yabancı-commit denetiminde SAYFA tavanı (sayfa başına 100 kayıt → 50 sayfa = 5000 PR/commit).
+#: Neden tavan: sonsuz döngü/kota yakımını engellemek. Tavana DAYANILDIYSA denetim "kısmi" sayılır
+#: ve hata döner — sessiz örnekleme YOK (6 Kasım i5 bulgusu: eski sabit 20 PR kırpması fark
+#: edilmeden birleştirmeye izin veriyordu).
+_SAYFA_TAVANI = 50
 
 
 def kimlik_ozeti(machine_id: str) -> str:
@@ -123,6 +123,26 @@ def istek(yol: str, token: str, yontem: str = "GET", govde: dict | None = None) 
         return hata.code, {"hata": hata.read().decode("utf-8", "ignore")[:300]}
     except (urllib.error.URLError, TimeoutError, ValueError) as hata:
         return 0, {"hata": str(hata)[:300]}
+
+
+def _sayfala(yol: str, token: str, tavan: int = _SAYFA_TAVANI) -> tuple[list, str]:
+    """Liste uç noktasını SAYFA SAYFA okur → (kayıtlar, hata).
+
+    Neden: GitHub liste uç noktaları sayfa başına en çok 100 kayıt döndürür ve varsayılan
+    davranış ilk sayfada durmaktır. Eski kod `[:_YABANCI_PRLER]` ile kırpıyordu; kırpma
+    birleştirme kapısında GÜVENLİK kararı olduğu için sessiz örnekleme kabul edilemez
+    (6 Kasım i5 bulgusu, orta). Tavana dayanılırsa hata döner — çağıran fail-closed davranır.
+    """
+    kayitlar: list = []
+    for sayfa in range(1, tavan + 1):
+        ayirac = "&" if "?" in yol else "?"
+        kod, govde = istek(f"{yol}{ayirac}page={sayfa}", token)
+        if kod != 200 or not isinstance(govde, list):
+            return [], f"HTTP {kod}" if sayfa == 1 else f"HTTP {kod} (sayfa {sayfa})"
+        kayitlar.extend(govde)
+        if len(govde) < 100:
+            return kayitlar, ""
+    return [], f"sayfalama tavanına dayandı ({tavan} sayfa) — denetim kısmi, birleştirme reddedilir"
 
 
 def yorum_yaz(depo: str, token: str, no: int, govde: str, *,
@@ -315,31 +335,37 @@ def _yabanci_commitler(depo: str, token: str, pr_no: int) -> tuple[list[str], st
 
     27 Ekim i5 bulgusu (düşük): yalnız diğer PR'ların HEAD sha'sı toplanıyordu. Bir dal, başka bir
     açık PR'ın artık head OLMAYAN commit'ini (üzerine yeni commit atılmış onaysız iş) taşıyabilir
-    ve denetim görmezdi. Artık her açık PR'ın TÜM commit listesi toplanır (istek sayısı
-    `_YABANCI_PRLER` ile sınırlı, kota koruması).
+    ve denetim görmezdi. Artık her açık PR'ın TÜM commit listesi toplanır.
+
+    6 Kasım i5 bulgusu (orta): eski sürüm `digerleri[:_YABANCI_PRLER]` ile ilk 20 PR'dan sonrasını
+    SESSİZCE atlıyordu; 21. PR'dan sonraki bir dal yabancı commit taşısa bile kapı görmeden
+    birleştiriyordu. Artık liste ve commit'ler SAYFALANIR. Sayfalama güvenlik tavanına dayanırsa
+    (kuşkulu durum) boş liste değil HATA döner: `birlestir()` fail-closed davranır.
     """
-    kod, digerleri = istek(f"/repos/{depo}/pulls?state=open&per_page=100", token)
-    if kod != 200 or not isinstance(digerleri, list):
-        return [], f"açık PR listesi denetlenemedi (HTTP {kod})"
+    digerleri, hata = _sayfala(f"/repos/{depo}/pulls?state=open&per_page=100", token, _SAYFA_TAVANI)
+    if hata:
+        return [], f"açık PR listesi denetlenemedi ({hata})"
     baska: dict[str, int] = {}
-    for p in digerleri[:_YABANCI_PRLER]:
+    for p in digerleri:
         if not isinstance(p, dict) or p.get("number") == pr_no:
             continue
         no = p.get("number", 0)
         sha = ((p.get("head") or {}).get("sha") or "").strip()
         if sha:
             baska[sha] = no
-        kod_p, commitler_p = istek(f"/repos/{depo}/pulls/{no}/commits?per_page=100", token)
-        if kod_p != 200 or not isinstance(commitler_p, list):
-            return [], f"#{no} commit listesi denetlenemedi (HTTP {kod_p})"
+        commitler_p, hata_p = _sayfala(f"/repos/{depo}/pulls/{no}/commits?per_page=100", token,
+                                       _SAYFA_TAVANI)
+        if hata_p:
+            return [], f"#{no} commit listesi denetlenemedi ({hata_p})"
         for c in commitler_p:
             if isinstance(c, dict) and c.get("sha"):
                 baska[str(c["sha"]).strip()] = no
     if not baska:
         return [], ""
-    kod, commitler = istek(f"/repos/{depo}/pulls/{pr_no}/commits?per_page=100", token)
-    if kod != 200 or not isinstance(commitler, list):
-        return [], f"PR commit listesi denetlenemedi (HTTP {kod})"
+    commitler, hata = _sayfala(f"/repos/{depo}/pulls/{pr_no}/commits?per_page=100", token,
+                               _SAYFA_TAVANI)
+    if hata:
+        return [], f"PR commit listesi denetlenemedi ({hata})"
     return [f"#{baska[c['sha']]} ({c['sha'][:7]})" for c in commitler
             if isinstance(c, dict) and c.get("sha") in baska], ""
 
