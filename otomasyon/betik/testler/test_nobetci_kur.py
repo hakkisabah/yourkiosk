@@ -240,6 +240,32 @@ class PipefailSIGPIPETesti(unittest.TestCase):
             if "systemctl" in satir and re.search(r"\|\s*head\b", satir) and not satir.strip().startswith("#"):
                 self.assertIn("|| true", satir, f"korunmasız boru: {satir}")
 
+class ZamanAsimiTekKaynakTesti(unittest.TestCase):
+    """Varsayılan zaman aşımı TEK kaynaktan gelir: modül → servis birimi → belge."""
+
+    def test_zaman_asimi_tek_kaynak_modul_servis_belge(self):
+        """6 Kasım i5 bulgusu: nobetci.py 1860, kur.sh 3600, NOBETCI.md 1860 yazıyordu."""
+        import importlib.util
+
+        modul_yolu = BETIK.parent / "betik" / "nobetci.py"
+        spec = importlib.util.spec_from_file_location("nobetci_tek_kaynak", modul_yolu)
+        assert spec is not None and spec.loader is not None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        varsayilan = mod.VARSAYILAN_ZAMAN_ASIMI
+
+        with tempfile.TemporaryDirectory() as home:
+            birim = unit_uret(home=home)
+        self.assertIn(f"--zaman-asimi {varsayilan}", birim,
+                      "servis birimi modüldeki varsayılanı yazmıyor")
+
+        belge = (BETIK.parent / "NOBETCI.md").read_text(encoding="utf-8")
+        self.assertIn(f"{varsayilan} sn", belge,
+                      f"NOBETCI.md {varsayilan} sn yazmıyor (modül/servis/belge ayrıştı)")
+        self.assertNotIn("1860 sn (tavan", belge,
+                         "belgede eski türetilmiş varsayılan (1860 sn) geri gelmiş")
+        self.assertGreaterEqual(varsayilan, mod.TUR_TAVANINDAN_TUREYEN_S)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -569,3 +569,23 @@ class KontrolNoktalariTesti(unittest.TestCase):
         ham = GERI_AL.read_text(encoding="utf-8")
         self.assertIn("/etc/yourkiosk-api-lan-onay", ham)
         self.assertIn('sudo rm -f "$LAN_ONAY_DOSYA"', ham)
+
+
+class LanOnayBelgesiTesti(unittest.TestCase):
+    """6 Kasım i5 bulgusu: §3a kaldırılmış mekanizmayı (~/.config) tarif ediyordu."""
+
+    BELGE = BETIK.parents[2] / "docs" / "API-SUNUCU.md"
+
+    def test_belge_onay_kaydinin_dogru_yolunu_yazar(self):
+        metin = self.BELGE.read_text(encoding="utf-8")
+        self.assertIn("/etc/yourkiosk-api-lan-onay", metin,
+                      "API-SUNUCU.md onay kaydını /etc altında anlatmıyor")
+        self.assertNotIn("api-server.lan-onay", metin,
+                         "API-SUNUCU.md kaldırılmış ~/.config onay dosyasını hâlâ anlatıyor")
+
+    def test_belge_ile_betik_ayni_yolu_gosterir(self):
+        """Belgedeki yol iki betikte de geçmeli (kod↔belge kayması imkânsız)."""
+        yol = "/etc/yourkiosk-api-lan-onay"
+        for betik in (BETIK, GERI_AL):
+            self.assertIn(yol, betik.read_text(encoding="utf-8"), f"{betik.name} {yol} kullanmıyor")
+        self.assertIn(yol, self.BELGE.read_text(encoding="utf-8"))

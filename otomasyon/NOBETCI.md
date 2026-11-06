@@ -160,7 +160,7 @@ Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce v
 | Tur başına PR (liste) | `--limit` | 8 |
 | Oturum başına PR (işlenen) | `nobetci.py` `OTURUM_BASI_PR` | i5: 1 · i3: 3 |
 | Açlık eşiği (günlük uyarısı) | `nobetci.py` `ACLIK_ESIGI_DK` | 120 dk |
-| Oturum zaman aşımı | `--zaman-asimi` | 1860 sn (tavan 120 × 15 sn + 60 sn; türetilir) |
+| Oturum zaman aşımı | `nobetci.py` `VARSAYILAN_ZAMAN_ASIMI` (servis birime aynı değeri yazar) | **3600 sn** — türetilen alt sınır 1860 sn (120 tur × 15 sn + 60 sn) gerçek tur süresini (46 sn ölçüldü) karşılamadığı için yükseltildi; `NOBETCI_ZAMAN_ASIMI` ile 300–7200 arası değişir |
 | Tur tavanı | `nobetci.py` `OTURUM_TUR_TAVANI` | 120 tur (bütçe darsa kısılır) |
 | Günlük oturum tavanı | `nobetci.py` `GUNLUK_OTURUM_TAVANI` | 120 |
 | Depo | `Environment=GITHUB_DEPO` | `hakkisabah/yourkiosk` |

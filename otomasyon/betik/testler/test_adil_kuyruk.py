@@ -392,5 +392,24 @@ class FaillockTesti(unittest.TestCase):
                 self.assertNotIn("sudo faillock", satir)
 
 
+class SurumDamgasiKonumTesti(unittest.TestCase):
+    """6 Kasım i5 bulgusu: damga açıklamanın HERHANGİ bir yerinde geçerli sayılıyordu."""
+
+    def test_damga_metnin_ortasinda_bayat_sayilir(self):
+        self.assertTrue(nobetci.surum_guncel("[v2] karar metni"))
+        self.assertTrue(nobetci.surum_guncel("  [v2] başta boşluk olsa da"))
+        self.assertFalse(nobetci.surum_guncel("gerekçe uzun… eski metin [v2] devam"))
+        self.assertFalse(nobetci.surum_guncel("başta değil\n[v2] ikinci satırda"))
+        self.assertFalse(nobetci.surum_guncel("damgasız karar"))
+        self.assertFalse(nobetci.surum_guncel(None))
+
+    def test_damga_deseni_bastan_eslesir(self):
+        assert nobetci.SURUM_DAMGASI.pattern.startswith("^"), (
+            "damga deseni baştan eşleşmiyor — açıklamanın ortasındaki [v2] sürüm kapısını atlatır"
+        )
+        assert nobetci.SURUM_DAMGASI.match("[v2] x") is not None
+        assert nobetci.SURUM_DAMGASI.match("x [v2]") is None
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -51,13 +51,14 @@ git pull
 
 Geliştirme makinesinde Hermes istemcileri **başka makinelerden** bağlanıyor → sunucu
 `0.0.0.0:8642` dinliyor. Bu bilinçli bir operatör kararıdır ve **kayda geçer**: uygulama anında
-`~/.config/hermes-secrets/api-server.lan-onay` dosyası yazılır (0600). `--kontrol` bu dosyayı
+onay kaydı **`/etc/yourkiosk-api-lan-onay`** dosyasına yazılır (root:root, 0644; yalnız `sudo` ile
+yazılabilir — ajan oturumu yazamaz, bu yüzden onay sayılır). `--kontrol` bu dosyayı
 görürse `0.0.0.0` satırı ✗ değil **✓ "LAN'a açık (operatör onaylı)"** olur; dosya yoksa ✗ kalır.
 Geri alma (`--dinle 172.17.0.1` / `127.0.0.1`) kaydı **siler** → karar görünür ve geri alınabilir.
 
 ```bash
-./otomasyon/betik/api-sunucu-sertlestir.sh --dinle 0.0.0.0 --kabul-et-lan   # onay kaydını yazar
-./otomasyon/betik/api-sunucu-sertlestir.sh --kontrol                        # ✓ LAN'a açık (operatör onaylı)
+sudo ./otomasyon/betik/api-sunucu-sertlestir.sh --dinle 0.0.0.0 --kabul-et-lan      # onay kaydını /etc'ye yazar (sudo şart)
+sudo ./otomasyon/betik/api-sunucu-sertlestir.sh --kontrol                           # ✓ LAN'a açık (operatör onaylı)
 ```
 
 > `0.0.0.0`'da uç **ağdan erişilebilir** ve terminal yetkilidir: erişim yalnız `API_SERVER_KEY`

@@ -117,7 +117,18 @@ OTURUM_TUR_TAVANI = 120
 # tavan × tur payı + kapanış payı. Tek sayı değişince diğerleri kendiliğinden uyar.
 TUR_SURE_PAYI_S = 15          # tur başına beklenen duvar saati (araç çağrısı + model)
 KAPANIS_PAYI_S = 60           # özet/karar yazımı için ayrılan pay
-VARSAYILAN_ZAMAN_ASIMI = OTURUM_TUR_TAVANI * TUR_SURE_PAYI_S + KAPANIS_PAYI_S  # 1860 sn
+TUR_TAVANINDAN_TUREYEN_S = OTURUM_TUR_TAVANI * TUR_SURE_PAYI_S + KAPANIS_PAYI_S  # 1860 sn
+
+# TEK KAYNAK (6 Kasım i5 bulgusu): türetilen 1860 sn hem CLI varsayılanı hem servis varsayılanı
+# sanılıyordu; oysa `nobetci-kur.sh` 3600 sn yazıyordu ve NOBETCI.md 1860 diyordu. 28 Ekim
+# ölçümü türetilen değerin YETMEDİĞİNİ gösterdi (tur başına 46 sn gerçek süre; #90 oturumu
+# 31. dakikada öldürüldü ve PR'a hiç karar yazılmadı). Bu yüzden varsayılan tek yerde durur:
+# burada. Servis kurulumu (nobetci-kur.sh) ve belge bu değeri yazar; türetilen değer ALT SINIR
+# olarak korunur ve testle doğrulanır (varsayılan ondan küçük olamaz).
+VARSAYILAN_ZAMAN_ASIMI = 3600  # sn — tur tavanı × gerçek tur süresi ölçümüne dayanır
+assert VARSAYILAN_ZAMAN_ASIMI >= TUR_TAVANINDAN_TUREYEN_S, (
+    "varsayılan zaman aşımı tur tavanından türeyen alt sınırın altına inemez"
+)
 #: Tur başına KABUL EDİLEBİLİR en az duvar saati. Altına inerse tur tavanı anlamsızlaşır
 #: (araç çağrısı + model yanıtı yetişmez) → tavan bütçeye göre KISILIR (duvar saati aşılmaz).
 EN_AZ_TUR_SURESI_S = 10
@@ -403,8 +414,10 @@ def inceleme_surumu() -> str:
     return INCELEME_SURUMU
 
 #: Açıklamadaki sürüm damgası: `[v2] ...` (GitHub açıklaması 140 karakterle sınırlı,
-#: bu yüzden damga BAŞTA durur; kırpma onu asla kesemez).
-SURUM_DAMGASI = re.compile(r"\[v([0-9A-Za-z._-]{1,16})\]")
+#: bu yüzden damga BAŞTA durur; kırpma onu asla kesemez). DAMGA YALNIZ BAŞTA geçerlidir:
+#: açıklamanın ortasında `[v2]` görmek kararı güncel SAYDIRMAZ (6 Kasım i5 bulgusu) — aksi
+#: hâlde "… eski metin [v2] …" gibi bir açıklama sürüm kapısını atlatırdı.
+SURUM_DAMGASI = re.compile(r"^\[v([0-9A-Za-z._-]{1,16})\]")
 
 
 def surum_guncel(aciklama: str | None, surum: str | None = None) -> bool:
@@ -413,7 +426,8 @@ def surum_guncel(aciklama: str | None, surum: str | None = None) -> bool:
     Damgasız (eski) kararlar BAYAT sayılır: sürüm denetimi devreye girmeden önceki kararların
     hangi mantıkla yazıldığı bilinmiyor. Bu yüzden ilk turda hepsi bir kez yeniden incelenir.
     """
-    m = SURUM_DAMGASI.search(str(aciklama or ""))
+    # `match` (baştan) — `search` DEĞİL: damga açıklamanın ortasında geçerse karar bayat sayılır.
+    m = SURUM_DAMGASI.match(str(aciklama or "").lstrip())
     return bool(m) and m.group(1) == (surum or inceleme_surumu())
 
 
