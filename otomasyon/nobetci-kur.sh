@@ -190,6 +190,10 @@ MemoryMax=${MEM_MAX_MB}M
 TasksMax=1024
 OOMPolicy=stop
 TimeoutStopSec=30
+# YETKİ YÜKSELTME YOK (7 Kasım i5 bulgusu): oturum içindeki araçlar sudo/setuid ile
+# ayrıcalık kazanamaz; parolasız makinede ajanın sudo denemesi hesabı kilitliyordu (pam_faillock).
+# PrivateTmp EKLENMEZ: karar dosyaları /tmp üzerinden operatörle paylaşılıyor.
+NoNewPrivileges=true
 # KOD KAYNAĞI: $KOD_DEPO (makine kopyası) — insan deposu değil. --guncelle nöbetçinin kendini
 # origin/<dal>'a çekmesini sağlar; değişiklik varsa süreç çıkar, Restart=always yeni kodu yükler.
 # DAL: main (varsayılan) ya da düzeltme dalı — main'e merge edilmeden de makine yeni kodu koşabilsin.

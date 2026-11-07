@@ -130,6 +130,20 @@ class UnitTesti(unittest.TestCase):
         if ram > 2048:
             self.assertLessEqual(heap, ram, "V8 tavanı makine RAM'ini aşamaz")
 
+    def test_yetki_yukseltme_kapali(self):
+        """7 Kasım i5 bulgusu: birimde NoNewPrivileges yoktu → oturum içi sudo denemesi
+        pam_faillock ile hesabı kilitliyordu (ajan da operatör de sudo yapamıyordu)."""
+        metin = unit_uret(home=self.home)
+        self.assertIn("NoNewPrivileges=true", metin)
+        # PrivateTmp EKLENMEZ: karar dosyaları /tmp üzerinden operatörle paylaşılıyor.
+        self.assertNotIn("PrivateTmp=true", metin)
+
+    def test_bakim_dropininde_de_yetki_yukseltme_kapali(self):
+        """Bakım betiğinin yazdığı drop-in de aynı kapıyı taşımalı (birim metni tek kaynak değil)."""
+        metin = (BETIK.parents[1] / "otomasyon" / "betik" / "nobetci-bakim.sh").read_text(encoding="utf-8")
+        self.assertIn("NoNewPrivileges=true", metin)
+        self.assertNotIn("PrivateTmp=true", metin)
+
     def test_cokme_dongusu_freni_var(self):
         """Restart=always tek başına çökme döngüsünü sonsuzlaştırır (her tur = token + core dump)."""
         metin = unit_uret(home=self.home)

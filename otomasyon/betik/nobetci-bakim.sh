@@ -239,6 +239,10 @@ MemoryHigh=${MEM_HIGH_MB}M
 MemoryMax=${MEM_MAX_MB}M
 TasksMax=1024
 OOMPolicy=stop
+# YETKİ YÜKSELTME YOK (7 Kasım i5 bulgusu): oturum içindeki araçlar sudo/setuid ile
+# ayrıcalık kazanamaz; parolasız makinede ajanın sudo denemesi hesabı kilitliyordu (pam_faillock).
+# PrivateTmp EKLENMEZ: karar dosyaları /tmp üzerinden operatörle paylaşılıyor.
+NoNewPrivileges=true
 Environment=NODE_OPTIONS=--max-old-space-size=${NODE_HEAP_MB}
 DROPIN
 soyle "bellek      : RAM ${RAM_MB} MB → High ${MEM_HIGH_MB} MB · Max ${MEM_MAX_MB} MB · heap ${NODE_HEAP_MB} MB"

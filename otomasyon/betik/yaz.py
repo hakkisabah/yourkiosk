@@ -30,6 +30,7 @@ import stat
 import subprocess
 import time
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -178,6 +179,17 @@ INCELEME_SURUMU = "2"
 def inceleme_surumu() -> str:
     """İnceleme sözleşmesinin sürümü — commit durumu açıklamasına `[v<sürüm>]` olarak yazılır."""
     return INCELEME_SURUMU
+
+
+#: Karar açıklamasının BAŞINDAKİ damga (`[v2] onay (...)`). `search` değil `match`:
+#: damga açıklamanın ortasında geçerse karar bayat sayılır (nobetci.py:surum_guncel ile aynı kural).
+SURUM_DAMGASI = re.compile(r"^\[v([0-9A-Za-z._-]{1,16})\]")
+
+
+def surum_guncel(aciklama: str | None, surum: str | None = None) -> bool:
+    """Commit durumu açıklaması GÜNCEL inceleme sözleşmesiyle mi yazılmış?"""
+    m = SURUM_DAMGASI.match(str(aciklama or "").lstrip())
+    return bool(m) and m.group(1) == (surum or inceleme_surumu())
 
 
 def durum_metni(karar: dict) -> tuple[str, str]:
@@ -414,6 +426,7 @@ def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay
 
     kod, durum = istek(f"/repos/{depo}/commits/{sha}/status", token)
     kontroller = {s["context"]: s["state"] for s in (durum or {}).get("statuses", [])} if isinstance(durum, dict) else {}
+    aciklamalar = {s["context"]: s.get("description") for s in (durum or {}).get("statuses", [])} if isinstance(durum, dict) else {}
     kotu = [ad for ad, hal in kontroller.items() if hal in ("failure", "pending", "error")]
     if kotu:
         return False, f"başarısız/bekleyen kontroller: {', '.join(kotu)}"
@@ -421,6 +434,12 @@ def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay
         eksik = [ad for ad in ("guvenlik/inceleme", "guvenlik/karar") if kontroller.get(ad) != "success"]
         if eksik:
             return False, f"çift onay tamam değil (eksik: {', '.join(eksik)})"
+        # ONAY DA SÜRÜME BAĞLI (7 Kasım i5 bulgusu): yalnız "success" bakmak, eski sözleşmeyle
+        # (damgasız/eski damgalı) verilmiş bir i5 onayını güncel sayıp birleştirmeye yetiyordu.
+        i5_aciklama = aciklamalar.get("guvenlik/inceleme")
+        if not surum_guncel(i5_aciklama):
+            return False, ("i5 onayı eski inceleme sürümünde (damgasız/bayat açıklama) — "
+                           "birleştirme için güncel sürümle yeniden inceleme gerekir")
 
     if kuru:
         return True, "KURU: koşullar uygun, birleştirilecek (squash)"

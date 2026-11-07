@@ -693,9 +693,10 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
                 return 200, {"number": 90, "state": "open", "draft": False, "title": "t",
                              "head": {"sha": self.SHA}, "labels": [], "mergeable_state": "clean"}
             if yol.endswith("/status"):
+                guncel = f"[v{yaz.INCELEME_SURUMU}] onay (dusuk): sahte"
                 return 200, {"statuses": kontroller if kontroller is not None else [
-                    {"context": "guvenlik/inceleme", "state": "success"},
-                    {"context": "guvenlik/karar", "state": "success"},
+                    {"context": "guvenlik/inceleme", "state": "success", "description": guncel},
+                    {"context": "guvenlik/karar", "state": "success", "description": guncel},
                 ]}
             raise AssertionError(f"beklenmeyen istek: {yol}")
         yaz.istek = sahte
@@ -726,6 +727,26 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
         self._sahte_istek(yabanci=False)
         uygun, mesaj = self._birlestir()
         self.assertTrue(uygun, mesaj)
+
+    # ── 7 Kasım i5 bulgusu (orta): onay SÜRÜME bağlı olmalı ────────────────────────────────
+    def test_damgasiz_i5_onayi_birlestirmeyi_engeller(self):
+        """`guvenlik/inceleme=success` tek başına yetmez: damgasız/eski damgalı onay bayattır."""
+        self._sahte_istek(yabanci=False, kontroller=[
+            {"context": "guvenlik/inceleme", "state": "success", "description": "onay (dusuk): damgasız"},
+            {"context": "guvenlik/karar", "state": "success", "description": "[v2] kabul (dusuk): x"},
+        ])
+        uygun, mesaj = self._birlestir()
+        self.assertFalse(uygun, mesaj)
+        self.assertIn("eski inceleme sürümünde", mesaj)
+
+    def test_eski_damgali_i5_onayi_birlestirmeyi_engeller(self):
+        self._sahte_istek(yabanci=False, kontroller=[
+            {"context": "guvenlik/inceleme", "state": "success", "description": "[v00000000] onay (dusuk)"},
+            {"context": "guvenlik/karar", "state": "success", "description": "[v2] kabul (dusuk): x"},
+        ])
+        uygun, mesaj = self._birlestir()
+        self.assertFalse(uygun, mesaj)
+        self.assertIn("eski inceleme sürümünde", mesaj)
 
     def test_yabanci_commit_yine_engellenir(self):
         self._sahte_istek(yabanci=True)

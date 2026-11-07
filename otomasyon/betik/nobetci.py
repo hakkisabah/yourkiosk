@@ -556,6 +556,7 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
     cikti: list[dict] = []
     bekleyen: list[dict] = []  # kararı GÜNCEL olan PR'lar (yeniden oturum açılmaz)
     bayat = 0    # kararı eski inceleme sürümüyle yazılmış PR'lar (yeniden incelenecek)
+    bayat_onay: list[int] = []  # i5 ONAYI eski sürümde → i3 sırasına girmeyen PR'lar
     for pr in govde:
         if pr.get("draft"):
             continue
@@ -596,6 +597,13 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
         else:  # i3 — yalnız i5 onay verdikten sonra çalışır
             if inceleme != "success":
                 continue
+            # İKİNCİ KAPI DA SÜRÜME BAĞLI (7 Kasım i5 bulgusu): "success" tek başına yetmez.
+            # Damgasız/eski damgalı bir onay hangi inceleme mantığıyla verildiği bilinmediği
+            # için GÜNCEL sayılamaz; PR i3 sırasına girmez, i5 kendi dalında bayat sayıp
+            # yeniden inceler. Aksi hâlde eski sözleşmeyle verilmiş onay birleştirmeye yetiyordu.
+            if not surum_guncel(inceleme_d.get("description"), surum):
+                bayat_onay.append(no)
+                continue
             etiketsiz_onay = karar == "success" and ONAY_ETIKETI not in etiketler  # yarım yazım: etiket eksik
             if (karar not in YAZILMIS_DURUMLAR or etiketsiz_onay
                     or not surum_guncel(karar_d.get("description"), surum)):
@@ -616,6 +624,10 @@ def isler(gh: Github, rol: str, limit: int) -> list[dict]:
     if bayat:
         gunluk_seyrek(getattr(gh, "gunluk_yolu", None), f"{rol}:bayat:{surum}",
                       f"{rol}: {bayat} PR eski inceleme sürümünden → yeniden inceleme (v{surum})")
+    if bayat_onay:
+        gunluk_seyrek(getattr(gh, "gunluk_yolu", None), f"{rol}:bayat-onay:{surum}",
+                      f"{rol}: {len(bayat_onay)} PR'ın i5 onayı eski inceleme sürümünde (v{surum}) "
+                      f"→ i5 yeniden inceleyecek: " + ", ".join(f"#{n}" for n in sorted(bayat_onay)))
     if bekleyen:
         # KARAR YAZILMIŞ PR'LAR GÖRÜNÜR OLMALI (28 Ekim bulgusu): tek satır "zaten karara bağlı →
         # yeni commit bekleniyor" hem "onay verildi, birleştir" hem "sorun verildi, düzelt" demekti.

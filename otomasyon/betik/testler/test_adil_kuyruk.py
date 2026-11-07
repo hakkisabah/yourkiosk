@@ -204,9 +204,24 @@ class AdilKuyrukTesti(unittest.TestCase):
 
     def test_i3_yarim_karar_yeniden_kuyruga_girer(self):
         sha = f"{92:040d}"
-        gh = SahteGithub([pr(92, 20)], {sha: {"guvenlik/inceleme": "success",
+        gh = SahteGithub([pr(92, 20)], {sha: {"guvenlik/inceleme": durum("success"),
                                               "guvenlik/karar": "pending"}})
         self.assertEqual([i["pr"] for i in nobetci.isler(gh, "i3", 8)], [92])
+
+    def test_i3_bayat_i5_onayini_kuyruga_almaz(self):
+        """7 Kasım i5 bulgusu: i3 yalnız `inceleme == success` bakıyordu; damgasız/eski damgalı
+        i5 onayı güncel sayılıp birleştirmeye yetiyordu. Onay da (sha + sürüm) çiftine bağlı."""
+        damgasiz, eski, guncel = f"{93:040d}", f"{94:040d}", f"{95:040d}"
+        gh = SahteGithub(
+            [pr(93, 10), pr(94, 20), pr(95, 30)],
+            {
+                damgasiz: {"guvenlik/inceleme": {"state": "success", "description": "onay (dusuk): damgasız"}},
+                eski: {"guvenlik/inceleme": durum("success", surum="00000000")},
+                guncel: {"guvenlik/inceleme": durum("success")},
+            },
+        )
+        self.assertEqual([i["pr"] for i in nobetci.isler(gh, "i3", 8)], [95],
+                         "bayat i5 onaylı PR'lar i3 sırasına GİRMEMELİ")
 
     def test_i3_ayni_sha_ikinci_karar_yazmaz(self):
         # 25 Ekim: i3 aynı head'e (cc4e4b81) üç tur üst üste "düzeltme" yazdı.
