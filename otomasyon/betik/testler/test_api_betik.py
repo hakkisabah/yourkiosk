@@ -589,3 +589,53 @@ class LanOnayBelgesiTesti(unittest.TestCase):
         for betik in (BETIK, GERI_AL):
             self.assertIn(yol, betik.read_text(encoding="utf-8"), f"{betik.name} {yol} kullanmıyor")
         self.assertIn(yol, self.BELGE.read_text(encoding="utf-8"))
+
+    # ── 7 Kasım i5 bulgusu: kabul kaydı ile gerçek dinleme adresi çelişiyordu ────────────────
+    def _satir(self, metin: str, anahtar: str) -> str:
+        """Tabloda `anahtar` geçen satırı döndürür (yoksa boş)."""
+        return next((s for s in metin.splitlines() if anahtar in s and s.startswith("|")), "")
+
+    def test_lan_acilimi_kabul_kaydinda_adiyla_var(self):
+        """§3a 'kayda geçer' diyor: §5'te 0.0.0.0/LAN açılımını adıyla kabul eden satır olmalı."""
+        baglam = (self.BELGE.parent / "GUVENLIK-BAGLAM.md").read_text(encoding="utf-8")
+        satir = self._satir(baglam, "Hermes API anahtarı")
+        self.assertTrue(satir, "§5'te Hermes API anahtarı satırı yok")
+        self.assertIn("0.0.0.0:8642", satir, "§5 satırı LAN açılımını (0.0.0.0:8642) adıyla yazmıyor")
+        self.assertIn("operatör onaylı", satir, "§5 satırı açık istisnayı 'operatör onaylı' diye kaydetmiyor")
+        self.assertIn("TLS vekili", satir, "§5 satırı LAN dışına çıkma koşulunu (TLS vekili) yazmıyor")
+
+    def test_api_belgesi_kabul_kaydina_atif_yapar(self):
+        metin = self.BELGE.read_text(encoding="utf-8")
+        self.assertIn("GUVENLIK-BAGLAM.md` §5", metin,
+                      "API-SUNUCU.md §3a kabul kaydına (GUVENLIK-BAGLAM §5) atıf yapmıyor")
+
+    def test_open_webui_satiri_gercek_yayin_adresini_yazar(self):
+        """Belge 0.0.0.0:3000 diyor; §5 satırı 127.0.0.1:3000 diyerek çelişiyordu."""
+        baglam = (self.BELGE.parent / "GUVENLIK-BAGLAM.md").read_text(encoding="utf-8")
+        satir = self._satir(baglam, "Open WebUI arayüzü")
+        self.assertTrue(satir, "§5'te Open WebUI satırı yok")
+        self.assertIn("0.0.0.0:3000", satir, "§5 Open WebUI satırı gerçek yayın adresini yazmıyor")
+        self.assertIn("0.0.0.0:3000", self.BELGE.read_text(encoding="utf-8"),
+                      "API-SUNUCU.md Open WebUI yayın adresini yazmıyor")
+
+    def test_kabul_kaydi_ile_docker_yayini_uyusur(self):
+        """Makinede docker varsa: konteynerin yayın adresi §5 satırıyla aynı olmalı (ölçüm kapısı)."""
+        import shutil as _shutil
+        import subprocess as _subprocess
+        if not _shutil.which("docker"):
+            self.skipTest("docker yok — ölçüm yapılamıyor")
+        try:
+            cikti = _subprocess.run(["docker", "ps", "--format", "{{.Ports}}"],
+                                    capture_output=True, text=True, timeout=20)
+        except (OSError, _subprocess.SubprocessError):
+            self.skipTest("docker ps çalıştırılamadı")
+        if cikti.returncode != 0 or "3000" not in cikti.stdout:
+            self.skipTest("Open WebUI konteyneri bu makinede yok")
+        baglam = (self.BELGE.parent / "GUVENLIK-BAGLAM.md").read_text(encoding="utf-8")
+        satir = self._satir(baglam, "Open WebUI arayüzü")
+        if "0.0.0.0:3000" in cikti.stdout:
+            self.assertIn("0.0.0.0:3000", satir,
+                          f"docker 0.0.0.0:3000 yayınlıyor ama §5 satırı: {satir!r}")
+        elif "127.0.0.1:3000" in cikti.stdout:
+            self.assertIn("127.0.0.1:3000", satir,
+                          f"docker 127.0.0.1:3000 yayınlıyor ama §5 satırı: {satir!r}")

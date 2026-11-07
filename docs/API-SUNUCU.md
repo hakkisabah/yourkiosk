@@ -63,12 +63,18 @@ sudo ./otomasyon/betik/api-sunucu-sertlestir.sh --kontrol                       
 
 > `0.0.0.0`'da uç **ağdan erişilebilir** ve terminal yetkilidir: erişim yalnız `API_SERVER_KEY`
 > ile sınırlıdır. Ağ değişirse anahtarı döndürün (`--anahtar-yenile`). Güvenlik sınırı: aynı
-> LAN'daki başka bir kullanıcı anahtarı ele geçirirse kabuk komutu çalıştırabilir — kabul edilen
-> risk ve gerekçesi `docs/GUVENLIK-BAGLAM.md` §5'te.
+> LAN'daki başka bir kullanıcı anahtarı ele geçirirse kabuk komutu çalıştırabilir.
+>
+> **Kabul kaydı:** bu açılım `docs/GUVENLIK-BAGLAM.md` §5'teki *"Hermes API anahtarı düz `http://`
+> ile taşınır … (b) bu makinede LAN'da (`0.0.0.0:8642`, operatör onaylı — açık istisna)"* satırında
+> **adıyla** kayıtlıdır: anahtar LAN'da düz `http` gider, istisna yalnız **güvenilen LAN** için
+> geçerlidir; LAN dışına (WAN/port yönlendirme/tünel) çıkarsa **TLS vekili zorunlu**.
 
 > **Open WebUI:** bu makinede operatör kararıyla `-p 0.0.0.0:3000` yayınında ve **değiştirilmeyecek**
-> (ağdan erişim gerekiyor). Aşağıdaki `-p 127.0.0.1:3000:8080` önerisi yeni/temiz kurulum içindir;
-> çalışan konteynerde operatör onayı olmadan yeniden oluşturmayın.
+> (ağdan erişim gerekiyor). Bu da `docs/GUVENLIK-BAGLAM.md` §5'teki *"Open WebUI arayüzü bu makinede
+> `0.0.0.0:3000` (operatör kararı)"* satırında kayıtlıdır; WAN'a açılmaz. Aşağıdaki
+> `-p 127.0.0.1:3000:8080` önerisi yeni/temiz kurulum içindir; çalışan konteynerde operatör onayı
+> olmadan yeniden oluşturmayın.
 
 Betik gateway'i **yeniden başlatmaz**; ayrı bir kabukta:
 
