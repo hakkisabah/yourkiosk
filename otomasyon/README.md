@@ -12,7 +12,7 @@
 | `./otomasyon/koruma --durum` | branch protection'ın mevcut hâli (salt okuma) |
 | `./otomasyon/koruma --uygula --kontrol "guvenlik/inceleme,guvenlik/karar"` | korumayı uygula (yönetici token) |
 | `./otomasyon/topla --cikti /tmp/paket.json` | bağlam paketi (diff + sır/riskli kod taraması + PR'lar) |
-| `./otomasyon/yaz /tmp/karar.json [--birlestir] [--cift-onay]` | kararı GitHub'a yaz; koşullar tamamsa birleştir |
+| `./otomasyon/yaz /tmp/karar.json [--birlestir] [--tek-onay --gerekce \"…\"]` | kararı GitHub'a yaz; koşullar tamamsa birleştir (çift onay **varsayılan**) |
 | `bash otomasyon/kur.sh i5 --cron` | makine kurulumu (denetim + sarmalayıcılar + cron) |
 
 ## Akış (D modu)

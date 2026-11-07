@@ -19,6 +19,39 @@ python3 --version && git --version && curl --version | head -1
 
 ---
 
+## 0b. Makine kimliği (yalnız operatör — `sudo` ile bir kez)
+
+Kapı akışında **hangi makinenin hangi rolü** oynadığı operatörün kurduğu dosyadan okunur:
+`/etc/yourkiosk-makine-kimligi`. Neden dosya: karar JSON'undaki `makine` alanı ajanın **kendi
+beyanıydı** → i5 oturumu `"makine": "i3"` yazıp `guvenlik/inceleme` + `guvenlik/karar`
+kontrollerini tek başına yeşile çevirebiliyordu (AGENTS.md §3.3 yasaklıyor). Dosya `root`
+sahipli olduğu için ajan onu yazamaz; beyan ile dosya çelişirse `yaz.py` **çıkış 5** ile reddeder.
+
+`i5` makinesinde (depo kökünden; betik atomik yazar + doğrular). **Önce root sahipli kopyaya
+alın**: betik `root` olarak depo kodu çalıştırmaz ve ajanın yazabildiği ağaçtan çağrılırsa
+`GÜVENİLMEYEN AĞAÇ` diyerek durur (26 Ekim i5 bulgusu):
+
+```bash
+sudo install -o root -g root -m 0755 otomasyon/betik/makine-kimligi-kur.sh \
+  /usr/local/lib/yourkiosk/makine-kimligi-kur.sh
+sudo /usr/local/lib/yourkiosk/makine-kimligi-kur.sh i5
+```
+
+`i3` makinesinde aynısı `… /usr/local/lib/yourkiosk/makine-kimligi-kur.sh i3` ile. Doğrula:
+
+```bash
+sudo /usr/local/lib/yourkiosk/makine-kimligi-kur.sh --kontrol   # ✓ kimlik geçerli: i5
+ls -l /etc/yourkiosk-makine-kimligi                             # -rw-r--r-- root root … içerik: i5
+python3 otomasyon/betik/ortam-kontrol.py --rol i5 | grep 'makine kimliği'
+```
+
+> Kimlik **kalıcıdır** (TTL yok) — bilet gibi süreli değil, çünkü rol kurulum bilgisidir.
+> Yanlış makinede yazım denemesi `KİMLİK UYUŞMAZLIĞI` ile durur; `--birlestir` yalnız `i3`
+> kimliğinde çalışır. Bu iki durum testlerle kilitli
+> (`otomasyon/betik/testler/test_yaz.py::MakineKimligiTesti`).
+
+---
+
 ## 1. Token dosyası
 
 Her makineye **kendi** fine-grained token'ı (i5 ve i3 ayrı; bir sızarsa diğeri etkilenmesin).
@@ -242,7 +275,7 @@ Son commit'lerin `guvenlik/inceleme` durumunu, açık PR'ları, etiketleri ve so
 ```bash
 ~/.local/state/yourkiosk-otomasyon/son-sha    # en son incelenen commit
 hermes cron runs <job_id>                     # son koşular + çıktı
-python3 ~/calisma_konumun/yourkiosk/otomasyon/betik/topla.py --imza   # şu anki uzak HEAD
+python3 otomasyon/betik/topla.py --imza   # şu anki uzak HEAD (depo kökünden)
 ```
 
 Yeniden incelemek için: `rm ~/.local/state/yourkiosk-otomasyon/son-sha` (sonra `--ilk` ile çalıştırın).
