@@ -462,5 +462,9 @@ def test_tarayici_yorumlari_baglantiya_gore_secim_iddia_etmez() -> None:
     assert "Qt modu" in baglam and "yoklama_araligi" in baglam, (
         f"'kopuk 30 sn' Qt bağlamı dışında: {baglam!r}")
     assert "kopuk 30 sn" not in kaynak_ts, "kaynak.ts tarayıcı yoludur: 'kopuk 30 sn' yazamaz"
+    # web/tests de tarayıcı davranışını anlatır: aynı yanlış iddia test başlığında kalamaz
+    for test_dosyasi in (KOK / "web" / "tests").glob("*.ts"):
+        assert "kopuk 30 sn" not in test_dosyasi.read_text(encoding="utf-8"), (
+            f"{test_dosyasi.name}: tarayıcı testi 'kopuk 30 sn' iddia ediyor")
     assert "bağlantıya göre seçim" in kiosk_ts.lower(), "kiosk.ts tarayıcı için seçim olmadığını yazmıyor"
     assert "bağlantıya göre seçim" in kaynak_ts.lower(), "kaynak.ts sabit 120 sn olduğunu yazmıyor"

@@ -3,8 +3,8 @@
  *
  * İki yol vardır:
  *  1) ANLIK (uzun yoklama `/degisiklik`): imza değiştiği an bildirim → yenileme (tipik <1 sn),
- *  2) YOKLAMA (`DAMGA_KONTROL_MS`, push BAĞLI **120 sn** / kopuk **30 sn** — anlıklık push/uzun
- *     yoklamayla gelir; 20 sn'lik süre 600 cihazda ~$268/ay istek maliyeti demekti):
+ *  2) YOKLAMA (`DAMGA_KONTROL_MS`, tarayıcı modunda SABİT **120 sn** — bağlantıya göre seçim yok;
+ *     anlıklık push/uzun yoklamayla gelir; eskiden 20 sn'lik süre 600 cihazda ~$268/ay istek maliyeti demekti):
  *     `lastupdate.json` + `tetikle.json`.
  * Ayrıca panelin yazdığı TETİKLEYİCİ yalnızca ilgili ilçenin cihazında hemen uygulanır.
  *
