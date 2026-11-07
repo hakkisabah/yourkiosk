@@ -682,8 +682,8 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
       // `manage_loop` çağrısı + `cycle_timer.start(CYCLE_INTERVAL_MS)`).
       void dongu()
     })
-    // CANLI DEĞİŞİKLİK: uzun yoklama (anında) — uç yoksa damga yoklaması (push bağlı 120 sn /
-    // kopuk 30 sn) devrede
+    // CANLI DEĞİŞİKLİK: uzun yoklama (anında) — uç yoksa damga yoklaması devrede.
+    // Tarayıcı modunda bağlantıya göre seçim YOK: sabit `DAMGA_KONTROL_MS` (120 sn).
     void canliBaslat()
     const periyotlar: Array<[number, () => void]> = [
       [sabit('REFRESH_INTERVAL_MS', 3_600_000), () => void yukle()],
@@ -741,8 +741,8 @@ export function createKiosk(secenekler: KioskSecenekleri): Kiosk {
  * Cihaz yalnızca KENDİSİNİ ilgilendiren tetikleyiciyi hemen uygular:
  *  · `ilceId` boş/"*" → tüm cihazlar,
  *  · `ilceId`/`bolgeId` kendi konumuyla eşleşiyorsa → bu cihaz,
- *  · başka ilçe → hemen yenilenmez (damga yoklaması push bağlı 120 sn / kopuk 30 sn + saatlik
- *    kontrol yine çalışır).
+ *  · başka ilçe → hemen yenilenmez (damga yoklaması sabit 120 sn — bağlantıya göre seçim yok;
+ *    saatlik kontrol yine çalışır).
  * Aynı tetikleyici iki kez uygulanmaz (zaman damgası karşılaştırılır).
  */
 export function tetikUygulanmali(

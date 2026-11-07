@@ -274,7 +274,8 @@ export class VeriKaynagi {
   /**
    * ANLIK DEĞİŞİKLİK BİLDİRİMİ (uzun yoklama): yerel sunucu `lastupdate.json`/`tetikle.json`
    * değişene kadar isteği açık tutar (nabız: `nobetBeklemeS`). Böylece nöbet değişikliği
-   * damga yoklamasını (push bağlı 120 sn / kopuk 30 sn) beklemeden (tipik <1 sn) ekrana yansır.
+   * damga yoklamasını (sabit `DAMGA_KONTROL_MS` = 120 sn; bağlantıya göre seçim yok) beklemeden
+   * (tipik <1 sn) ekrana yansır.
    *
    * Uç yoksa (statik sunum) `null` döner → arayüz yalnız damga yoklamasıyla çalışır.
    */

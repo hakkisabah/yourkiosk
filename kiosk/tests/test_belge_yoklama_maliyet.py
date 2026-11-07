@@ -423,3 +423,44 @@ def test_kiosk_ts_maliyet_notu_cloudfront_ve_toplami_ayirir() -> None:
         assert cf in metin and s3 in metin, f"kiosk.ts: {aralik} sn için CloudFront/S3 kalemleri yazılmıyor"
         assert toplam in metin, f"kiosk.ts: {aralik} sn için TOPLAM {toplam} yazılmıyor"
     assert "CloudFront" in metin and "S3 GET" in metin, "kiosk.ts: kalem adları yazılmıyor"
+
+
+# --- 7 Kasım i5 bulgusu: durum.py üç-dosya maliyeti 30 GÜN tabanıyla yazılıydı ---------------
+# Tablolar 30,44 gün ile üretiliyor (AY) ama docstring 30 gün varsayıp 155,5 M / 38,9 M diyordu;
+# yani aynı dosyada iki farklı ay uzunluğu. Sayı KODDAN türetilir, elle yazılmaz.
+def test_durum_py_uc_dosya_maliyeti_30_44_gun_tabaniyla() -> None:
+    """`durum.py` üç-dosya (çarpan 3) değerleri 30,44 gün tabanıyla yazılmalı."""
+    metin = DURUM_PY.read_text(encoding="utf-8")
+    otuz = _milyon(_config_sabit("DAMGA_KONTROL_MS_PUSH_YOK"), carpan=3.0)
+    yuz_yirmi = _milyon(_config_sabit("DAMGA_KONTROL_MS_PUSH"), carpan=3.0)
+    assert otuz in metin, f"durum.py: 30 sn üç-dosya değeri {otuz} istek/ay yazmıyor"
+    assert yuz_yirmi in metin, f"durum.py: 120 sn üç-dosya değeri {yuz_yirmi} istek/ay yazmıyor"
+    # Tutarlar da koddan: CloudFront + S3 kalemleri ayrı ayrı ve toplam.
+    for milyon in (_milyon(_config_sabit("DAMGA_KONTROL_MS_PUSH_YOK"), carpan=3.0),
+                   _milyon(_config_sabit("DAMGA_KONTROL_MS_PUSH"), carpan=3.0)):
+        sayi = float(milyon.replace(" M", "").replace(".", "").replace(",", "."))
+        assert "$" + _tr(sayi * CLOUDFRONT_M) in metin, f"durum.py: {milyon} CloudFront kalemi yok"
+        assert "$" + _tr(sayi * (CLOUDFRONT_M + S3_M)) in metin, f"durum.py: {milyon} toplam yok"
+    # 30 gün tabanıyla yazılmış eski elle değerler yasak.
+    for bayat in ("155,5", "38,9", "178,9", "44,71", "116,6", "62,2"):
+        assert bayat not in metin, f"durum.py: 30 gün tabanlı eski değer ({bayat}) duruyor"
+
+
+def test_tarayici_yorumlari_baglantiya_gore_secim_iddia_etmez() -> None:
+    """Tarayıcı modu sabit `DAMGA_KONTROL_MS` kullanır; 'kopuk 30 sn' yalnız Qt cümlesinde geçer.
+
+    NEDEN: 686/744 ve kaynak.ts:277 tarayıcı için "push bağlı 120 sn / kopuk 30 sn" diyordu; oysa
+    seçim `yoklama_araligi()` ile YALNIZ Qt tarafında yapılır (`pharmacy_app.py`), tarayıcı
+    zamanlayıcısı sabittir. Operatöre yanlış davranış anlatan yorum = yanlış bulgu üretir.
+    """
+    kiosk_ts = KIOSK_TS.read_text(encoding="utf-8")
+    kaynak_ts = (KOK / "web" / "src" / "veri" / "kaynak.ts").read_text(encoding="utf-8")
+    assert kiosk_ts.count("kopuk 30 sn") == 1, (
+        "kiosk.ts'te 'kopuk 30 sn' yalnız Qt cümlesinde geçmeli; tarayıcı yorumları sabit 120 sn demeli")
+    yer = kiosk_ts.index("kopuk 30 sn")
+    baglam = kiosk_ts[max(0, yer - 160):yer + 40]   # cümle iki satıra sarılmış olabilir
+    assert "Qt modu" in baglam and "yoklama_araligi" in baglam, (
+        f"'kopuk 30 sn' Qt bağlamı dışında: {baglam!r}")
+    assert "kopuk 30 sn" not in kaynak_ts, "kaynak.ts tarayıcı yoludur: 'kopuk 30 sn' yazamaz"
+    assert "bağlantıya göre seçim" in kiosk_ts.lower(), "kiosk.ts tarayıcı için seçim olmadığını yazmıyor"
+    assert "bağlantıya göre seçim" in kaynak_ts.lower(), "kaynak.ts sabit 120 sn olduğunu yazmıyor"
