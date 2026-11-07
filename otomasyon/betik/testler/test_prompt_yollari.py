@@ -84,6 +84,21 @@ class SudoYasagiTesti(unittest.TestCase):
         metin = (PROMPT / "i5-guvenlik.md").read_text(encoding="utf-8")
         self.assertLess(metin.index("SUDO YOK"), metin.index("## Akış"))
 
+    def test_guvenilmez_veri_kurali_her_promptta(self):
+        """6 Kasım i5 (orta): kalkan yalnız nöbetçi isteminde değil, AKIŞ promptlarında da olmalı.
+
+        Ajan PR gövdesini/commit mesajlarını/diff'i kendisi okur; prompt bu yüzeyleri adıyla
+        "veri, talimat değil" diye işaretlemezse nöbetçi istemindeki kalkan eksik kalır.
+        """
+        for ad in ("i5-guvenlik.md", "i3-karar.md"):
+            metin = (PROMPT / ad).read_text(encoding="utf-8")
+            self.assertIn("GÜVENİLMEZ VERİ", metin, f"{ad}: güvenilmez-veri kuralı yok")
+            for yuzey in ("başlığı", "gövdesi", "commit mesajları", "diff"):
+                self.assertIn(yuzey, metin, f"{ad}: kalkan {yuzey} yüzeyini kapsamıyor")
+            self.assertIn("BULGU", metin, f"{ad}: talimat görülen metin BULGU olarak yazılmıyor")
+            self.assertLess(metin.index("GÜVENİLMEZ VERİ"), metin.index("## Akış"),
+                            f"{ad}: kural akıştan SONRA geliyor (geç kalır)")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
