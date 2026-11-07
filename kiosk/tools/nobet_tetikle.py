@@ -3,7 +3,7 @@
 
 Panel bir nöbet değişikliği yaptığında S3'e `tetikle.json` yazar; cihaz bu dosyayı görünce
 **beklemeden** verisini yeniler (tarayıcı modunda uzun yoklama ile ~1 sn, Qt modunda en çok
-`DAMGA_KONTROL_MS` = 20 sn içinde). Bu araç aynı dosyayı cihazda üretir:
+`DAMGA_KONTROL_MS` = 120 sn — push kopuksa 30 sn — içinde). Bu araç aynı dosyayı cihazda üretir:
 
     python3 tools/nobet_tetikle.py --ilce 30607352906750376   # yalnız o ilçenin cihazları
     python3 tools/nobet_tetikle.py                            # tüm cihazlar
@@ -54,7 +54,8 @@ def main() -> int:
     print(f"  kapsam : {kapsam}" + (f" · bölge={belge['bolgeId']}" if belge["bolgeId"] else ""))
     print(
         "  etki   : tarayıcı modunda uzun yoklama ~1 sn, Qt modunda en çok "
-        f"{getattr(__import__('config'), 'DAMGA_KONTROL_MS', 20000)} ms içinde yenilenir"
+        f"{getattr(__import__('config'), 'DAMGA_KONTROL_MS', 120_000)} ms (push kopuksa "
+        f"{getattr(__import__('config'), 'DAMGA_KONTROL_MS_PUSH_YOK', 30_000)} ms) içinde yenilenir"
     )
     return 0
 

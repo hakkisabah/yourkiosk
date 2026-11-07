@@ -112,3 +112,40 @@ class ArgumanTesti(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AracImportYanEtkisiTesti(unittest.TestCase):
+    """Aracı IMPORT etmek cihaz yapılandırmasını DEĞİŞTİRMEMELİ (6 Kasım bulgusu).
+
+    `tools/canli_test.py` modül düzeyinde `ayarlar.uygula()` çağırıyordu; bu test modülü onu
+    import ettiği için tam pakette `config.KAYNAK`/`DOSYA_ADRESI` kalıcı olarak `https`e dönüyor,
+    `ayarlar.uygula()` çağıran başka testler uzak `ayarlar.json`u indirmeye çalışıyor ve sonuç
+    TEST SIRASINA bağlı oluyordu (kiosk/ayarlar.json bulunan cihazda yanlış kırmızı).
+    """
+
+    def test_import_config_i_degistirmez(self):
+        import json
+        import subprocess
+
+        betik = (
+            "import sys, json; sys.path.insert(0, '.')\n"
+            "import config\n"
+            "once = [config.KAYNAK, config.DOSYA_ADRESI]\n"
+            "import importlib.util\n"
+            "spec = importlib.util.spec_from_file_location('ct', 'tools/canli_test.py')\n"
+            "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+            "print(json.dumps([once, [config.KAYNAK, config.DOSYA_ADRESI]]))\n"
+        )
+        cikti = subprocess.run([sys.executable, "-c", betik], cwd=str(KOK),
+                               capture_output=True, text=True, timeout=120)
+        assert cikti.returncode == 0, cikti.stderr[-500:]
+        once, sonra = json.loads(cikti.stdout.strip().splitlines()[-1])
+        self.assertEqual(once, sonra, f"canli_test import'u config'i değiştirdi: {once} → {sonra}")
+
+    def test_ayarlar_yalniz_cli_de_uygulanir(self):
+        kaynak = (KOK / "tools" / "canli_test.py").read_text(encoding="utf-8")
+        self.assertIn("def ayarlari_uygula(", kaynak)
+        self.assertIn("ayarlari_uygula()  # import sırasında DEĞİL", kaynak)
+        # Modül düzeyinde çıplak `ayarlar.uygula()` çağrısı kalmamalı.
+        self.assertNotIn("\nayarlar.uygula()\n\ndef ", kaynak,
+                         "modül düzeyinde ayarlar.uygula() geri gelmiş")

@@ -96,7 +96,7 @@ Chromium kalıcı profili (`kiosk/.tarayici-profil/`) bu önbelleği taşır —
 ## Testler
 
 ```bash
-npm run test                                    # arayüz: 84 test
+npm run test                                    # arayüz testleri
 cd ../kiosk && bash tools/test.sh               # kiosk + tarayıcı modu testleri
 ```
 

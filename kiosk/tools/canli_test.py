@@ -32,11 +32,18 @@ sys.path.insert(0, str(KOK))
 
 import config  # noqa: E402
 
-# ayarlar.json'ı UYGULA: DOSYA_ADRESI / TETIK_PUSH_* değerleri config'e buradan gelir.
-# (Yoksa araç "broker boş" der — yanıltıcı.)
+# ayarlar.json DEĞERLERİ: DOSYA_ADRESI / TETIK_PUSH_* config'e buradan gelir (yoksa araç
+# "broker boş" der — yanıltıcı). Uygulama ÇAĞRI ANINDA yapılır, modül düzeyinde DEĞİL:
+# 6 Kasım bulgusu — modül düzeyindeki `ayarlar.uygula()` import sırasında `config.KAYNAK` ve
+# `config.DOSYA_ADRESI`ni kalıcı olarak değiştiriyordu. Bu aracı import eden test modülü
+# (`tests/test_canli_test_guncelleme.py`) yüzünden tam pakette `ayarlar.uygula()` çağıran
+# testler uzak `ayarlar.json`u çekmeye çalışıp test SIRASINA BAĞLI kırmızı üretiyordu.
 import ayarlar  # noqa: E402
 
-ayarlar.uygula()
+
+def ayarlari_uygula() -> None:
+    """`ayarlar.json`ı config'e uygular — YALNIZ CLI (`main`) çağırır."""
+    ayarlar.uygula()
 
 
 def _bas(h: str) -> None:
@@ -229,6 +236,7 @@ def arayuz_test(port: int | None = None) -> tuple[bool, str]:
 
 
 def main(sure: float = 15.0) -> int:
+    ayarlari_uygula()  # import sırasında DEĞİL: yalnız gerçek koşuda
     print("=" * 62)
     print("CANLI ZİNCİR TESTİ — kiosk çalışırken çalıştırın")
     print("=" * 62)

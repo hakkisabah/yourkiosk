@@ -105,8 +105,9 @@ def kosullu_getir(
     sonra `dogrulayici_kaydet()` çağırır. Aksi hâlde tek seferlik yazma hatası sonraki tüm turları
     304'e düşürür ve dosya bir daha hiç inmez (i5 bulgusu — "sessizce ölü" hatasının yeni yolu).
 
-    NEDEN: `tetikle.json`/`komut.json`/`durum.json` her yoklama turunda (Qt 20 sn, tarayıcı uzun
-    yoklama ~3 sn) tam gövde olarak indiriliyordu; dosya çoğu turda hiç değişmiyor. ETag ile 304
+    NEDEN: `tetikle.json`/`komut.json`/`durum.json` her yoklama turunda (Qt: damga yoklaması
+    push BAĞLI 120 sn / KOPUK 30 sn, tetik izleyici 2 sn; tarayıcı uzun yoklama 1–3 sn) tam gövde
+    olarak indiriliyordu; dosya çoğu turda hiç değişmiyor. ETag ile 304
     alınınca yanıt gövdesiz (birkaç yüz bayt) olur — 600 cihazda trafik/maliyet düşer.
 
     Sunucu ETag/Last-Modified vermiyorsa davranış eskisiyle aynıdır (gövde her turda iner).

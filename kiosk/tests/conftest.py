@@ -89,3 +89,36 @@ def paneli_kur(pencere: PharmacyApp, n: int) -> list[int]:
     pencere.setup_left_panel()
     QApplication.processEvents()
     return [cerceve.height() for _ad, _tel, cerceve in pencere.pharmacy_widgets]
+
+
+# ---------------------------------------------------------------- cihaz verisi bekçisi
+@pytest.fixture(scope="session", autouse=True)
+def cihaz_kimligi_dokunulmaz() -> None:
+    """Oturum boyunca cihazın GERÇEK kimlik dosyası değişmemeli (6 Kasım i5 bulgusu).
+
+    `test_cihaz_kimligi_sunulmaz` bir zamanlar `tarayici.KOK / "makinebilgileri.json"` yolunu
+    kullanıyordu: bu, sahada cihazın kendi kimliğidir. Test onu eziyor, sonra siliyordu → cihaz
+    kimliğini kaybediyordu. Kaynak taraması (test_tarayici.py) bu sınıfı yazım anında engeller;
+    bu bekçi ise sahada koşan gerçek test turunda FİİLİ durumu doğrular: dosya varsa sha256'sı
+    aynı kalmalı, yoksa yokluğu korunmalı (sessizce oluşturulup silinmesi de yakalanır).
+    """
+    from pathlib import Path as _Path
+
+    import config as _config
+
+    yol = _Path(__file__).resolve().parent.parent / _config.MAKINE_DOSYASI
+
+    def _durum() -> tuple[bool, str]:
+        if not yol.is_file():
+            return (False, "")
+        import hashlib
+
+        return (True, hashlib.sha256(yol.read_bytes()).hexdigest())
+
+    once = _durum()
+    yield
+    sonra = _durum()
+    assert once == sonra, (
+        f"test turu cihaz kimlik dosyasını değiştirdi: {yol} "
+        f"(önce {once}, sonra {sonra}) — testler geçici kök kullanmalı"
+    )

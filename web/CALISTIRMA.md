@@ -175,7 +175,7 @@ WantedBy=default.target
 | Hata kartı: "arayüz başlatılamadı" | Paket 6 sn içinde çizim yapmadı | Karttaki adres/konsol bilgisini paylaşın |
 | Görseller gelmiyor, konsolda CORS uyarısı | Tarayıcı farklı alan adındaki görseli `fetch` EDEMEZ (Qt'de bu kısıt yok) | Görseller yerel sunucudan `/gorsel?u=…` köprüsüyle alınır (indirme + doğrulama + cihaz önbelleği sunucuda) — `npm run build` ile arayüzü güncelleyin |
 | Konsolda `404 /ayarlar.json`, `404 /kapsam-ayarlari.json` | Bu dosyalar isteğe bağlıdır (panelden yazılır) | Yeni sürümde eksikse **varsayılan ayarlar** 200 ile sunulur; yine de görüyorsa eski derleme |
-| Nöbet değişikliği ekranda geç görünüyor | Uzun yoklama ucu çalışmıyor olabilir (eski derleme/statik sunum) | Yeni sürümde: `/degisiklik` ucu + 20 sn damga yoklaması. `d` kaplamasında `anlık bildirim…→yenileniyor` ya da `damga değişti…→yenileniyor` satırı görünmeli. Ayrıntı: `kiosk/NODET-DEGISIKLIGI.md` |
+| Nöbet değişikliği ekranda geç görünüyor | Uzun yoklama ucu çalışmıyor olabilir (eski derleme/statik sunum) | Yeni sürümde: `/degisiklik` ucu + damga yoklaması (**Qt: push bağlı 120 sn · kopuk 30 sn · tarayıcı: sabit 120 sn** — tarayıcı modunda bağlantıya göre seçim YOK, `DAMGA_KONTROL_MS`). `d` kaplamasında `anlık bildirim…→yenileniyor` ya da `damga değişti…→yenileniyor` satırı görünmeli. Ayrıntı: `kiosk/NODET-DEGISLIKLIGI.md` |
 | Nöbetçi listesi/yayın boş, saat var | Veri çözümlendi ama kayıt yok | `--tani` raporu ve karttaki cihaz kimliği eşleşmesini kontrol edin |
 | Konsolda `TypeError: n.includes is not a function` / `Veri yüklenemedi` | **Eski derleme**: gerçek `Cache.keys()` string değil **Request** döndürür | `cd web && npm run build` (bu sürümde anahtarlar metne çevrilir) |
 | Konsolda `TypeError: Failed to execute 'put' on 'Cache': Request scheme 'meta' is unsupported` | **Eski derleme**: önbellek anahtarları geçerli http(s) adresi olmalı (Cache Storage kuralı) | `cd web && npm run build` (bu sürümde anahtarlar `…/__onbellek/…` biçiminde geçerli URL'dir) |
@@ -194,7 +194,7 @@ cd kiosk
 python3 tools/tarayici_kiosk.py --kuru                       # adres/komut
 python3 -c "from core import tarayici; print(tarayici.derlenmis_mi(), tarayici.web_kok())"
 grep -E "gösterim modu|web sunucu|tarayıcı" kiosk/kiosk.log | tail -5
-cd ../web && npm run test                                    # 86 test (arayüz)
+cd ../web && npm run test                                    # arayüz testleri
 ```
 
 ---
