@@ -27,8 +27,9 @@ ayarlar ilçe / bölge / cihaz kapsamında ayrı ayrı verilebilir.
   dosyalar **indirilmez**, yayın görselleri ikinci gösterimde internetten **gelmez**. Süresi geçen /
   artık kullanılmayan görseller cihazdan ve S3'ten silinir.
 * **Nöbet değişikliğini anında yansıtma:** panel `tetikle.json` yazar; cihaz kendi ilçesini
-  ilgilendiren tetikleyiciyi görünce **beklemeden** yenilenir (tarayıcı modunda uzun yoklama ile
-  genelde 1 sn, Qt modunda damga kontrolüyle en çok 120 sn — MQTT bağlı değilse 30 sn). Ayrıntı: [`kiosk/NODET-DEGISIKLIGI.md`](kiosk/NODET-DEGISIKLIGI.md).
+  ilgilendiren tetikleyiciyi görünce **beklemeden** yenilenir. Anlıklık MQTT push'tan (Qt) ya da
+  tarayıcıdaki `/degisiklik` uzun yoklamasından gelir (genelde ~1 sn); yoklama yalnız emniyet
+  ağıdır — push bağlıyken 120 sn, kopukken 30 sn. Ayrıntı: [`kiosk/NODET-DEGISIKLIGI.md`](kiosk/NODET-DEGISIKLIGI.md).
 * **Güvenlik:** yalnız beyaz listedeki alan adları, yalnız HTTPS, bayt/piksel bütçesi, SVG/HTML
   reddi, cihaz kimliği hiç sunulmaz, yerel sunucu yalnız `127.0.0.1`. Ayrıntı: [`kiosk/GUVENLIK.md`](kiosk/GUVENLIK.md).
 * **Maliyet bilinci:** S3/veri trafiği ve Lambda alternatifi tablolarla: [`panel/MAALIYET.md`](panel/MAALIYET.md).
@@ -58,9 +59,9 @@ Kurulumun ayrıntısı ve sorun giderme: [`kiosk/README.md`](kiosk/README.md),
 ## Testler
 
 ```bash
-cd kiosk && bash tools/test.sh          # 319 test (Qt + veri + güvenlik + tarayıcı + tetikleyici)
-cd web   && npm run test                # 106 test (durum makinesi, zamanlama, önbellek, render)
-cd panel && npm run test                # 104 test (veri, temizlik, şema, S3/Lambda)
+cd kiosk && bash tools/test.sh          # Qt + veri + güvenlik + tarayıcı + tetikleyici
+cd web   && npm run test                # durum makinesi, zamanlama, önbellek, render
+cd panel && npm run test                # veri, temizlik, şema, S3/Lambda
 ```
 
 Bu üçlü, "ekranda görünen davranış" iddialarının çoğunu (kaydırma hedefleri, geçiş süreleri, nöbet
@@ -74,10 +75,10 @@ yourkiosk/
 │  ├─ core/          # veri akışı, önbellek, tetikleyici, yerel web sunucusu, zamanlayıcılar
 │  ├─ ui/            # nöbet paneli, yayın görseli, kuşak
 │  ├─ tools/         # veri çekme, önbellek durumu, bellek ölçümü, tarayıcı başlatıcı, tetikleyici
-│  └─ tests/         # 319 test
+│  └─ tests/         # kiosk testleri (Qt + veri + güvenlik)
 ├─ web/              # Qt görünümünün birebir web portu (Chromium kiosk)
 │  ├─ src/veri/      # veri kaynağı, önbellek (Cache Storage), yayın/kuşak kuralları
-│  └─ tests/         # 106 test (jsdom + sahte zamanlayıcı)
+│  └─ tests/         # arayüz testleri (jsdom + sahte zamanlayıcı)
 └─ panel/            # yönetim paneli (S3/Cognito ya da Lambda modu)
    └─ lambda/        # Lambda modu (Cognito'suz alternatif)
 ```

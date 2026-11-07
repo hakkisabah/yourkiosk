@@ -1,9 +1,15 @@
 """`durum.json` — cihazın TEK istekle tüm küçük kontrol bilgilerini alması.
 
 NEDEN: her yoklama turunda 3 ayrı dosya çekiliyordu (`lastupdate.json`, `tetikle.json`,
-`komut.json`). 600 cihaz × 300 sn'lik turda bu **~15,5 M istek/ay** (~$18). Tek dosya:
-- 1 istek/tur (3× azalma),
+`komut.json`). 600 cihaz × **30 sn**'lik turda (BUGÜNKÜ VARSAYILAN: push kapalı —
+`config.TETIK_PUSH_AKTIF = False`) 3 ayrı dosya `×3` çarpanıyla **~157,80 M istek/ay**
+(CloudFront ≈ $118,35 + S3 ≈ $63,12 ≈ $181,47; ay = 30,44 gün). Tek dosyaya inince aynı turda taban **1 istek** olur; her 10 turda bir
+yapılan çapraz kontrollerle birlikte tur başına **1,3 istek** (**~68,38 M istek/ay** ≈ $78,64):
+- taban 3 → 1 istek (3× azalma), eklerle birlikte 3 → 1,3 (≈2,3× azalma),
 - aynı yanıt hem damgayı hem tetikleyiciyi hem komut işaretini taşır.
+
+Push BAĞLIYKEN tur 120 sn'dir (`DAMGA_KONTROL_MS_PUSH`): 3 dosya ≈ 39,45 M istek/ay (CloudFront ≈ $29,59 + S3 ≈ $15,78 ≈ $45,37)
+→ tek dosya + çapraz kontroller ≈ 17,10 M (≈ $19,66).
 
 PANEL YAZAR (`durum.json`):
     {

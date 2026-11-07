@@ -82,9 +82,9 @@ git status --short | wc -l          # 169 civarı: hepsi "A" (added) olmalı, "?
 
 git commit -m "yourkiosk: Qt kiosk ekranı, tarayıcı (Chromium) modu, S3 paneli ve tetikleyici altyapısı
 
-- kiosk/: veri akışı, cihaz önbelleği, güvenlik denetimleri, tarayıcı başlatıcı, 319 test
-- web/: Qt görünümünün birebir web portu (Vue 3 + Vite), 106 test
-- panel/: S3 tabanlı yönetim paneli (Cognito ya da Lambda modu), 104 test
+- kiosk/: veri akışı, cihaz önbelleği, güvenlik denetimleri, tarayıcı başlatıcı + testler
+- web/: Qt görünümünün birebir web portu (Vue 3 + Vite) + testler
+- panel/: S3 tabanlı yönetim paneli (Cognito ya da Lambda modu) + testler
 - Nöbet değişikliğini anında yansıtan tetikleyici (tetikle.json + /degisiklik uzun yoklama)"
 ```
 

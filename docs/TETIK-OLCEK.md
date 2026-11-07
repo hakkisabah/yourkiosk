@@ -3,15 +3,20 @@
 ## Sorun
 
 Cihaz başına yoklama, cihaz sayısıyla **doğrusal** maliyet demektir. Ölçüm (CloudFront HTTPS istek
-$0,0075/10k · S3 GET $0,0004/1k · önbellek kapalı):
+$0,0075/10k · S3 GET $0,0004/1k · önbellek kapalı; Qt yolu tur başına **1,3 istek** — taban
+`durum.json` + her 10 turda bir 3 çapraz kontrol, `docs/ONBELLEK-VE-MALIYET.md`):
 
 | Yoklama aralığı | İstek/ay (600 cihaz) | CloudFront | S3 GET | **Toplam/ay** |
 |---|---|---|---|---|
-| 3 sn | 518.400.000 | $388,80 | $207,36 | **$596,16** |
-| 10 sn | 155.520.000 | $116,64 | $62,21 | $178,85 |
-| 20 sn | 77.760.000 | $58,32 | $31,10 | $89,42 |
-| 60 sn | 25.920.000 | $19,44 | $10,37 | $29,81 |
-| 5 dk | 5.184.000 | $3,89 | $2,07 | $5,96 |
+| 3 sn | 683,80 M | $512,85 | $273,52 | **$786,37** |
+| 10 sn | 205,14 M | $153,86 | $82,06 | $235,91 |
+| 20 sn | 102,57 M | $76,93 | $41,03 | $117,96 |
+| 60 sn | 34,19 M | $25,64 | $13,68 | $39,32 |
+| 5 dk | 6,84 M | $5,13 | $2,74 | $7,86 |
+
+Bu tablo **aralık → maliyet** ölçümüdür. Bugünkü etkin değerler — push kapalı **30 sn**
+(68,38 M istek/ay ≈ $78,64), push bağlı **120 sn** (17,10 M ≈ $19,66) —
+[`ONBELLEK-VE-MALIYET.md`](ONBELLEK-VE-MALIYET.md) tablosundadır.
 
 **Sonuç:** yoklama ile "anlık" davranış 600 cihazda ayda yüzlerce dolar. Doğru mimari **push**.
 
@@ -25,14 +30,14 @@ Panel (Kaydet) ──publish──► MQTT broker ──message──► 600 cih
                                    └──────────► mevcut imza/uzun yoklama → ANINDA yenileme
 ```
 
-- Gecikme: **~100 ms** (yoklamada 3–20 sn).
+- Gecikme: **~100 ms** (yoklamada push bağlı 120 sn / kopuk 30 sn; yoklama yalnız emniyet ağı).
 - Maliyet: cihaz başına **tek bağlantı**; mesaj yalnız yayın başına.
 
 | Seçenek | Aylık maliyet (600 cihaz) | Not |
 |---|---|---|
 | **AWS IoT Core** | ≈ **$2,10** (25,9 M cihaz-dakika × $0,08/M) + mesaj ≈ $0,02 | Yönetilen, AWS içinde; cihaz sertifikası gerekir |
 | **Kendi Mosquitto'nuz (VPS)** | ≈ **$5** sabit | Kurulumu basit, kullanıcı/parola |
-| Yoklama 20 sn (push yok) | ≈ $89 | Yalnız emniyet ağı olarak kabul edilebilir |
+| Yoklama 30 sn (push yok, bugünkü varsayılan) | ≈ $78,64 | Bugünkü kurulum; emniyet ağı |
 
 ## Cihaz ayarları (panelden yazılır, `tetik` grubu)
 
