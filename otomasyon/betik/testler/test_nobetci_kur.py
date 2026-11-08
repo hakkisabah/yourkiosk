@@ -227,6 +227,15 @@ class DshUnitTesti(unittest.TestCase):
         self.assertEqual(s.returncode, 2)
         self.assertIn("geçersiz --arac", s.stderr)
 
+    def test_dsh_checkout_kabuk_metasi_reddedilir(self):
+        for kotu in ("/tmp/dsh$HOME", "/tmp/dsh space", "/tmp/dsh;rm", "/tmp/dsh`id`"):
+            with self.subTest(kotu=kotu):
+                ortam = {**os.environ, "HOME": self.home, "DSH_CHECKOUT": kotu}
+                s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--arac", "dsh"],
+                                   capture_output=True, text=True, timeout=60, env=ortam)
+                self.assertEqual(s.returncode, 2, s.stdout + s.stderr)
+                self.assertIn("geçersiz DSH_CHECKOUT", s.stderr)
+
     def test_dsh_checkout_enjeksiyonu_reddedilir(self):
         ortam = {**os.environ, "HOME": self.home,
                  "DSH_CHECKOUT": "/tmp/dsh\nExecStartPre=/bin/true"}

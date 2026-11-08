@@ -78,10 +78,18 @@ if [ -n "${KLON:-}" ] && ! klon_gecerli "$KLON"; then
   echo "  Mutlak yol olmalı; kontrol karakteri/satır sonu ve '..' içeremez (1-256 karakter)." >&2
   exit 2
 fi
-# DSH checkout'u birim METNİNE yazılır: aynı yol kapısından geçer.
-if [ "$ARAC" = "dsh" ] && ! klon_gecerli "$DSH_CHECKOUT"; then
+# DSH checkout'u birim METNİNE yazılır: mutlak, boşluksuz, kabuk metasız yol olmalı.
+dsh_yol_gecerli() {
+  local k="$1"
+  [ -n "$k" ] && [ "${#k}" -le 256 ] || return 1
+  case "$k" in /*) ;; *) return 1 ;; esac
+  case "$k" in *[!A-Za-z0-9._/-]*) return 1 ;; esac
+  case "/$k/" in */../*) return 1 ;; esac
+  return 0
+}
+if [ "$ARAC" = "dsh" ] && ! dsh_yol_gecerli "$DSH_CHECKOUT"; then
   echo "✗ geçersiz DSH_CHECKOUT: '$DSH_CHECKOUT'" >&2
-  echo "  Mutlak yol olmalı; kontrol karakteri/satır sonu ve '..' içeremez (1-256 karakter)." >&2
+  echo "  Mutlak yol olmalı; boşluk, kabuk metası, kontrol karakteri ve '..' içeremez." >&2
   exit 2
 fi
 if [ "$ARAC" = "dsh" ]; then
