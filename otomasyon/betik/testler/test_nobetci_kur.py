@@ -188,6 +188,55 @@ class UnitTesti(unittest.TestCase):
         self.assertLess(kaynak.index("reset-failed"), kaynak.index('systemctl --user start'))
 
 
+class DshUnitTesti(unittest.TestCase):
+    """2026-11-08 DSH geçişi: birim `--arac dsh` ile headless'i seçmeli, Hermes profili aramamalı."""
+
+    def setUp(self):
+        self.dizin = tempfile.TemporaryDirectory()
+        self.home = self.dizin.name
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def test_dsh_araci_birime_yazilir(self):
+        metin = unit_uret("--arac", "dsh", home=self.home)
+        self.assertIn("Environment=NOBETCI_ARAC=dsh", metin)
+        self.assertIn("Environment=DSH_CHECKOUT=", metin)
+        self.assertIn("Environment=DSH_PERMISSION_MODE=workspace-write", metin)
+        self.assertIn("--arac dsh", metin)
+        self.assertNotIn("NOBETCI_PROFIL=", metin)
+
+    def test_varsayilan_hermes_korunur(self):
+        metin = unit_uret(home=self.home)
+        self.assertIn("Environment=NOBETCI_ARAC=hermes", metin)
+        self.assertIn("--arac hermes", metin)
+        self.assertNotIn("DSH_CHECKOUT=", metin)
+
+    def test_dsh_profille_reddedilir(self):
+        ortam = {**os.environ, "HOME": self.home}
+        s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--arac", "dsh",
+                            "--profil", "guvenlik"],
+                           capture_output=True, text=True, timeout=60, env=ortam)
+        self.assertEqual(s.returncode, 2)
+        self.assertIn("profil yalnız Hermes", s.stderr)
+
+    def test_gecersiz_arac_reddedilir(self):
+        ortam = {**os.environ, "HOME": self.home}
+        s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--arac", "baska"],
+                           capture_output=True, text=True, timeout=60, env=ortam)
+        self.assertEqual(s.returncode, 2)
+        self.assertIn("geçersiz --arac", s.stderr)
+
+    def test_dsh_checkout_enjeksiyonu_reddedilir(self):
+        ortam = {**os.environ, "HOME": self.home,
+                 "DSH_CHECKOUT": "/tmp/dsh\nExecStartPre=/bin/true"}
+        s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--arac", "dsh"],
+                           capture_output=True, text=True, timeout=60, env=ortam)
+        self.assertEqual(s.returncode, 2)
+        self.assertNotIn("ExecStartPre", s.stdout)
+        self.assertIn("geçersiz DSH_CHECKOUT", s.stderr)
+
+
 class KlonDegerKapiTesti(unittest.TestCase):
     """27 Ekim i5 bulgusu (düşük): `--klon` değeri doğrulanmadan birim METNİNE yazılıyordu →
     satır sonu taşıyan bir değer birime yeni yönerge enjekte edebiliyordu."""

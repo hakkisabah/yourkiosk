@@ -14,12 +14,15 @@ set -euo pipefail
 
 ROL="${1:-}"; shift || true
 if [ "$ROL" != "i5" ] && [ "$ROL" != "i3" ]; then
-  echo "kullanım: $0 <i5|i3> [--cron-kaldir|--sadece-cron|--denetle|--durum|--kaldir|--kuru]" >&2
+  echo "kullanım: $0 <i5|i3> [--arac hermes|dsh] [--cron-kaldir|--sadece-cron|--denetle|--durum|--kaldir|--kuru]" >&2
   exit 2
 fi
 KIP="kur"
 CRON_KALDIR=0
 PROFIL="${NOBETCI_PROFIL:-}"
+ARAC="${NOBETCI_ARAC:-hermes}"
+DSH_CHECKOUT="${DSH_CHECKOUT:-$HOME/deepseek-harness}"
+DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-workspace-write}"
 KLON="${NOBETCI_KOD_DEPO:-}"
 DAL="${NOBETCI_DAL:-main}"
 for a in "$@"; do
@@ -34,12 +37,14 @@ for a in "$@"; do
     --bakim) KIP="bakim" ;;
     --klon=*) KLON="${a#--klon=}" ;;
     --profil=*) PROFIL="${a#--profil=}" ;;
+    --arac=*) ARAC="${a#--arac=}" ;;
     --dal=*) DAL="${a#--dal=}" ;;
   esac
 done
 # --profil <ad> / --klon <yol> / --dal <ad> (ayrı boşluklu biçim)
 for ((i = 1; i <= $#; i++)); do
   if [ "${!i}" = "--profil" ]; then j=$((i + 1)); PROFIL="${!j:-}"; fi
+  if [ "${!i}" = "--arac" ]; then j=$((i + 1)); ARAC="${!j:-}"; fi
   if [ "${!i}" = "--klon" ]; then j=$((i + 1)); KLON="${!j:-}"; fi
   if [ "${!i}" = "--dal" ]; then j=$((i + 1)); DAL="${!j:-}"; fi
 done
@@ -73,6 +78,24 @@ if [ -n "${KLON:-}" ] && ! klon_gecerli "$KLON"; then
   echo "  Mutlak yol olmalı; kontrol karakteri/satır sonu ve '..' içeremez (1-256 karakter)." >&2
   exit 2
 fi
+# DSH checkout'u birim METNİNE yazılır: aynı yol kapısından geçer.
+if [ "$ARAC" = "dsh" ] && ! klon_gecerli "$DSH_CHECKOUT"; then
+  echo "✗ geçersiz DSH_CHECKOUT: '$DSH_CHECKOUT'" >&2
+  echo "  Mutlak yol olmalı; kontrol karakteri/satır sonu ve '..' içeremez (1-256 karakter)." >&2
+  exit 2
+fi
+if [ "$ARAC" = "dsh" ]; then
+  case "$DSH_PERMISSION_MODE" in
+    [a-z]*) ;;
+    *) echo "✗ geçersiz DSH_PERMISSION_MODE: '$DSH_PERMISSION_MODE'" >&2; exit 2 ;;
+  esac
+  case "$DSH_PERMISSION_MODE" in
+    *[!a-z0-9-]*) echo "✗ geçersiz DSH_PERMISSION_MODE: '$DSH_PERMISSION_MODE'" >&2; exit 2 ;;
+  esac
+  [ "${#DSH_PERMISSION_MODE}" -le 32 ] || {
+    echo "✗ DSH_PERMISSION_MODE çok uzun: '$DSH_PERMISSION_MODE'" >&2; exit 2;
+  }
+fi
 if [ -n "${KLON:-}" ] && [ ! -d "$KLON/.git" ]; then
   echo "✗ --klon bir git deposu olmalı: $KLON" >&2
   echo "  (makine kopyasını nobetci-bakim.sh kurar: otomasyon/betik/nobetci-bakim.sh $ROL)" >&2
@@ -80,6 +103,12 @@ if [ -n "${KLON:-}" ] && [ ! -d "$KLON/.git" ]; then
 fi
 if [ -n "$PROFIL" ] && [ "$PROFIL" = "$ROL" ]; then
   echo "✗ --profil değeri rol adıyla aynı olamaz ($ROL)" >&2; exit 2
+fi
+if [ "$ARAC" != "hermes" ] && [ "$ARAC" != "dsh" ]; then
+  echo "✗ geçersiz --arac değeri: '$ARAC' (izinli: hermes, dsh)" >&2; exit 2
+fi
+if [ "$ARAC" = "dsh" ] && [ -n "$PROFIL" ]; then
+  echo "✗ --profil yalnız Hermes ile kullanılır; DSH'de profil yok" >&2; exit 2
 fi
 # ZAMAN AŞIMI (28 Ekim ölçümü): i5'te bir tur ortalama 46 sn sürüyor (39 API çağrısı / 1800 sn,
 # 147k bağlam; tek çağrı 282 sn). Türetilmiş varsayılan 1860 sn (120 tur × 15 sn) gerçek tur
@@ -151,7 +180,7 @@ if [ "$CRON_KALDIR" -eq 2 ]; then
 fi
 # --denetle: kontrol noktaları (hiçbir şeyi değiştirmez)
 if [ "$KIP" = "denetle" ]; then
-  exec "$(command -v python3)" "$DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --kendini-denetle --dal "$DAL"
+  exec "$(command -v python3)" "$DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --arac "$ARAC" --kendini-denetle --dal "$DAL"
 fi
 UNIT_ADI="yourkiosk-nobetci.service"
 UNIT_YOL="$HOME/.config/systemd/user/$UNIT_ADI"
@@ -174,6 +203,9 @@ Type=simple
 WorkingDirectory=$KOD_DEPO
 Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=GITHUB_DEPO=hakkisabah/yourkiosk
+Environment=NOBETCI_ARAC=$ARAC
+$([ "$ARAC" = "dsh" ] && echo "Environment=DSH_CHECKOUT=$DSH_CHECKOUT")
+$([ "$ARAC" = "dsh" ] && echo "Environment=DSH_PERMISSION_MODE=$DSH_PERMISSION_MODE")
 # Node çocukları (vitest/vue-tsc/vite) ÖLÇÜLÜ V8 tavanı devralır: makine RAM'inin 1/4'ü
 # (4 GB makinede ~950 MB). Tavansız V8, RAM'den büyük tavan kurup "FatalProcessOutOfMemory" ile
 # abort ediyordu (26 Ekim, casperi5 core dump). Ağır komutlar yine de agir-komut.sh ile koşmalı.
@@ -197,7 +229,7 @@ NoNewPrivileges=true
 # KOD KAYNAĞI: $KOD_DEPO (makine kopyası) — insan deposu değil. --guncelle nöbetçinin kendini
 # origin/<dal>'a çekmesini sağlar; değişiklik varsa süreç çıkar, Restart=always yeni kodu yükler.
 # DAL: main (varsayılan) ya da düzeltme dalı — main'e merge edilmeden de makine yeni kodu koşabilsin.
-ExecStart=$PYTHON $KOD_DEPO/otomasyon/betik/nobetci.py --rol $ROL --aralik 15 --zaman-asimi $ZAMAN_ASIMI --depo $KOD_DEPO --dal $DAL --guncelle${PROFIL:+ --profil $PROFIL}
+ExecStart=$PYTHON $KOD_DEPO/otomasyon/betik/nobetci.py --rol $ROL --aralik 15 --zaman-asimi $ZAMAN_ASIMI --depo $KOD_DEPO --dal $DAL --arac $ARAC --guncelle${PROFIL:+ --profil $PROFIL}
 Restart=always
 RestartSec=5
 StandardOutput=append:$HOME/.local/state/yourkiosk-otomasyon/nobetci-$ROL.log
@@ -212,7 +244,7 @@ case "$KIP" in
   durum)
     systemctl --user status "$UNIT_ADI" --no-pager | head -12 || true
     echo; echo "--- nöbetçi durum dosyası ---"
-    "$PYTHON" "$KOD_DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --depo "$KOD_DEPO" --dal "$DAL" --durum || true
+    "$PYTHON" "$KOD_DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --depo "$KOD_DEPO" --dal "$DAL" --arac "$ARAC" --durum || true
     ;;
   kaldir)
     systemctl --user disable --now "$UNIT_ADI" 2>/dev/null || true
@@ -226,12 +258,17 @@ case "$KIP" in
     exec bash "$DEPO/otomasyon/betik/nobetci-bakim.sh" "$ROL"
     ;;
   kur)
-    if [ -n "$PROFIL" ] && ! "$HERMES" profile list 2>/dev/null | grep -qw "$PROFIL"; then
+    if [ "$ARAC" = "hermes" ] && [ -n "$PROFIL" ] && ! "$HERMES" profile list 2>/dev/null | grep -qw "$PROFIL"; then
       echo "✗ Hermes profili yok: '$PROFIL'"
       echo "  Önce oluşturun, sonra tekrar çalıştırın:"
       echo "    hermes profile create $PROFIL"
       echo "    hermes -p $PROFIL config set platforms.api_server.enabled false   # bu profilde API sunucusu YOK"
       exit 3
+    fi
+    if [ "$ARAC" = "dsh" ] && [ ! -f "$DSH_CHECKOUT/apps/cli/lib/bin.js" ]; then
+      echo "✗ DSH CLI bulunamadı: $DSH_CHECKOUT/apps/cli/lib/bin.js" >&2
+      echo "  DSH checkout'unu derleyin (pnpm build) veya DSH_CHECKOUT ile yolu verin." >&2
+      exit 4
     fi
     mkdir -p "$HOME/.config/systemd/user" "$HOME/.local/state/yourkiosk-otomasyon"
     unit_metni > "$UNIT_YOL"

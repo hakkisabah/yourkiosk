@@ -17,7 +17,7 @@
    │                                              │
    │ değişiklik varsa                             │ iş listesi boş → uyu (0 oturum)
    ▼                                              ▼
-açık PR'ların head sha + durum kontrolleri   iş listesi dolu → TEK `hermes chat --oneshot`
+açık PR'ların head sha + durum kontrolleri   iş listesi dolu → TEK `hermes chat --oneshot` veya `dsh headless`
                                                   → listedeki tüm PR'lar işlenir
                                                   → yaz.py ile durum/yorum/etiket
 ```
@@ -152,6 +152,42 @@ python3 otomasyon/betik/nobetci.py --rol i5 --tani                 # "hermes pro
 
 Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce varsayılan profile düşmez.
 
+
+## DSH headless (2026-11-08 geçişi)
+
+Nöbetçi artık iki ajan aracını destekler: **Hermes** (varsayılan) ve **DSH headless**.
+DSH'de ayrı gateway/profil yoktur; her tur kendi `dsh headless` sürecini açar, iş bitince çıkar.
+
+```bash
+# i5'te DSH ile kur (DSH checkout'u derlenmiş olmalı)
+bash otomasyon/nobetci-kur.sh i5 --arac dsh --klon ~/.local/share/yourkiosk-nobetci/depo
+# veya ortam değişkeniyle:
+NOBETCI_ARAC=dsh DSH_CHECKOUT=$HOME/deepseek-harness bash otomasyon/nobetci-kur.sh i5
+```
+
+Birimde görünenler: `Environment=NOBETCI_ARAC=dsh`, `Environment=DSH_CHECKOUT=…`,
+`Environment=DSH_PERMISSION_MODE=workspace-write`, `ExecStart=… --arac dsh`.
+`--profil` yalnız Hermes içindir; DSH ile verilirse kurulum reddedilir (çıkış 2).
+
+Nöbetçinin ürettiği komut:
+
+```bash
+node "$DSH_CHECKOUT/apps/cli/lib/bin.js" headless \
+  --permission-mode workspace-write --approval-policy never \
+  --add-dir /tmp
+# görev gövdesi stdin'den verilir; cwd depo köküdür
+```
+
+- **Karar dosyaları** `/tmp/karar-<no>.json` olduğu için `/tmp` `--add-dir` ile sandbox'a eklenir.
+  Daha dar bir dizin kullanmak isterseniz `nobetci.py`'deki `dsh_komutu` ve prompt yolunu birlikte
+  değiştirin.
+- **Kimlik bilgisi** `~/.dsh/.env` (0600) içindeki `DEEPSEEK_API_KEY`; headless credential store'u
+  kapalıdır. Sır repoya girmez.
+- **Zaman aşımı** Python tarafından uygulanır (`subprocess.run(timeout=…)`); DSH'nin kendi tur
+  bütçesi yoktur. `--zaman-asimi` aynı kalır.
+- **Oturum sayacı** DSH'de Hermes `state.db` olmadığı için `--kendini-denetle` bu maddeyi atlar;
+  DSH oturumları `~/.dsh/sessions` altında tutulur.
+
 ## Ayarlar
 
 | Ayar | Yer | Varsayılan |
@@ -165,6 +201,9 @@ Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce v
 | Günlük oturum tavanı | `nobetci.py` `GUNLUK_OTURUM_TAVANI` | 120 |
 | Depo | `Environment=GITHUB_DEPO` | `hakkisabah/yourkiosk` |
 | Token | `~/.config/hermes-secrets/github-yourkiosk.token` | — |
+| Ajan aracı | `nobetci.py --arac` / `NOBETCI_ARAC` | `hermes` |
+| DSH checkout | `DSH_CHECKOUT` | `~/deepseek-harness` |
+| DSH izin modu | `DSH_PERMISSION_MODE` | `workspace-write` |
 
 ## Sorun giderme
 

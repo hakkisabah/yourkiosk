@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """nobetci — olay güdümlü i5/i3 nöbetçisi (cron yerine).
 
-NEDEN: `hermes cron` her turda bir oturum açar; 30 dakikalık aralıkta iş olmasa da oturum sayısı
+NEDEN: `hermes cron` her turda bir oturum açar; DSH `headless` ise tur başına süreç açar; 30 dakikalık aralıkta iş olmasa da oturum sayısı
 büyür ve PR'lar en kötü 30 dakika bekler. Nöbetçi tek bir uzun ömürlü süreçtir:
 
   * GitHub'ı **koşullu istek** (ETag / If-None-Match) ile yoklar → değişiklik yoksa 304 döner,
     yanıt gövdesi indirilmez ve 304'ler oran sınırına sayılmaz (GitHub belgelenmiş davranışı),
   * **yapılacak iş listesi** çıkarır (rol başına: i5 → incelenecek PR'lar, i3 → karar/merge),
   * liste boşsa **hiç oturum açmaz** (0 token),
-  * liste doluysa **tek** `hermes chat -q` oturumu açar; o oturum listeden `OTURUM_BASI_PR` kadar
+  * liste doluysa **tek** `hermes chat -q` veya `dsh headless` oturumu açar; o oturum listeden `OTURUM_BASI_PR` kadar
     PR alır (i5: 1, i3: 3) ve kalanlar bir sonraki tura kalır (zaman aşımını önler),
   * liste **en eski PR önce** sıralanır; bu yüzden yeni bir PR eskiyi asla aç bırakmaz,
   * iş bitince uyur; yeni commit/PR geldiğinde en geç `--aralik` saniye içinde yeniden uyanır.
@@ -19,7 +19,7 @@ Kullanım:
     ./otomasyon/betik/nobetci.py --rol i5 --durum          # durum (tek sefer, oturum açmaz)
     ./otomasyon/betik/nobetci.py --rol i5 --bir-kez --kuru # ne yapacağını göster, çalıştırma
     ./otomasyon/betik/nobetci.py --rol i5 --bir-kez        # tek tur (test)
-    ./otomasyon/betik/nobetci.py --rol i5                  # 7/24 döngü (systemd servisi bunu çalıştırır)
+    ./otomasyon/betik/nobetci.py --rol i5 --arac dsh        # DSH headless ile 7/24 döngü
 
 Servis kurulumu: ./otomasyon/nobetci-kur.sh i5
 """
@@ -167,6 +167,17 @@ ACLIK_ESIGI_DK = 120
 # Çözüm: nöbetçi AYRI bir profilde (`hermes -p <ad>`) çalışır → kendi config/oturum sayacı/model
 # anahtarı. Boşsa davranış eskisi gibi (varsayılan profil).
 NOBETCI_PROFIL = os.environ.get("NOBETCI_PROFIL", "").strip()
+
+# ── AJAN ARACI (2026-11-08 DSH geçişi) ───────────────────────────────────────────────────────
+# Hermes `chat --query-file --oneshot` yerine DSH `headless` kullanılabilir. Varsayılan `hermes`
+# (mevcut kurulum bozulmasın); yeni kurulumlar `--arac dsh` / `NOBETCI_ARAC=dsh` kullanır.
+ARACLAR = ("hermes", "dsh")
+NOBETCI_ARAC = (os.environ.get("NOBETCI_ARAC", "hermes").strip().lower() or "hermes")
+DSH_CHECKOUT = Path(os.environ.get(
+    "DSH_CHECKOUT", str(Path.home() / "deepseek-harness"))).expanduser()
+DSH_PERMISSION_MODE = (os.environ.get("DSH_PERMISSION_MODE", "workspace-write").strip()
+                       or "workspace-write")
+
 
 
 def simdi() -> str:
@@ -734,7 +745,7 @@ def gorev_metni(rol: str, depo: Path, is_listesi: list[dict]) -> str:
 
 
 def hermes_komutu(depo: Path, gorev: Path, zaman_asimi: int) -> list[str]:
-    """Nöbetçi oturumunun komut satırı (test edilebilir tek nokta)."""
+    """Nöbetçi oturumunun Hermes komut satırı (test edilebilir tek nokta)."""
     b = butce_hesapla(zaman_asimi)
     komut = ["hermes"]
     if NOBETCI_PROFIL:                      # ayrı profil: Open WebUI yükü nöbetçiyi aç bırakmasın
@@ -745,7 +756,36 @@ def hermes_komutu(depo: Path, gorev: Path, zaman_asimi: int) -> list[str]:
     return komut
 
 
+def dsh_komutu(depo: Path, gorev: Path, zaman_asimi: int) -> list[str]:
+    """DSH headless komut satırı — görev stdin'den verilir, cwd depo köküdür.
+
+    `--add-dir /tmp`: karar dosyaları (`/tmp/karar-<no>.json`) araç sandbox'ının dışında kalır;
+    `--add-dir` olmadan `workspace-write` modunda yazılamaz. Karar klasörü varsa o da eklenir.
+    `--approval-policy never`: başsız oturumda canlı onay kanalı yok; onay isteyen çağrı reddedilir.
+    """
+    if NOBETCI_ARAC not in ARACLAR:
+        raise ValueError(f"geçersiz ajan aracı: {NOBETCI_ARAC}")
+    if not re.fullmatch(r"[a-z][a-z0-9-]{0,31}", DSH_PERMISSION_MODE):
+        raise ValueError(f"geçersiz DSH izin modu: {DSH_PERMISSION_MODE}")
+    cli = DSH_CHECKOUT / "apps/cli/lib/bin.js"
+    komut = ["node", str(cli), "headless",
+             "--permission-mode", DSH_PERMISSION_MODE,
+             "--approval-policy", "never"]
+    for dizin in (Path("/tmp"), DURUM_KLASORU):
+        try:
+            if dizin.is_dir():
+                komut += ["--add-dir", str(dizin.resolve())]
+        except OSError:
+            continue
+    return komut
+
+
+
 def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bool) -> tuple[int, str]:
+    """Görevi seçili ajana ver: Hermes oneshot ya da DSH headless.
+
+    Adı geriye dönük uyumluluk için `hermes_calistir` kaldı; testler bu adı yamalıyor.
+    """
     if kuru:
         print("\n--- ÇALIŞTIRILACAK GÖREV ---")
         print(metin)
@@ -753,6 +793,22 @@ def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bo
     gorev = DURUM_KLASORU / f"gorev-{rol}.md"
     gorev.parent.mkdir(parents=True, exist_ok=True)
     gorev.write_text(metin, encoding="utf-8")
+
+    if NOBETCI_ARAC == "dsh":
+        try:
+            komut = dsh_komutu(depo, gorev, zaman_asimi)
+        except ValueError as hata:
+            return 2, str(hata)
+        try:
+            # DSH görevi argüman yerine stdin'den okur (uzun istem argv'ye sığmaz/sızmaz).
+            sonuc = subprocess.run(komut, input=metin, cwd=str(depo),
+                                   capture_output=True, text=True, timeout=zaman_asimi)
+            return sonuc.returncode, (sonuc.stdout or "") + (sonuc.stderr or "")
+        except FileNotFoundError:
+            return 127, f"dsh/node bulunamadı (DSH_CHECKOUT={DSH_CHECKOUT})"
+        except subprocess.TimeoutExpired:
+            return 124, f"zaman aşımı ({zaman_asimi}s)"
+
     komut = hermes_komutu(depo, gorev, zaman_asimi)
     try:
         sonuc = subprocess.run(komut, capture_output=True, text=True, timeout=zaman_asimi)
@@ -919,23 +975,28 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
         ayrinti = f"{int(yas / 60)} dk önce güncellendi"
     satir(taze, "durum dosyası taze", ayrinti)
 
-    # 5) bugün açılan nöbetçi oturumu (makul üst sınır: 24)
+    # 5) bugün açılan nöbetçi oturumu (makul üst sınır: 12)
+    # DSH'de Hermes state.db yok; DSH oturumları ayrı depoda ve web oturumlarıyla karışık.
+    # Bu kontrol DSH'de atlanır; oturum sayısı DSH Web'den / günlükten izlenir.
     adet = -1
-    try:
-        vt = Path.home() / ".hermes" / "state.db"
-        if vt.is_file():
-            c = sqlite3.connect(f"file:{vt}?mode=ro", uri=True)
-            # 27 Ekim dersi: 26 Ekim'deki OOM çökme döngüsü TEK GÜNDE 50+ oturum bıraktı; günlük
-            # sayım yeni düzeltmeden SONRA da kırmızı kalıyor ve gerçek fırtınayı gizliyordu.
-            # Ölçüt artık SON 6 SAAT: "şu an oturum fırtınası var mı?" sorusuna cevap verir.
-            gece = datetime.now(timezone.utc).timestamp() - 6 * 3600
-            adet = c.execute(
-                "select count(*) from sessions where started_at >= ? and coalesce(created_source, source) = 'nobetci'",
-                (gece,),
-            ).fetchone()[0]
-    except (OSError, sqlite3.Error):
-        pass
-    satir(0 <= adet <= 12, "son 6s oturum ≤ 12", f"{adet}" if adet >= 0 else "okunamadı")
+    if NOBETCI_ARAC == "dsh":
+        print("· DSH oturum sayacı        atlandı (DSH session deposu ayrı)")
+    else:
+        try:
+            vt = Path.home() / ".hermes" / "state.db"
+            if vt.is_file():
+                c = sqlite3.connect(f"file:{vt}?mode=ro", uri=True)
+                # 27 Ekim dersi: 26 Ekim'deki OOM çökme döngüsü TEK GÜNDE 50+ oturum bıraktı; günlük
+                # sayım yeni düzeltmeden SONRA da kırmızı kalıyor ve gerçek fırtınayı gizliyordu.
+                # Ölçüt artık SON 6 SAAT: "şu an oturum fırtınası var mı?" sorusuna cevap verir.
+                gece = datetime.now(timezone.utc).timestamp() - 6 * 3600
+                adet = c.execute(
+                    "select count(*) from sessions where started_at >= ? and coalesce(created_source, source) = 'nobetci'",
+                    (gece,),
+                ).fetchone()[0]
+        except (OSError, sqlite3.Error):
+            pass
+        satir(0 <= adet <= 12, "son 6s oturum ≤ 12", f"{adet}" if adet >= 0 else "okunamadı")
 
     # 6) KUYRUK TIKANIKLIĞI: en eski iş ne kadar bekledi? (25 Ekim: #83/#84 → 10 saat görünmez)
     if token_yolu.exists():
@@ -1168,6 +1229,9 @@ def main() -> int:
     ayar.add_argument("--profil", default=None,
                       help="nöbetçi oturumunun Hermes profili (varsayılan: NOBETCI_PROFIL env; "
                            "boşsa varsayılan profil). Open WebUI yükünü ayırmak için 'guvenlik'.")
+    ayar.add_argument("--arac", choices=ARACLAR, default=None,
+                      help="ajan aracı: hermes (varsayılan) veya dsh headless "
+                           "(varsayılan: NOBETCI_ARAC env).")
     ayar.add_argument("--guncelle", action="store_true",
                       help="döngüde kodu origin/<dal>'a çek; değiştiyse yeniden başla (birim kullanır)")
     ayar.add_argument("--guncelle-aralik", type=int, default=300,
@@ -1178,9 +1242,15 @@ def main() -> int:
 
     secim = ayar.parse_args()
     dal = dal_coz(secim.dal)
-    global NOBETCI_PROFIL
+    global NOBETCI_PROFIL, NOBETCI_ARAC
     if secim.profil is not None:
         NOBETCI_PROFIL = secim.profil.strip()
+    if secim.arac is not None:
+        NOBETCI_ARAC = secim.arac
+    if NOBETCI_ARAC not in ARACLAR:
+        print(f"✗ geçersiz ajan aracı: {NOBETCI_ARAC} (izinli: {', '.join(ARACLAR)})",
+              file=sys.stderr)
+        return 2
     if secim.kendini_denetle:  # kilit gerekmez, hiçbir şeyi değiştirmez
         return kendini_denetle(secim.rol, secim.token, secim.limit, dal)
     durum_yolu = DURUM_KLASORU / f"nobetci-{secim.rol}.json"
@@ -1208,7 +1278,10 @@ def main() -> int:
         an = time.time()
         bugun = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         print(f"nöbetçi tanı · rol={secim.rol}")
-        print(f"  hermes profili      : {NOBETCI_PROFIL or '(varsayılan — Open WebUI ile paylaşılır)'}")
+        if NOBETCI_ARAC == "dsh":
+            print(f"  ajan aracı          : dsh headless · {DSH_CHECKOUT} · {DSH_PERMISSION_MODE}")
+        else:
+            print(f"  hermes profili      : {NOBETCI_PROFIL or '(varsayılan — Open WebUI ile paylaşılır)'}")
         print(f"  kod                 : {kod_sha(secim.depo)}"
               f" ({'makine kopyası' if kopya_mi(secim.depo) else 'insan deposu'})"
               f" · dal {dal} · kendini güncelleme: {'açık' if secim.guncelle else 'kapalı'}")

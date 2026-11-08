@@ -115,6 +115,62 @@ class ProfilTesti(unittest.TestCase):
             nobetci.NOBETCI_PROFIL = self.eski
 
 
+class DshKomutTesti(unittest.TestCase):
+    """2026-11-08 DSH geçişi: `--arac dsh` Hermes yerine headless komutunu üretmeli.
+
+    Kilit: görev stdin'den gitmeli (argv'ye sığmaz), cwd depo kökü olmalı, karar dosyaları
+    için `/tmp` sandbox'a eklenmeli ve `--approval-policy never` başsız oturumda asılı kalmamalı.
+    """
+
+    def setUp(self):
+        self.eski = (nobetci.NOBETCI_ARAC, nobetci.DSH_CHECKOUT, nobetci.DSH_PERMISSION_MODE)
+        self.eski_durum = nobetci.DURUM_KLASORU
+        self.dizin = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dizin.cleanup)
+        nobetci.DURUM_KLASORU = Path(self.dizin.name)
+
+    def tearDown(self):
+        nobetci.NOBETCI_ARAC, nobetci.DSH_CHECKOUT, nobetci.DSH_PERMISSION_MODE = self.eski
+        nobetci.DURUM_KLASORU = self.eski_durum
+
+    def test_headless_komutu_ve_sandbox_argumanlari(self):
+        nobetci.NOBETCI_ARAC = "dsh"
+        nobetci.DSH_CHECKOUT = Path("/opt/dsh")
+        nobetci.DSH_PERMISSION_MODE = "workspace-write"
+        komut = nobetci.dsh_komutu(Path("/depo"), Path("/gorev.md"), 1860)
+        self.assertEqual(komut[:3], ["node", "/opt/dsh/apps/cli/lib/bin.js", "headless"])
+        self.assertEqual(komut[komut.index("--permission-mode") + 1], "workspace-write")
+        self.assertEqual(komut[komut.index("--approval-policy") + 1], "never")
+        self.assertIn("--add-dir", komut)
+        self.assertIn("/tmp", komut)
+        self.assertNotIn("chat", komut)
+
+    def test_gecersiz_izin_modu_reddedilir(self):
+        nobetci.NOBETCI_ARAC = "dsh"
+        for kotu in ("", "Workspace Write", "a;rm -rf /", "x" * 40):
+            nobetci.DSH_PERMISSION_MODE = kotu
+            with self.subTest(kotu=kotu):
+                with self.assertRaises(ValueError):
+                    nobetci.dsh_komutu(Path("/depo"), Path("/gorev.md"), 60)
+
+    def test_dsh_calistir_gorevi_stdin_ve_cwd_ile_verir(self):
+        from types import SimpleNamespace
+        from unittest import mock
+
+        nobetci.NOBETCI_ARAC = "dsh"
+        nobetci.DSH_CHECKOUT = Path("/opt/dsh")
+        nobetci.DSH_PERMISSION_MODE = "workspace-write"
+        with mock.patch.object(nobetci.subprocess, "run") as calistir:
+            calistir.return_value = SimpleNamespace(returncode=0, stdout="ok", stderr="")
+            kod, cikti = nobetci.hermes_calistir(Path("/depo"), "görev metni", "i5", 60, False)
+        self.assertEqual((kod, cikti), (0, "ok"))
+        args, kwargs = calistir.call_args
+        self.assertIn("headless", args[0])
+        self.assertEqual(kwargs["input"], "görev metni")
+        self.assertEqual(kwargs["cwd"], "/depo")
+        self.assertEqual(kwargs["timeout"], 60)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

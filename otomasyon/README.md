@@ -14,6 +14,7 @@
 | `./otomasyon/topla --cikti /tmp/paket.json` | bağlam paketi (diff + sır/riskli kod taraması + PR'lar) |
 | `./otomasyon/yaz /tmp/karar.json [--birlestir] [--tek-onay --gerekce \"…\"]` | kararı GitHub'a yaz; koşullar tamamsa birleştir (çift onay **varsayılan**) |
 | `bash otomasyon/kur.sh i5 --cron` | makine kurulumu (denetim + sarmalayıcılar + cron) |
+| `bash otomasyon/nobetci-kur.sh i5 --arac dsh` | nöbetçiyi DSH headless ile kur (Hermes varsayılan) |
 
 ## Akış (D modu)
 
