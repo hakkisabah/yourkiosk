@@ -320,6 +320,6 @@ case "$KIP" in
     if [ "$CRON_KALDIR" -eq 1 ]; then cron_kaldir; else echo "cron'u kaldırmak için: $0 $ROL --cron-kaldir"; fi
     echo
     echo "=== kontrol noktaları ==="
-    "$PYTHON" "$KOD_DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --depo "$KOD_DEPO" --dal "$DAL" --kendini-denetle || echo "(denetim uyarı verdi — yukarıya bak)"
+    "$PYTHON" "$KOD_DEPO/otomasyon/betik/nobetci.py" --rol "$ROL" --depo "$KOD_DEPO" --dal "$DAL" --arac "$ARAC" --kendini-denetle || echo "(denetim uyarı verdi — yukarıya bak)"
     ;;
 esac
