@@ -10,9 +10,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
+import time
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -136,18 +140,18 @@ class DshKomutTesti(unittest.TestCase):
     def test_headless_komutu_ve_sandbox_argumanlari(self):
         nobetci.NOBETCI_ARAC = "dsh"
         nobetci.DSH_CHECKOUT = Path("/opt/dsh")
-        nobetci.DSH_PERMISSION_MODE = "workspace-write"
+        nobetci.DSH_PERMISSION_MODE = "read-only"
         komut = nobetci.dsh_komutu(Path("/depo"), Path("/gorev.md"), 1860)
         self.assertEqual(komut[:3], ["node", "/opt/dsh/apps/cli/lib/bin.js", "headless"])
-        self.assertEqual(komut[komut.index("--permission-mode") + 1], "workspace-write")
+        self.assertEqual(komut[komut.index("--permission-mode") + 1], "read-only")
         self.assertEqual(komut[komut.index("--approval-policy") + 1], "never")
-        self.assertIn("--add-dir", komut)
-        self.assertIn("/tmp", komut)
+        self.assertNotIn("--add-dir", komut)
         self.assertNotIn("chat", komut)
 
     def test_gecersiz_izin_modu_reddedilir(self):
         nobetci.NOBETCI_ARAC = "dsh"
-        for kotu in ("", "Workspace Write", "a;rm -rf /", "x" * 40):
+        for kotu in ("", "workspace-write", "danger-full-access", "auto",
+                     "Workspace Write", "a;rm -rf /", "x" * 40):
             nobetci.DSH_PERMISSION_MODE = kotu
             with self.subTest(kotu=kotu):
                 with self.assertRaises(ValueError):
@@ -159,7 +163,7 @@ class DshKomutTesti(unittest.TestCase):
 
         nobetci.NOBETCI_ARAC = "dsh"
         nobetci.DSH_CHECKOUT = Path("/opt/dsh")
-        nobetci.DSH_PERMISSION_MODE = "workspace-write"
+        nobetci.DSH_PERMISSION_MODE = "read-only"
         with mock.patch.object(nobetci.subprocess, "run") as calistir:
             calistir.return_value = SimpleNamespace(returncode=0, stdout="ok", stderr="")
             kod, cikti = nobetci.hermes_calistir(Path("/depo"), "görev metni", "i5", 60, False)
@@ -169,6 +173,86 @@ class DshKomutTesti(unittest.TestCase):
         self.assertEqual(kwargs["input"], "görev metni")
         self.assertEqual(kwargs["cwd"], "/depo")
         self.assertEqual(kwargs["timeout"], 60)
+        self.assertIn("DSH_HOME", kwargs["env"])
+        self.assertIn("KARAR_DIR", kwargs["env"])
+
+
+class DshOturumTesti(unittest.TestCase):
+    """DSH oturum deposu 7 gün/1 GB politikasıyla budanmalı (7 Kasım i5 bulgusu)."""
+
+    def setUp(self):
+        self.dizin = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dizin.cleanup)
+        self.eski = nobetci.DURUM_KLASORU
+        nobetci.DURUM_KLASORU = Path(self.dizin.name)
+
+    def tearDown(self):
+        nobetci.DURUM_KLASORU = self.eski
+
+    def test_eski_oturum_silinir_yeni_kalir(self):
+        kok = nobetci.dsh_home() / "sessions"
+        eski = kok / "session-eski"
+        yeni = kok / "session-yeni"
+        eski.mkdir(parents=True)
+        yeni.mkdir(parents=True)
+        (eski / "log").write_text("x" * 10)
+        (yeni / "log").write_text("y" * 10)
+        sekiz_gun = time.time() - 8 * 86400
+        os.utime(eski, (sekiz_gun, sekiz_gun))
+        silinen, kalan, _ = nobetci.dsh_oturum_temizle(gun=7)
+        self.assertGreaterEqual(silinen, 1)
+        self.assertFalse(eski.exists())
+        self.assertTrue(yeni.exists())
+        self.assertEqual(kalan, 1)
+
+    def test_bayt_siniri_asilinca_en_eski_silinir(self):
+        kok = nobetci.dsh_home() / "sessions"
+        for ad in ("a", "b", "c"):
+            d = kok / f"session-{ad}"
+            d.mkdir(parents=True)
+            (d / "log").write_text("x" * 100)
+        silinen, kalan, bayt = nobetci.dsh_oturum_temizle(gun=30, azami_bayt=150)
+        self.assertGreaterEqual(silinen, 1)
+        self.assertLessEqual(bayt, 150)
+        self.assertLess(kalan, 3)
+
+
+class KararYayinTesti(unittest.TestCase):
+    """DSH kararı sandbox dışında yayınlanmalı; i3 kabulü çift onayla birleştirmeli."""
+
+    def setUp(self):
+        self.dizin = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dizin.cleanup)
+        self.eski = nobetci.DURUM_KLASORU
+        nobetci.DURUM_KLASORU = Path(self.dizin.name)
+        self.depo = Path(self.dizin.name) / "depo"
+        (self.depo / "otomasyon" / "betik").mkdir(parents=True)
+        (self.depo / "otomasyon" / "betik" / "karar_dogrula.py").write_text("")
+        (self.depo / "otomasyon" / "betik" / "yaz.py").write_text("")
+        nobetci.karar_klasoru().mkdir(parents=True)
+        (nobetci.karar_klasoru() / "karar-97.json").write_text(
+            json.dumps({"pr": 97, "karar": "kabul"}), encoding="utf-8")
+
+    def tearDown(self):
+        nobetci.DURUM_KLASORU = self.eski
+
+    def test_once_kapi_sonra_yaz_ve_i3_cift_onay(self):
+        with mock.patch.object(nobetci.subprocess, "run") as calistir:
+            calistir.return_value = SimpleNamespace(returncode=0, stdout="ok", stderr="")
+            nobetci.kararlari_yayinla(self.depo, "i3", [{"pr": 97}], None)
+        self.assertEqual(calistir.call_count, 2)
+        kapi = calistir.call_args_list[0].args[0]
+        yaz = calistir.call_args_list[1].args[0]
+        self.assertIn("karar_dogrula.py", kapi[1])
+        self.assertIn("yaz.py", yaz[1])
+        self.assertIn("--birlestir", yaz)
+        self.assertIn("--cift-onay", yaz)
+
+    def test_karar_yoksa_yaz_calistirilmaz(self):
+        (nobetci.karar_klasoru() / "karar-97.json").unlink()
+        with mock.patch.object(nobetci.subprocess, "run") as calistir:
+            nobetci.kararlari_yayinla(self.depo, "i5", [{"pr": 97}], None)
+        self.assertEqual(calistir.call_count, 0)
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ CRON_KALDIR=0
 PROFIL="${NOBETCI_PROFIL:-}"
 ARAC="${NOBETCI_ARAC:-hermes}"
 DSH_CHECKOUT="${DSH_CHECKOUT:-$HOME/deepseek-harness}"
-DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-workspace-write}"
+DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-read-only}"
 KLON="${NOBETCI_KOD_DEPO:-}"
 DAL="${NOBETCI_DAL:-main}"
 for a in "$@"; do
@@ -92,17 +92,9 @@ if [ "$ARAC" = "dsh" ] && ! dsh_yol_gecerli "$DSH_CHECKOUT"; then
   echo "  Mutlak yol olmalı; boşluk, kabuk metası, kontrol karakteri ve '..' içeremez." >&2
   exit 2
 fi
-if [ "$ARAC" = "dsh" ]; then
-  case "$DSH_PERMISSION_MODE" in
-    [a-z]*) ;;
-    *) echo "✗ geçersiz DSH_PERMISSION_MODE: '$DSH_PERMISSION_MODE'" >&2; exit 2 ;;
-  esac
-  case "$DSH_PERMISSION_MODE" in
-    *[!a-z0-9-]*) echo "✗ geçersiz DSH_PERMISSION_MODE: '$DSH_PERMISSION_MODE'" >&2; exit 2 ;;
-  esac
-  [ "${#DSH_PERMISSION_MODE}" -le 32 ] || {
-    echo "✗ DSH_PERMISSION_MODE çok uzun: '$DSH_PERMISSION_MODE'" >&2; exit 2;
-  }
+if [ "$ARAC" = "dsh" ] && [ "$DSH_PERMISSION_MODE" != "read-only" ]; then
+  echo "✗ geçersiz DSH_PERMISSION_MODE: '$DSH_PERMISSION_MODE' (yalnız read-only)" >&2
+  exit 2
 fi
 if [ -n "${KLON:-}" ] && [ ! -d "$KLON/.git" ]; then
   echo "✗ --klon bir git deposu olmalı: $KLON" >&2
@@ -277,6 +269,27 @@ case "$KIP" in
       echo "✗ DSH CLI bulunamadı: $DSH_CHECKOUT/apps/cli/lib/bin.js" >&2
       echo "  DSH checkout'unu derleyin (pnpm build) veya DSH_CHECKOUT ile yolu verin." >&2
       exit 4
+    fi
+    if [ "$ARAC" = "dsh" ]; then
+      # Runner ve güvenli headless profili depodan kur; eski profil sessizce Hermes'e dönmesin.
+      install -d -m 700 "$HOME/.agents/bin"
+      if [ -f "$DEPO/otomasyon/dsh-bwrap-kiosk" ]; then
+        install -m 0755 "$DEPO/otomasyon/dsh-bwrap-kiosk" "$HOME/.agents/bin/dsh-bwrap-kiosk"
+      fi
+      PROFIL_DOSYA="$HOME/.dsh/profiles/headless/cordis.patch.yml"
+      install -d -m 700 "$HOME/.dsh/profiles/headless"
+      if [ ! -f "$PROFIL_DOSYA" ] && [ -f "$DEPO/otomasyon/dsh-headless.cordis.patch.yml" ]; then
+        install -m 600 "$DEPO/otomasyon/dsh-headless.cordis.patch.yml" "$PROFIL_DOSYA"
+      fi
+      if [ ! -x "$HOME/.agents/bin/dsh-bwrap-kiosk" ]; then
+        echo "✗ DSH sandbox runner yok/çalıştırılamaz: $HOME/.agents/bin/dsh-bwrap-kiosk" >&2
+        exit 4
+      fi
+      if ! grep -q 'dsh-bwrap-kiosk' "$PROFIL_DOSYA"; then
+        echo "✗ headless profilinde güvenli sandbox runner yok: $PROFIL_DOSYA" >&2
+        echo "  TASIMA adım 4'ü uygula (headless-cordis.patch.yml kopyala) ve tekrar kur." >&2
+        exit 5
+      fi
     fi
     mkdir -p "$HOME/.config/systemd/user" "$HOME/.local/state/yourkiosk-otomasyon"
     unit_metni > "$UNIT_YOL"

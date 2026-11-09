@@ -27,6 +27,7 @@
 set -euo pipefail
 
 UNIT_ADI="yourkiosk-nobetci.service"
+UNIT_YOL="$HOME/.config/systemd/user/$UNIT_ADI"
 DURUM_KLASORU="$HOME/.local/state/yourkiosk-otomasyon"
 KOD_DEPO="${NOBETCI_KOD_DEPO:-$HOME/.local/share/yourkiosk-nobetci/depo}"
 VARSAYILAN_UZAK="git@github.com:hakkisabah/yourkiosk.git"
@@ -249,6 +250,25 @@ soyle "bellek      : RAM ${RAM_MB} MB → High ${MEM_HIGH_MB} MB · Max ${MEM_MA
 
 # ── 4) Birim dosyasını klondan üret ──────────────────────────────────────────────────────────
 KUR="$KOD_DEPO/otomasyon/nobetci-kur.sh"
+
+# Etkin ajan aracını/DSH ayarlarını BİRİMDEN oku; bakım, DSH kurulumunu sessizce Hermes'e
+# düşürmemeli (7 Kasım i5 bulgusu). Ortam değişkeni verilmişse o kazanır.
+birim_env() {
+  local ad="$1" deger=""
+  deger="$(systemctl --user show "$UNIT_ADI" -p Environment --value 2>/dev/null \
+    | tr ' ' '\n' | sed -n "s/^${ad}=//p" | tail -1 || true)"
+  if [ -z "$deger" ] && [ -f "$UNIT_YOL" ]; then
+    deger="$(sed -n "s/^Environment=${ad}=//p" "$UNIT_YOL" | tail -1)"
+  fi
+  printf '%s' "$deger"
+}
+ARAC="${NOBETCI_ARAC:-$(birim_env NOBETCI_ARAC)}"; ARAC="${ARAC:-hermes}"
+DSH_CHECKOUT="${DSH_CHECKOUT:-$(birim_env DSH_CHECKOUT)}"; DSH_CHECKOUT="${DSH_CHECKOUT:-$HOME/deepseek-harness}"
+DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-$(birim_env DSH_PERMISSION_MODE)}"; DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-read-only}"
+if [ "$ARAC" = "dsh" ] && [ "$DSH_PERMISSION_MODE" != "read-only" ]; then
+  DSH_PERMISSION_MODE="read-only"   # eski workspace-write birimini sessizce taşıma
+fi
+SOZLESME_PROFIL="${NOBETCI_PROFIL:-$(birim_env NOBETCI_PROFIL)}"
 [ -f "$KUR" ] || { hata "klonda nobetci-kur.sh yok: $KUR"; exit 6; }
 soyle "→ birim yazılıyor (klon yolu, çökme freni)"
 # TEST/KURU KANCASI: systemd'ye dokunmadan birim metnini üretmek için (testler ve systemd'siz
@@ -285,7 +305,10 @@ if [ "${NOBETCI_SISTEMD_ATLA:-0}" = "1" ]; then
   soyle "kod         : $KOD_DEPO @ $YENI_SHA ($DAL)"
   exit 0
 fi
-if ! bash "$KUR" "$ROL" --klon "$KOD_DEPO" --dal "$DAL" >>"$KUR_LOG" 2>&1; then
+ek_arg=()
+[ -n "$SOZLESME_PROFIL" ] && [ "$ARAC" = "hermes" ] && ek_arg+=(--profil "$SOZLESME_PROFIL")
+if ! NOBETCI_ARAC="$ARAC" DSH_CHECKOUT="$DSH_CHECKOUT" DSH_PERMISSION_MODE="$DSH_PERMISSION_MODE" \
+  bash "$KUR" "$ROL" --klon "$KOD_DEPO" --dal "$DAL" --arac "$ARAC" "${ek_arg[@]}" >>"$KUR_LOG" 2>&1; then
   hata "birim kurulumu başarısız (klon kodu: $YENI_SHA) — komut çıktısı:"
   sed 's/^/    /' "$KUR_LOG" | tail -25 >&2 || true
   hata "  günlük: journalctl --user -u $UNIT_ADI -n 30 --no-pager"

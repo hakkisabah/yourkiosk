@@ -1,0 +1,46 @@
+#!/bin/bash
+# DSH bwrap runner for the yourkiosk review agent.
+#
+# DSH's stock bwrap profile is a file-effect sandbox, not a security boundary:
+# the host root is read-only but /run/user/<uid> and /run/dbus remain visible,
+# so a shell can reach the user systemd manager (systemd-run --user) and escape.
+# DSH invokes: runnerCommand + profile args + "--" + command. Our options MUST
+# be inserted BEFORE the "--" separator, otherwise bwrap treats them as the
+# command (the first attempt wrote "--tmpfs: ... Read-only file system").
+set -u
+
+if ! command -v bwrap >/dev/null 2>&1; then
+  echo "dsh-bwrap-kiosk: bwrap bulunamadı" >&2
+  exit 127
+fi
+
+args=("$@")
+yeni=()
+ayrac=0
+for a in "${args[@]}"; do
+  if [ "$a" = "--" ] && [ "$ayrac" -eq 0 ]; then
+    KARAR_BIND="${DSH_KARAR_DIR:-${KARAR_DIR:-}}"
+    ISARET="$HOME/.local/state/yourkiosk-otomasyon/karar-yolu"
+    if [ -z "$KARAR_BIND" ] && [ -r "$ISARET" ]; then
+      KARAR_BIND="$(cat "$ISARET" 2>/dev/null || true)"
+    fi
+    [ -n "$KARAR_BIND" ] || KARAR_BIND="$HOME/.local/state/yourkiosk-otomasyon/karar"
+    if [ -n "$KARAR_BIND" ] && [ -d "$KARAR_BIND" ]; then
+      yeni+=(--bind "$KARAR_BIND" "$KARAR_BIND")
+    fi
+    yeni+=(--tmpfs /tmp --tmpfs /run/user --tmpfs /run/dbus --)
+    ayrac=1
+  else
+    yeni+=("$a")
+  fi
+done
+if [ "$ayrac" -eq 0 ]; then
+  yeni+=(--tmpfs /tmp --tmpfs /run/user --tmpfs /run/dbus)
+fi
+
+bwrap "${yeni[@]}"
+kod=$?
+if [ "$kod" -ne 0 ]; then
+  echo "dsh-bwrap-kiosk: bwrap çıkış $kod" >&2
+fi
+exit "$kod"

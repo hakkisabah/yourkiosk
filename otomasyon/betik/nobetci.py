@@ -31,6 +31,7 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -175,8 +176,11 @@ ARACLAR = ("hermes", "dsh")
 NOBETCI_ARAC = (os.environ.get("NOBETCI_ARAC", "hermes").strip().lower() or "hermes")
 DSH_CHECKOUT = Path(os.environ.get(
     "DSH_CHECKOUT", str(Path.home() / "deepseek-harness"))).expanduser()
-DSH_PERMISSION_MODE = (os.environ.get("DSH_PERMISSION_MODE", "workspace-write").strip()
-                       or "workspace-write")
+#: DSH review ajanı yalnız salt-okunur çalışır. Karar dosyası paylaşılan KARAR_DIR'e yazılır;
+#: repo ve sistem dosyaları yazılamaz. `workspace-write`/`danger-full-access` kabul EDİLMEZ.
+DSH_IZIN_MODLARI = ("read-only",)
+DSH_PERMISSION_MODE = (os.environ.get("DSH_PERMISSION_MODE", "read-only").strip()
+                       or "read-only")
 
 
 
@@ -740,8 +744,177 @@ def gorev_metni(rol: str, depo: Path, is_listesi: list[dict]) -> str:
     if rol == "i3":
         satirlar += ["", "i5 onayı olan ve birleştirilebilir PR'ları `--birlestir --cift-onay` ile BİRLEŞTİR.",
                      "Bir PR birleşince diğerleri 'behind' kalabilir; o PR'a 'dal güncellenmeli' yorumu bırak."]
+    if NOBETCI_ARAC == "dsh":
+        satirlar += ["", "DSH: kararı `$KARAR_DIR/karar-<NO>.json` dosyasına **bash ile** yaz "
+                         "(`write`/`edit` read-only'de yazamaz); `yaz.py` ÇALIŞTIRMA. "
+                         "Kapı ve GitHub yazımını nöbetçi oturum dışında yapar."]
     satirlar += ["", "Bitince kısa bir özet yaz: hangi PR'a ne yazdın, ne birleşti."]
     return "\n".join(satirlar) + "\n"
+
+
+def karar_klasoru() -> Path:
+    """DSH ajanı ile nöbetçi arasında PAYLAŞILAN karar dizini (bwrap içine bind edilir)."""
+    return DURUM_KLASORU / "karar"
+
+
+def dsh_home() -> Path:
+    """Nöbetçiye özel DSH evi — web/sohbet oturumlarından ayrı, silinebilir."""
+    return DURUM_KLASORU / "dsh-home"
+
+
+def dsh_home_hazirla() -> Path:
+    """DSH_HOME'u hazırla: profil ve .env bağla, oturum/karar dizinlerini oluştur.
+
+    Neden ayrı ev: `~/.dsh/sessions` hem web sohbetlerini hem nöbetçiyi tutar; orada yaş
+    tabanlı silme yapmak kullanıcı sohbetlerini siler. Nöbetçinin oturumları kendi evinde
+    toplanınca saklama politikası güvenle uygulanabilir.
+    """
+    ev = dsh_home()
+    ev.mkdir(parents=True, exist_ok=True)
+    os.chmod(ev, 0o700)
+    profiles = ev / "profiles"
+    hedef = Path.home() / ".dsh" / "profiles"
+    if not profiles.exists():
+        if not hedef.is_dir():
+            raise FileNotFoundError(f"DSH profili yok: {hedef}")
+        profiles.symlink_to(hedef, target_is_directory=True)
+    env_dosyasi = ev / ".env"
+    kaynak_env = Path.home() / ".dsh" / ".env"
+    if not env_dosyasi.exists() and kaynak_env.is_file():
+        env_dosyasi.symlink_to(kaynak_env)
+    (ev / "sessions").mkdir(mode=0o700, exist_ok=True)
+    kk = karar_klasoru()
+    kk.mkdir(parents=True, exist_ok=True)
+    os.chmod(kk, 0o700)
+    # bwrap runner ortam değişkenlerini devralmıyor; paylaşılan dizini sabit bir işaret
+    # dosyasından okur. Bu dosya makineye özeldir, 0600'dür.
+    isaret = DURUM_KLASORU / "karar-yolu"
+    isaret.write_text(str(kk), encoding="utf-8")
+    os.chmod(isaret, 0o600)
+    return ev
+
+
+def _dizin_bayt(dizin: Path) -> int:
+    toplam = 0
+    try:
+        for f in dizin.rglob("*"):
+            try:
+                if f.is_file():
+                    toplam += f.stat().st_size
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return toplam
+
+
+def dsh_oturum_ozet() -> tuple[int, int]:
+    """Nöbetçinin DSH oturum deposu: (oturum sayısı, bayt)."""
+    kok = dsh_home() / "sessions"
+    if not kok.is_dir():
+        return 0, 0
+    sayi = 0
+    bayt = 0
+    for p in kok.iterdir():
+        if not p.is_dir():
+            continue
+        sayi += 1
+        bayt += _dizin_bayt(p)
+    return sayi, bayt
+
+
+def dsh_oturum_temizle(gun: int = 7, azami_bayt: int = 1_000_000_000) -> tuple[int, int, int]:
+    """Eski/büyük nöbetçi DSH oturumlarını sil; (silinen, kalan, bayt) döndür.
+
+    Yalnız `dsh_home()` altındaki oturumlara dokunur; web/sohbet oturumları ayrı evdedir.
+    """
+    kok = dsh_home() / "sessions"
+    if not kok.is_dir():
+        return 0, 0, 0
+    simdi = time.time()
+    esik = simdi - max(1, gun) * 86400
+    kayitlar: list[tuple[float, Path]] = []
+    for p in kok.iterdir():
+        if not p.is_dir():
+            continue
+        try:
+            kayitlar.append((p.stat().st_mtime, p))
+        except OSError:
+            continue
+    silinen = 0
+    for mtime, p in sorted(kayitlar):
+        if mtime < esik:
+            shutil.rmtree(p, ignore_errors=True)
+            silinen += 1
+    kayitlar = [(p.stat().st_mtime, p) for p in kok.iterdir() if p.is_dir()]
+    toplam = sum(_dizin_bayt(p) for _, p in kayitlar)
+    for _mtime, p in sorted(kayitlar):
+        if toplam <= azami_bayt:
+            break
+        boyut = _dizin_bayt(p)
+        shutil.rmtree(p, ignore_errors=True)
+        toplam -= boyut
+        silinen += 1
+    kalan = sum(1 for p in kok.iterdir() if p.is_dir())
+    return silinen, kalan, toplam
+
+
+def karar_dosyalarini_temizle(is_listesi: list[dict]) -> None:
+    """Yeni oturum öncesi eski karar dosyalarını sil (bayat karar yayınlanmasın)."""
+    for is_ in is_listesi:
+        try:
+            (karar_klasoru() / f"karar-{is_['pr']}.json").unlink()
+        except FileNotFoundError:
+            pass
+
+
+def kararlari_yayinla(depo: Path, rol: str, is_listesi: list[dict], gunluk_yolu: Path | None) -> None:
+    """DSH ajanının yazdığı karar JSON'larını GÜVENİLİR nöbetçi sürecinde yayınla.
+
+    DSH sandbox içinde `yaz.py` çalıştırılmaz: kimlik kapısı `/etc/machine-id`'yi göremez
+    (bwrap user namespace'inde uid 65534) ve ajanın yazma yetkisiyle karar yayınlaması
+    güven sınırını aşar. Ajan yalnız JSON üretir; kapı ve GitHub yazımı burada, sandbox
+    dışında, nöbetçinin kendi uid'siyle yapılır.
+    """
+    kapi = depo / "otomasyon" / "betik" / "karar_dogrula.py"
+    yaz = depo / "otomasyon" / "betik" / "yaz.py"
+    for is_ in is_listesi:
+        pr = is_["pr"]
+        yol = karar_klasoru() / f"karar-{pr}.json"
+        if not yol.is_file():
+            gunluk(gunluk_yolu, f"{rol}: KARAR YOK #{pr} — ajan karar dosyası yazmadı")
+            continue
+        try:
+            kapi_sonuc = subprocess.run(
+                [sys.executable, str(kapi), str(yol)], cwd=str(depo),
+                capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.SubprocessError) as hata:
+            gunluk(gunluk_yolu, f"{rol}: KARAR KAPISI çalıştırılamadı #{pr}: {hata}")
+            continue
+        if kapi_sonuc.returncode != 0:
+            neden = ((kapi_sonuc.stderr or "") + (kapi_sonuc.stdout or "")).strip().splitlines()
+            gunluk(gunluk_yolu, f"{rol}: KARAR KAPISI REDDETTİ #{pr} — "
+                               + (neden[-1][:300] if neden else f"çıkış {kapi_sonuc.returncode}"))
+            continue
+        komut = [sys.executable, str(yaz), str(yol)]
+        try:
+            karar = json.loads(yol.read_text(encoding="utf-8")).get("karar")
+        except (OSError, ValueError):
+            karar = ""
+        if rol == "i3" and karar == "kabul":
+            komut += ["--birlestir", "--cift-onay"]
+        try:
+            yaz_sonuc = subprocess.run(komut, cwd=str(depo), capture_output=True, text=True,
+                                       timeout=300)
+        except (OSError, subprocess.SubprocessError) as hata:
+            gunluk(gunluk_yolu, f"{rol}: KARAR YAYINLANAMADI #{pr}: {hata}")
+            continue
+        if yaz_sonuc.returncode != 0:
+            neden = ((yaz_sonuc.stderr or "") + (yaz_sonuc.stdout or "")).strip().splitlines()
+            gunluk(gunluk_yolu, f"{rol}: KARAR YAYINLANAMADI #{pr} — "
+                               + (neden[-1][:300] if neden else f"çıkış {yaz_sonuc.returncode}"))
+        else:
+            gunluk(gunluk_yolu, f"{rol}: KARAR YAYINLANDI #{pr} (karar={karar or '?'})")
 
 
 def hermes_komutu(depo: Path, gorev: Path, zaman_asimi: int) -> list[str]:
@@ -757,27 +930,21 @@ def hermes_komutu(depo: Path, gorev: Path, zaman_asimi: int) -> list[str]:
 
 
 def dsh_komutu(depo: Path, gorev: Path, zaman_asimi: int) -> list[str]:
-    """DSH headless komut satırı — görev stdin'den verilir, cwd depo köküdür.
+    """DSH headless komut satırı — görev stdin'den, cwd depo kökü, politika salt-okunur.
 
-    `--add-dir /tmp`: karar dosyaları (`/tmp/karar-<no>.json`) araç sandbox'ının dışında kalır;
-    `--add-dir` olmadan `workspace-write` modunda yazılamaz. Karar klasörü varsa o da eklenir.
-    `--approval-policy never`: başsız oturumda canlı onay kanalı yok; onay isteyen çağrı reddedilir.
+    Karar dosyası `KARAR_DIR`e yazılır; bu dizin özel bwrap runner'ı tarafından sandbox'a
+    **bind** edilir. `workspace-write`/`danger-full-access` kabul edilmez: DSH sandbox'ı
+    güvenlik sınırı değildir, bu yüzden ajan repo ve sistem dosyalarını yazamaz.
     """
     if NOBETCI_ARAC not in ARACLAR:
         raise ValueError(f"geçersiz ajan aracı: {NOBETCI_ARAC}")
-    if not re.fullmatch(r"[a-z][a-z0-9-]{0,31}", DSH_PERMISSION_MODE):
-        raise ValueError(f"geçersiz DSH izin modu: {DSH_PERMISSION_MODE}")
+    if DSH_PERMISSION_MODE not in DSH_IZIN_MODLARI:
+        raise ValueError(f"geçersiz DSH izin modu: {DSH_PERMISSION_MODE} "
+                         f"(izinli: {', '.join(DSH_IZIN_MODLARI)})")
     cli = DSH_CHECKOUT / "apps/cli/lib/bin.js"
-    komut = ["node", str(cli), "headless",
-             "--permission-mode", DSH_PERMISSION_MODE,
-             "--approval-policy", "never"]
-    for dizin in (Path("/tmp"), DURUM_KLASORU):
-        try:
-            if dizin.is_dir():
-                komut += ["--add-dir", str(dizin.resolve())]
-        except OSError:
-            continue
-    return komut
+    return ["node", str(cli), "headless",
+            "--permission-mode", DSH_PERMISSION_MODE,
+            "--approval-policy", "never"]
 
 
 
@@ -800,8 +967,16 @@ def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bo
         except ValueError as hata:
             return 2, str(hata)
         try:
+            ev = dsh_home_hazirla()
+        except OSError as hata:
+            return 2, f"DSH evi hazırlanamadı: {hata}"
+        ortam = os.environ.copy()
+        ortam["DSH_HOME"] = str(ev)
+        ortam["KARAR_DIR"] = str(karar_klasoru())
+        ortam["DSH_KARAR_DIR"] = str(karar_klasoru())
+        try:
             # DSH görevi argüman yerine stdin'den okur (uzun istem argv'ye sığmaz/sızmaz).
-            sonuc = subprocess.run(komut, input=metin, cwd=str(depo),
+            sonuc = subprocess.run(komut, input=metin, cwd=str(depo), env=ortam,
                                    capture_output=True, text=True, timeout=zaman_asimi)
             return sonuc.returncode, (sonuc.stdout or "") + (sonuc.stderr or "")
         except FileNotFoundError:
@@ -869,8 +1044,19 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
         gunluk(gunluk_yolu, f"UYARI: --zaman-asimi {zaman_asimi} sn → tur tavanı "
                             f"{OTURUM_TUR_TAVANI} yerine {b['tur']} tur uygulanıyor "
                             f"({b['tur_basi_sn']} sn/tur). Varsayılan: {VARSAYILAN_ZAMAN_ASIMI} sn")
+    if NOBETCI_ARAC == "dsh" and not kuru:
+        silinen, kalan_oturum, boyut = dsh_oturum_temizle()
+        if silinen:
+            gunluk(gunluk_yolu, f"{rol}: DSH oturum temizliği: {silinen} silindi, "
+                                f"{kalan_oturum} kaldı, {boyut // 1024 // 1024} MB")
+        karar_dosyalarini_temizle(is_listesi)
+
     kod, cikti = hermes_calistir(depo, gorev_metni(rol, depo, is_listesi), rol, zaman_asimi, kuru)
     gunluk(gunluk_yolu, f"{rol}: oturum bitti (çıkış {kod})")
+
+    if NOBETCI_ARAC == "dsh" and not kuru:
+        # Kararı ajanın sandbox'ı DIŞINDA yayınla: kimlik kapısı ve GitHub yazımı güvenilir süreçte.
+        kararlari_yayinla(depo, rol, is_listesi, gunluk_yolu)
 
     # Sonuç: iş listesi hâlâ aynı PR'ları içeriyorsa karar YAZILAMAMIŞ demektir → beklemeyi artır.
     if not kuru:
@@ -980,7 +1166,14 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
     # Bu kontrol DSH'de atlanır; oturum sayısı DSH Web'den / günlükten izlenir.
     adet = -1
     if NOBETCI_ARAC == "dsh":
-        print("· DSH oturum sayacı        atlandı (DSH session deposu ayrı)")
+        dsh_sayi, dsh_bayt = dsh_oturum_ozet()
+        satir(dsh_sayi <= 200 and dsh_bayt <= 1_000_000_000, "DSH oturum deposu",
+              f"{dsh_sayi} oturum · {dsh_bayt // 1024 // 1024} MB "
+              f"(sınır 200 / 1000 MB; 7 gün)")
+        runner = Path.home() / ".agents" / "bin" / "dsh-bwrap-kiosk"
+        satir(runner.is_file() and os.access(runner, os.X_OK), "DSH sandbox runner",
+              str(runner) if runner.is_file() else f"yok: {runner}")
+        satir(DSH_PERMISSION_MODE == "read-only", "DSH izin modu", DSH_PERMISSION_MODE)
     else:
         try:
             vt = Path.home() / ".hermes" / "state.db"
