@@ -76,7 +76,7 @@ def git(depo: Path, *arg: str, kisa: bool = False, sessiz: bool = False) -> str:
 
 
 def depo_bul(verilen: str) -> Path:
-    """Depo yolunu bul: --depo → KIOSK_YOLU → ~/calisma_konumun/yourkiosk → ~/yourkiosk → cwd.
+    """Depo yolunu bul: --depo → KIOSK_YOLU → cwd → ~/calisma_konumun/yourkiosk → ~/yourkiosk.
 
     Yanlış yolda sessizce "0 commit / 0 dosya" demek yerine açık hata verir (KURULUM.md'de
     anlatılan "bulunamadı ama sonuçlar sıfır" durumunun nedeni buydu).
@@ -91,7 +91,8 @@ def depo_bul(verilen: str) -> Path:
         adaylar.append(aday)
     if os.environ.get("KIOSK_YOLU"):
         adaylar.append(Path(os.environ["KIOSK_YOLU"]).expanduser())
-    adaylar += [Path.home() / "calisma_konumun" / "yourkiosk", Path.home() / "projeler" / "yourkiosk", Path.home() / "yourkiosk", Path.cwd()]
+    adaylar += [Path.cwd(), Path.home() / "calisma_konumun" / "yourkiosk",
+                Path.home() / "projeler" / "yourkiosk", Path.home() / "yourkiosk"]
     for aday in adaylar:
         if (aday / ".git").exists() or (aday / ".git").is_file():
             return aday

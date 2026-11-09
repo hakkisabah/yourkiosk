@@ -180,6 +180,9 @@ node "$DSH_CHECKOUT/apps/cli/lib/bin.js" headless \
 - **Karar dosyaları** `KARAR_DIR` (`~/.local/state/yourkiosk-otomasyon/karar`) altındadır ve özel
   bwrap runner'ı tarafından sandbox'a **bind** edilir. Repo salt-okunur; ajan `yaz.py` çalıştırmaz,
   kapı ve GitHub yazımı nöbetçinin kendi sürecinde olur.
+- **Ajan ağ ve sır görmez:** PR paketleri (`topla.py`) nöbetçi tarafından oturumdan önce üretilir;
+  ajan yalnız `PAKET_DIR` altındaki JSON'ları okur. Runner `~/.config/hermes-secrets`, `~/.dsh`,
+  `~/.ssh`, `~/.aws` ve `.git-credentials` yollarını maskeler, `--unshare-net` ile ağı kapatır.
 - **Sandbox sertleştirmesi** (7 Kasım i5 yüksek bulgusu): `~/.agents/bin/dsh-bwrap-kiosk` stock
   bwrap profilinin üzerine `/run/user`, `/run/dbus` maskeleri ekler; `systemd-run --user` ve D-Bus
   kaçışı kapanır. `workspace-write`/`danger-full-access` kabul edilmez.

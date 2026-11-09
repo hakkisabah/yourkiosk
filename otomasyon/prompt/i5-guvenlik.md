@@ -62,6 +62,8 @@ karar yazmak.
    ```bash
    python3 otomasyon/betik/topla.py --pr <NO> --durum /tmp/topla --cikti /tmp/pr-<NO>.json
    ```
+   > **DSH headless ise bu komutu ÇALIŞTIRMA:** ağ kapalıdır; paket nöbetçi tarafından
+   > hazırlandı: `"$PAKET_DIR/pr-<NO>.json"`. Doğrudan oku.
 
 3. **Denetim listesi — hepsini kontrol et, atlama.** Yalnız diff'e bakma; gerektiğinde dosyanın
    tamamını oku, çağrı zincirini izle.

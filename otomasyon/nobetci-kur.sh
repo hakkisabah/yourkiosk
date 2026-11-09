@@ -277,17 +277,33 @@ case "$KIP" in
         install -m 0755 "$DEPO/otomasyon/dsh-bwrap-kiosk" "$HOME/.agents/bin/dsh-bwrap-kiosk"
       fi
       PROFIL_DOSYA="$HOME/.dsh/profiles/headless/cordis.patch.yml"
+      PROFIL_KAYNAK="$DEPO/otomasyon/dsh-headless.cordis.patch.yml"
       install -d -m 700 "$HOME/.dsh/profiles/headless"
-      if [ ! -f "$PROFIL_DOSYA" ] && [ -f "$DEPO/otomasyon/dsh-headless.cordis.patch.yml" ]; then
-        install -m 600 "$DEPO/otomasyon/dsh-headless.cordis.patch.yml" "$PROFIL_DOSYA"
-      fi
       if [ ! -x "$HOME/.agents/bin/dsh-bwrap-kiosk" ]; then
         echo "✗ DSH sandbox runner yok/çalıştırılamaz: $HOME/.agents/bin/dsh-bwrap-kiosk" >&2
         exit 4
       fi
-      if ! grep -q 'dsh-bwrap-kiosk' "$PROFIL_DOSYA"; then
+      if [ ! -f "$PROFIL_KAYNAK" ]; then
+        echo "✗ güvenli headless profili yok: $PROFIL_KAYNAK" >&2
+        exit 5
+      fi
+      # Profili ATOMİK yenile: eski runnerCommand=... kalırsa güvenlik sessizce düşer.
+      [ -f "$PROFIL_DOSYA" ] && cp -p "$PROFIL_DOSYA" "$PROFIL_DOSYA.bak-$(date +%Y%m%dT%H%M%S)"
+      PROFIL_GECICI="$(mktemp "$PROFIL_DOSYA.tmp.XXXXXX")"
+      sed "s#/home/hakki/.agents/bin/dsh-bwrap-kiosk#$HOME/.agents/bin/dsh-bwrap-kiosk#g" \
+        "$PROFIL_KAYNAK" > "$PROFIL_GECICI"
+      chmod 600 "$PROFIL_GECICI"
+      mv -f "$PROFIL_GECICI" "$PROFIL_DOSYA"
+      # runnerCommand değerini birebir doğrula (yorumda geçen ad yeterli değil).
+      if ! awk '
+        /^[[:space:]]*runnerCommand:[[:space:]]*$/ { blok=1; next }
+        blok && /^[[:space:]]*-[[:space:]]*/ {
+          satir=$0; sub(/^[[:space:]]*-[[:space:]]*/, "", satir); print satir; next
+        }
+        blok { exit }
+      ' "$PROFIL_DOSYA" | grep -Fx "$HOME/.agents/bin/dsh-bwrap-kiosk" >/dev/null; then
         echo "✗ headless profilinde güvenli sandbox runner yok: $PROFIL_DOSYA" >&2
-        echo "  TASIMA adım 4'ü uygula (headless-cordis.patch.yml kopyala) ve tekrar kur." >&2
+        echo "  runnerCommand $HOME/.agents/bin/dsh-bwrap-kiosk olmalı." >&2
         exit 5
       fi
     fi

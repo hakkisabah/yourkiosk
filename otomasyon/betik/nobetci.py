@@ -745,7 +745,8 @@ def gorev_metni(rol: str, depo: Path, is_listesi: list[dict]) -> str:
         satirlar += ["", "i5 onayı olan ve birleştirilebilir PR'ları `--birlestir --cift-onay` ile BİRLEŞTİR.",
                      "Bir PR birleşince diğerleri 'behind' kalabilir; o PR'a 'dal güncellenmeli' yorumu bırak."]
     if NOBETCI_ARAC == "dsh":
-        satirlar += ["", "DSH: kararı `$KARAR_DIR/karar-<NO>.json` dosyasına **bash ile** yaz "
+        satirlar += ["", "DSH: `topla.py` ÇALIŞTIRMA; PR paketi `$PAKET_DIR` altında hazır. "
+                         "Kararı `$KARAR_DIR/karar-<NO>.json` dosyasına **bash ile** yaz "
                          "(`write`/`edit` read-only'de yazamaz); `yaz.py` ÇALIŞTIRMA. "
                          "Kapı ve GitHub yazımını nöbetçi oturum dışında yapar."]
     satirlar += ["", "Bitince kısa bir özet yaz: hangi PR'a ne yazdın, ne birleşti."]
@@ -755,6 +756,11 @@ def gorev_metni(rol: str, depo: Path, is_listesi: list[dict]) -> str:
 def karar_klasoru() -> Path:
     """DSH ajanı ile nöbetçi arasında PAYLAŞILAN karar dizini (bwrap içine bind edilir)."""
     return DURUM_KLASORU / "karar"
+
+
+def paket_klasoru() -> Path:
+    """Ajan oturumuna SALT-OKUNUR bind edilen, nöbetçinin ürettiği PR paketleri."""
+    return DURUM_KLASORU / "paket"
 
 
 def dsh_home() -> Path:
@@ -791,6 +797,11 @@ def dsh_home_hazirla() -> Path:
     isaret = DURUM_KLASORU / "karar-yolu"
     isaret.write_text(str(kk), encoding="utf-8")
     os.chmod(isaret, 0o600)
+    pk = paket_klasoru()
+    pk.mkdir(parents=True, exist_ok=True)
+    os.chmod(pk, 0o700)
+    (DURUM_KLASORU / "paket-yolu").write_text(str(pk), encoding="utf-8")
+    os.chmod(DURUM_KLASORU / "paket-yolu", 0o600)
     return ev
 
 
@@ -880,6 +891,50 @@ def dsh_pr_verisini_hazirla(depo: Path, is_listesi: list[dict], gunluk_yolu: Pat
         pr = is_["pr"]
         git("fetch", "--quiet", "origin",
             f"+refs/pull/{pr}/head:refs/remotes/origin/pr/{pr}")
+
+
+def dsh_paket_hazirla(depo: Path, rol: str, is_listesi: list[dict],
+                      gunluk_yolu: Path | None = None) -> None:
+    """PR bağlam paketlerini ajan OTURUMUNDAN ÖNCE, sandbox dışında üret.
+
+    Ajan read-only çalışır ve ağ/token göremez; `topla.py` burada, güvenilir nöbetçi
+    sürecinde çalışır. Ajan yalnız `PAKET_DIR` altındaki hazır JSON'ları okur.
+    """
+    pk = paket_klasoru()
+    pk.mkdir(parents=True, exist_ok=True)
+    os.chmod(pk, 0o700)
+    (DURUM_KLASORU / "paket-yolu").write_text(str(pk), encoding="utf-8")
+    os.chmod(DURUM_KLASORU / "paket-yolu", 0o600)
+    topla = depo / "otomasyon" / "betik" / "topla.py"
+    if not topla.is_file():
+        gunluk(gunluk_yolu, f"{rol}: PAKET HAZIRLANAMADI — topla.py yok: {topla}")
+        return
+
+    for eski in list(pk.glob("pr-*.json")) + list(pk.glob("prlar.json")):
+        try:
+            eski.unlink()
+        except OSError:
+            pass
+
+    def uret(ek: list[str], hedef: Path) -> None:
+        try:
+            s = subprocess.run(
+                [sys.executable, str(topla), "--depo", str(depo),
+                 "--durum", str(pk / "topla"), "--cikti", str(hedef), *ek],
+                cwd=str(depo), capture_output=True, text=True, timeout=240)
+        except (OSError, subprocess.SubprocessError) as hata:
+            gunluk(gunluk_yolu, f"{rol}: PAKET HATASI {hedef.name}: {hata}")
+            return
+        if s.returncode != 0 or not hedef.is_file():
+            neden = ((s.stderr or "") + (s.stdout or "")).strip().splitlines()
+            gunluk(gunluk_yolu, f"{rol}: PAKET HATASI {hedef.name} (çıkış {s.returncode}) — "
+                               + (neden[-1][:300] if neden else "çıktı yok"))
+
+    if rol == "i3":
+        uret(["--prlar"], pk / "prlar.json")
+    for is_ in is_listesi:
+        pr = is_["pr"]
+        uret(["--pr", str(pr)], pk / f"pr-{pr}.json")
 
 
 def karar_dosyalarini_temizle(is_listesi: list[dict]) -> None:
@@ -997,6 +1052,7 @@ def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bo
         ortam["DSH_HOME"] = str(ev)
         ortam["KARAR_DIR"] = str(karar_klasoru())
         ortam["DSH_KARAR_DIR"] = str(karar_klasoru())
+        ortam["PAKET_DIR"] = str(paket_klasoru())
         try:
             # DSH görevi argüman yerine stdin'den okur (uzun istem argv'ye sığmaz/sızmaz).
             sonuc = subprocess.run(komut, input=metin, cwd=str(depo), env=ortam,
@@ -1074,6 +1130,7 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
                                 f"{kalan_oturum} kaldı, {boyut // 1024 // 1024} MB")
         karar_dosyalarini_temizle(is_listesi)
         dsh_pr_verisini_hazirla(depo, is_listesi, gunluk_yolu)
+        dsh_paket_hazirla(depo, rol, is_listesi, gunluk_yolu)
 
     kod, cikti = hermes_calistir(depo, gorev_metni(rol, depo, is_listesi), rol, zaman_asimi, kuru)
     gunluk(gunluk_yolu, f"{rol}: oturum bitti (çıkış {kod})")

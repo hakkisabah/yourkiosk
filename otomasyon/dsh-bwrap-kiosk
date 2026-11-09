@@ -28,7 +28,20 @@ for a in "${args[@]}"; do
     if [ -n "$KARAR_BIND" ] && [ -d "$KARAR_BIND" ]; then
       yeni+=(--bind "$KARAR_BIND" "$KARAR_BIND")
     fi
-    yeni+=(--tmpfs /tmp --tmpfs /run/user --tmpfs /run/dbus --)
+    PAKET_BIND="${PAKET_DIR:-}"
+    PAKET_ISARET="$HOME/.local/state/yourkiosk-otomasyon/paket-yolu"
+    if [ -z "$PAKET_BIND" ] && [ -r "$PAKET_ISARET" ]; then
+      PAKET_BIND="$(cat "$PAKET_ISARET" 2>/dev/null || true)"
+    fi
+    if [ -n "$PAKET_BIND" ] && [ -d "$PAKET_BIND" ]; then
+      yeni+=(--ro-bind "$PAKET_BIND" "$PAKET_BIND")
+    fi
+    # Sırları ve ağı kapat: ajan token/.env okuyamaz, GitHub'a yazamaz.
+    for gizli in "$HOME/.config/hermes-secrets" "$HOME/.dsh" "$HOME/.ssh" "$HOME/.aws"; do
+      [ -d "$gizli" ] && yeni+=(--tmpfs "$gizli")
+    done
+    [ -f "$HOME/.git-credentials" ] && yeni+=(--ro-bind /dev/null "$HOME/.git-credentials")
+    yeni+=(--tmpfs /tmp --tmpfs /run/user --tmpfs /run/dbus --unshare-net --)
     ayrac=1
   else
     yeni+=("$a")

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -274,6 +275,29 @@ class DshSandboxDosyaTesti(unittest.TestCase):
         profil = (BETIK.parents[1] / "otomasyon" / "dsh-headless.cordis.patch.yml").read_text(encoding="utf-8")
         self.assertIn("dsh-bwrap-kiosk", profil)
         self.assertIn("runnerCommand", profil)
+
+
+class DshRunnerCalistirTesti(unittest.TestCase):
+    """Runner'ı gerçekten çalıştır: token, repo yazımı ve systemd kapalı olmalı."""
+
+    @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
+    def test_runner_sirlari_repo_yazimini_ve_systemd_i_engeller(self):
+        runner = BETIK.parents[1] / "otomasyon" / "dsh-bwrap-kiosk"
+        hedef = Path.cwd() / ".dsh-sandbox-test"
+        komut = [
+            str(runner), "--ro-bind", "/", "/", "--dev", "/dev",
+            "--unshare-pid", "--proc", "/proc", "--die-with-parent", "--",
+            "bash", "-c",
+            'test -r "$HOME/.config/hermes-secrets/github-yourkiosk.token" && echo TOKEN_OK || echo TOKEN_YOK; '
+            f'echo x > {hedef} 2>/dev/null; echo REPO=$?; '
+            'timeout 3 systemd-run --user --scope true >/dev/null 2>&1; echo SYSTEMD=$?',
+        ]
+        s = subprocess.run(komut, capture_output=True, text=True, timeout=40, env=os.environ)
+        self.assertIn("REPO=", s.stdout, "runner komutu çalışmadı: " + s.stderr[:400])
+        self.assertNotIn("TOKEN_OK", s.stdout)
+        self.assertNotRegex(s.stdout, r"REPO=0")
+        self.assertNotRegex(s.stdout, r"SYSTEMD=0")
+        self.assertFalse(hedef.exists())
 
 
 class BakimDshTesti(unittest.TestCase):

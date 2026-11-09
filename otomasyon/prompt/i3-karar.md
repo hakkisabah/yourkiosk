@@ -35,6 +35,8 @@ ve i5'e geri gönderirsin.
    ```bash
    python3 otomasyon/betik/topla.py --prlar --durum /tmp/topla --cikti /tmp/prlar.json
    python3 otomasyon/betik/topla.py --pr <NO> --durum /tmp/topla --cikti /tmp/pr-<NO>.json
+   # DSH headless: bu komutları ÇALIŞTIRMA; "$PAKET_DIR/prlar.json" ve
+   # "$PAKET_DIR/pr-<NO>.json" nöbetçi tarafından hazırlandı.
    ```
    Ayrıca **i5'in kararını** oku: PR yorumları (`gh` yoksa `curl` ya da paket içindeki `yorumlar`).
 
