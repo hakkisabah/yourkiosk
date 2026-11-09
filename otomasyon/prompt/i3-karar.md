@@ -33,8 +33,8 @@ ve i5'e geri gönderirsin.
 
 1. İş listesini al (nöbetçi verir) veya elle:
    ```bash
-   python3 otomasyon/betik/topla.py --prlar --cikti /tmp/prlar.json
-   python3 otomasyon/betik/topla.py --pr <NO> --cikti /tmp/pr-<NO>.json
+   python3 otomasyon/betik/topla.py --prlar --durum /tmp/topla --cikti /tmp/prlar.json
+   python3 otomasyon/betik/topla.py --pr <NO> --durum /tmp/topla --cikti /tmp/pr-<NO>.json
    ```
    Ayrıca **i5'in kararını** oku: PR yorumları (`gh` yoksa `curl` ya da paket içindeki `yorumlar`).
 

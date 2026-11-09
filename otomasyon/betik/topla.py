@@ -236,7 +236,13 @@ def main() -> int:
         print("\n".join(sorted(set(satirlar))))
         return 0
 
-    durum.mkdir(parents=True, exist_ok=True)
+    try:
+        durum.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # DSH review ajanı read-only çalışır; varsayılan durum dizini yazılamaz.
+        durum = Path("/tmp/topla")
+        durum.mkdir(parents=True, exist_ok=True)
+        print("[topla] uyarı: durum dizini yazılamadı → /tmp/topla", file=sys.stderr)
 
     # ---- YALNIZ PR PAKETİ (i5/i3 PR BAŞLIĞINI inceler, main ucunu değil)
     if a.pr:

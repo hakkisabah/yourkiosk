@@ -859,6 +859,29 @@ def dsh_oturum_temizle(gun: int = 7, azami_bayt: int = 1_000_000_000) -> tuple[i
     return silinen, kalan, toplam
 
 
+def dsh_pr_verisini_hazirla(depo: Path, is_listesi: list[dict], gunluk_yolu: Path | None = None) -> None:
+    """PR ref'lerini ve taban dallarını ajan OTURUMUNDAN ÖNCE, sandbox dışında çek.
+
+    DSH review ajanı read-only çalışır; `topla.py` içindeki `git fetch` yazamaz. Ref'ler
+    önceden çekilmezse `origin/pr/<no>` ve `origin/<base>` yoktur → diff üretilemez ve ajan
+    boşuna döner. Bu fetch'ler güvenilir nöbetçi sürecinde yapılır.
+    """
+    def git(*arg: str) -> None:
+        try:
+            s = subprocess.run(["git", "-C", str(depo), *arg],
+                               capture_output=True, text=True, timeout=180)
+            if s.returncode != 0:
+                gunluk(gunluk_yolu, f"PR hazırlığı: git {' '.join(arg[:3])} çıkış {s.returncode}")
+        except (OSError, subprocess.SubprocessError) as hata:
+            gunluk(gunluk_yolu, f"PR hazırlığı: git hatası: {hata}")
+
+    git("fetch", "--prune", "--quiet", "origin", "+refs/heads/*:refs/remotes/origin/*")
+    for is_ in is_listesi:
+        pr = is_["pr"]
+        git("fetch", "--quiet", "origin",
+            f"+refs/pull/{pr}/head:refs/remotes/origin/pr/{pr}")
+
+
 def karar_dosyalarini_temizle(is_listesi: list[dict]) -> None:
     """Yeni oturum öncesi eski karar dosyalarını sil (bayat karar yayınlanmasın)."""
     for is_ in is_listesi:
@@ -1050,6 +1073,7 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
             gunluk(gunluk_yolu, f"{rol}: DSH oturum temizliği: {silinen} silindi, "
                                 f"{kalan_oturum} kaldı, {boyut // 1024 // 1024} MB")
         karar_dosyalarini_temizle(is_listesi)
+        dsh_pr_verisini_hazirla(depo, is_listesi, gunluk_yolu)
 
     kod, cikti = hermes_calistir(depo, gorev_metni(rol, depo, is_listesi), rol, zaman_asimi, kuru)
     gunluk(gunluk_yolu, f"{rol}: oturum bitti (çıkış {kod})")

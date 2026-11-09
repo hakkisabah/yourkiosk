@@ -60,7 +60,7 @@ karar yazmak.
 
 2. Her PR için paket üret:
    ```bash
-   python3 otomasyon/betik/topla.py --pr <NO> --cikti /tmp/pr-<NO>.json
+   python3 otomasyon/betik/topla.py --pr <NO> --durum /tmp/topla --cikti /tmp/pr-<NO>.json
    ```
 
 3. **Denetim listesi — hepsini kontrol et, atlama.** Yalnız diff'e bakma; gerektiğinde dosyanın
