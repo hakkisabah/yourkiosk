@@ -271,6 +271,15 @@ class DshSandboxDosyaTesti(unittest.TestCase):
         self.assertIn("--bind", runner)
         self.assertIn("bwrap", runner)
 
+    def test_headless_profili_native_fs_web_araclarini_kapatir(self):
+        profil = (BETIK.parents[1] / "otomasyon" / "dsh-headless.cordis.patch.yml").read_text(encoding="utf-8")
+        for arac in ("tool-fs", "tool-fs-search", "tool-web", "tool-subagent",
+                     "tool-subagent-fork", "tool-workflow"):
+            self.assertIn(f"- id: {arac}", profil)
+            # aynı satırın hemen ardından disabled: true gelmeli
+            blok = profil.split(f"- id: {arac}", 1)[1].split("- id:", 1)[0]
+            self.assertIn("disabled: true", blok, f"{arac} kapatılmamış")
+
     def test_headless_profili_guvenli_runneri_kullanir(self):
         profil = (BETIK.parents[1] / "otomasyon" / "dsh-headless.cordis.patch.yml").read_text(encoding="utf-8")
         self.assertIn("dsh-bwrap-kiosk", profil)

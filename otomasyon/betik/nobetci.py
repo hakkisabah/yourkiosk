@@ -746,8 +746,9 @@ def gorev_metni(rol: str, depo: Path, is_listesi: list[dict]) -> str:
                      "Bir PR birleşince diğerleri 'behind' kalabilir; o PR'a 'dal güncellenmeli' yorumu bırak."]
     if NOBETCI_ARAC == "dsh":
         satirlar += ["", "DSH: `topla.py` ÇALIŞTIRMA; PR paketi `$PAKET_DIR` altında hazır. "
-                         "Kararı `$KARAR_DIR/karar-<NO>.json` dosyasına **bash ile** yaz "
-                         "(`write`/`edit` read-only'de yazamaz); `yaz.py` ÇALIŞTIRMA. "
+                         "`read`/`grep`/`glob`/`web_fetch`/`subagent` KAPALI; her şeyi `bash` ile yap "
+                         "(`cat`, `sed`, `grep`, `python3`). Kararı `$KARAR_DIR/karar-<NO>.json` "
+                         "dosyasına **bash ile** yaz; `yaz.py` ÇALIŞTIRMA. "
                          "Kapı ve GitHub yazımını nöbetçi oturum dışında yapar."]
     satirlar += ["", "Bitince kısa bir özet yaz: hangi PR'a ne yazdın, ne birleşti."]
     return "\n".join(satirlar) + "\n"
@@ -834,7 +835,8 @@ def dsh_oturum_ozet() -> tuple[int, int]:
     return sayi, bayt
 
 
-def dsh_oturum_temizle(gun: int = 7, azami_bayt: int = 1_000_000_000) -> tuple[int, int, int]:
+def dsh_oturum_temizle(gun: int = 7, azami_bayt: int = 1_000_000_000,
+                        gunluk_yolu: Path | None = None) -> tuple[int, int, int]:
     """Eski/büyük nöbetçi DSH oturumlarını sil; (silinen, kalan, bayt) döndür.
 
     Yalnız `dsh_home()` altındaki oturumlara dokunur; web/sohbet oturumları ayrı evdedir.
@@ -853,9 +855,21 @@ def dsh_oturum_temizle(gun: int = 7, azami_bayt: int = 1_000_000_000) -> tuple[i
         except OSError:
             continue
     silinen = 0
+
+    def sil(p: Path) -> bool:
+        try:
+            shutil.rmtree(p)
+            return True
+        except OSError as hata:
+            mesaj = f"DSH oturum silinemedi: {p} ({hata})"
+            if gunluk_yolu:
+                gunluk(gunluk_yolu, mesaj)
+            else:
+                print(mesaj, file=sys.stderr)
+            return False
+
     for mtime, p in sorted(kayitlar):
-        if mtime < esik:
-            shutil.rmtree(p, ignore_errors=True)
+        if mtime < esik and sil(p):
             silinen += 1
     kayitlar = [(p.stat().st_mtime, p) for p in kok.iterdir() if p.is_dir()]
     toplam = sum(_dizin_bayt(p) for _, p in kayitlar)
@@ -863,9 +877,9 @@ def dsh_oturum_temizle(gun: int = 7, azami_bayt: int = 1_000_000_000) -> tuple[i
         if toplam <= azami_bayt:
             break
         boyut = _dizin_bayt(p)
-        shutil.rmtree(p, ignore_errors=True)
-        toplam -= boyut
-        silinen += 1
+        if sil(p):
+            toplam -= boyut
+            silinen += 1
     kalan = sum(1 for p in kok.iterdir() if p.is_dir())
     return silinen, kalan, toplam
 
@@ -1124,7 +1138,7 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
                             f"{OTURUM_TUR_TAVANI} yerine {b['tur']} tur uygulanıyor "
                             f"({b['tur_basi_sn']} sn/tur). Varsayılan: {VARSAYILAN_ZAMAN_ASIMI} sn")
     if NOBETCI_ARAC == "dsh" and not kuru:
-        silinen, kalan_oturum, boyut = dsh_oturum_temizle()
+        silinen, kalan_oturum, boyut = dsh_oturum_temizle(gunluk_yolu=gunluk_yolu)
         if silinen:
             gunluk(gunluk_yolu, f"{rol}: DSH oturum temizliği: {silinen} silindi, "
                                 f"{kalan_oturum} kaldı, {boyut // 1024 // 1024} MB")

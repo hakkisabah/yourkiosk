@@ -205,6 +205,18 @@ class DshOturumTesti(unittest.TestCase):
         self.assertTrue(yeni.exists())
         self.assertEqual(kalan, 1)
 
+    def test_silinemeyen_oturum_sayilmaz(self):
+        kok = nobetci.dsh_home() / "sessions"
+        eski = kok / "session-eski"
+        eski.mkdir(parents=True)
+        (eski / "log").write_text("x")
+        os.utime(eski, (time.time() - 8 * 86400,) * 2)
+        with mock.patch.object(nobetci.shutil, "rmtree", side_effect=OSError("kilit")):
+            silinen, kalan, _ = nobetci.dsh_oturum_temizle(gun=7)
+        self.assertEqual(silinen, 0)
+        self.assertEqual(kalan, 1)
+        self.assertTrue(eski.exists())
+
     def test_bayt_siniri_asilinca_en_eski_silinir(self):
         kok = nobetci.dsh_home() / "sessions"
         for ad in ("a", "b", "c"):

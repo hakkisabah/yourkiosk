@@ -7,7 +7,8 @@
 > **DSH headless ise:** `yaz.py` ÇALIŞTIRMA. Kararı
 > `${KARAR_DIR:-/tmp}/karar-<NO>.json` dosyasına yaz; kapıyı ve GitHub
 > yazımını nöbetçi oturum dışında yapar. `KARAR_DIR` DSH oturumunda tanımlıdır.
-> DSH read-only olduğu için `write`/`edit` araçları yazamaz; JSON'u **bash** ile yaz:
+> DSH review profilinde `read`, `grep`, `glob`, `web_fetch`, `subagent` **kapalıdır**; tüm
+> okuma/yazma `bash` (`cat`, `sed`, `grep`, `python3`) ile yapılır. JSON'u da **bash** ile yaz:
 > `cat > "$KARAR_DIR/karar-<NO>.json" <<'JSON' ... JSON`.
 
 Sen **i3 makinesindeki** ajansın (Hermes veya DSH headless). Rolün: **ikinci göz / doğrulayıcı**. i5'in yazdığı kararı

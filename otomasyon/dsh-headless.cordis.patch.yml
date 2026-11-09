@@ -31,3 +31,22 @@
       - /home/hakki/.agents/bin/dsh-bwrap-kiosk
     runnerFailureSignatures:
       - "dsh-bwrap-kiosk:"
+
+# 2026-11-09 i5 üçüncü tur: bwrap yalnız bash'i sarar; DSH'nin native fs/web/
+# delegation araçları sandbox DIŞINDA çalışır. Review profilinde bunları kapat.
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-agent-team
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
