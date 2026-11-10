@@ -769,6 +769,91 @@ def dsh_home() -> Path:
     return DURUM_KLASORU / "dsh-home"
 
 
+def dsh_profil_yolu() -> Path:
+    return Path.home() / ".dsh" / "profiles" / "headless" / "cordis.patch.yml"
+
+
+def dsh_profil_denetle(profil: Path | None = None) -> tuple[bool, str]:
+    """Kurulu headless profilinde güvenli runner ve kapalı native araçlar var mı?"""
+    yol = profil or dsh_profil_yolu()
+    try:
+        metin = yol.read_text(encoding="utf-8")
+    except OSError as hata:
+        return False, f"profil okunamadı: {yol} ({hata})"
+    hedef_runner = str(Path.home() / ".agents" / "bin" / "dsh-bwrap-kiosk")
+    m = re.search(r"^[ \t]*runnerCommand:\s*$", metin, re.M)
+    if not m:
+        return False, "runnerCommand yok"
+    son = re.search(r"^[^ \t\r\n-]", metin[m.end():], re.M)
+    blok = metin[m.end(): m.end() + son.start()] if son else metin[m.end():]
+    runnerlar = [x.strip().strip('"').strip("'") for x in re.findall(r"^\s*-\s*(.+)$", blok, re.M)]
+    if hedef_runner not in runnerlar:
+        return False, f"runnerCommand güvenli runner değil (beklenen {hedef_runner})"
+    # blok bazlı kesin denetim
+    for arac in ("tool-fs", "tool-fs-search", "tool-web", "tool-subagent",
+                 "tool-subagent-fork", "tool-workflow", "tool-agent-team"):
+        m = re.search(rf"^- id: {re.escape(arac)}\s*$", metin, re.M)
+        if not m:
+            return False, f"{arac} satırı yok"
+        son = re.search(r"^- id: ", metin[m.end():], re.M)
+        blok = metin[m.end(): m.end() + son.start()] if son else metin[m.end():]
+        if not re.search(r"^\s*disabled:\s*true\s*$", blok, re.M):
+            return False, f"{arac} disabled: true değil"
+    return True, "güvenli"
+
+
+def dsh_runner_hazirla(depo: Path, gunluk_yolu: Path | None = None) -> bool:
+    """Kod güncellenince sandbox runner'ını da yenile (servis --guncelle sonrası)."""
+    kaynak = depo / "otomasyon" / "dsh-bwrap-kiosk"
+    hedef = Path.home() / ".agents" / "bin" / "dsh-bwrap-kiosk"
+    try:
+        if kaynak.is_file():
+            veri = kaynak.read_bytes()
+            if not hedef.is_file() or hedef.read_bytes() != veri:
+                hedef.parent.mkdir(parents=True, exist_ok=True)
+                gecici = hedef.with_name(hedef.name + ".tmp")
+                gecici.write_bytes(veri)
+                os.chmod(gecici, 0o755)
+                os.replace(gecici, hedef)
+                gunluk(gunluk_yolu, "DSH sandbox runner depodan yenilendi")
+        return hedef.is_file() and os.access(hedef, os.X_OK)
+    except OSError as hata:
+        gunluk(gunluk_yolu, f"DSH runner hazırlanamadı: {hata}")
+        return False
+
+
+def dsh_profil_hazirla(depo: Path, gunluk_yolu: Path | None = None) -> bool:
+    """Kod güncellenince profili de yenile; eksikse fail-closed.
+
+    Profil depoda sürümlenir. Servis `--guncelle` ile yeni kodu alınca bu fonksiyon
+    güvenli profili atomik olarak yazar; böylece eski/eksik profil sessizce kalmaz.
+    """
+    if not dsh_runner_hazirla(depo, gunluk_yolu):
+        return False
+    kaynak = depo / "otomasyon" / "dsh-headless.cordis.patch.yml"
+    hedef = dsh_profil_yolu()
+    try:
+        if kaynak.is_file():
+            metin = kaynak.read_text(encoding="utf-8").replace(
+                "/home/hakki", str(Path.home()))
+            eski = hedef.read_text(encoding="utf-8") if hedef.is_file() else ""
+            if metin != eski:
+                hedef.parent.mkdir(parents=True, exist_ok=True)
+                if eski:
+                    yedek = hedef.with_name(hedef.name + ".bak-" + time.strftime("%Y%m%dT%H%M%S"))
+                    yedek.write_text(eski, encoding="utf-8")
+                    os.chmod(yedek, 0o600)
+                gecici = hedef.with_name(hedef.name + ".tmp")
+                gecici.write_text(metin, encoding="utf-8")
+                os.chmod(gecici, 0o600)
+                os.replace(gecici, hedef)
+                gunluk(gunluk_yolu, "DSH profili depodan yenilendi")
+        return dsh_profil_denetle(hedef)[0]
+    except OSError as hata:
+        gunluk(gunluk_yolu, f"DSH profili hazırlanamadı: {hata}")
+        return False
+
+
 def dsh_home_hazirla() -> Path:
     """DSH_HOME'u hazırla: profil ve .env bağla, oturum/karar dizinlerini oluştur.
 
@@ -820,18 +905,34 @@ def _dizin_bayt(dizin: Path) -> int:
     return toplam
 
 
-def dsh_oturum_ozet() -> tuple[int, int]:
-    """Nöbetçinin DSH oturum deposu: (oturum sayısı, bayt)."""
-    kok = dsh_home() / "sessions"
+def _dsh_storage_dosyalari() -> list[Path]:
+    """DSH_HOME/storages/session_projcache altındaki dosyalar (oturum başına JSON)."""
+    kok = dsh_home() / "storages" / "session_projcache"
     if not kok.is_dir():
-        return 0, 0
+        return []
+    try:
+        return [p for p in kok.rglob("*") if p.is_file()]
+    except OSError:
+        return []
+
+
+def dsh_oturum_ozet() -> tuple[int, int]:
+    """Nöbetçinin DSH oturum deposu: (oturum/kayıt sayısı, bayt)."""
+    kok = dsh_home() / "sessions"
     sayi = 0
     bayt = 0
-    for p in kok.iterdir():
-        if not p.is_dir():
-            continue
+    if kok.is_dir():
+        for p in kok.iterdir():
+            if not p.is_dir():
+                continue
+            sayi += 1
+            bayt += _dizin_bayt(p)
+    for p in _dsh_storage_dosyalari():
         sayi += 1
-        bayt += _dizin_bayt(p)
+        try:
+            bayt += p.stat().st_size
+        except OSError:
+            pass
     return sayi, bayt
 
 
@@ -842,18 +943,17 @@ def dsh_oturum_temizle(gun: int = 7, azami_bayt: int = 1_000_000_000,
     Yalnız `dsh_home()` altındaki oturumlara dokunur; web/sohbet oturumları ayrı evdedir.
     """
     kok = dsh_home() / "sessions"
-    if not kok.is_dir():
-        return 0, 0, 0
     simdi = time.time()
     esik = simdi - max(1, gun) * 86400
     kayitlar: list[tuple[float, Path]] = []
-    for p in kok.iterdir():
-        if not p.is_dir():
-            continue
-        try:
-            kayitlar.append((p.stat().st_mtime, p))
-        except OSError:
-            continue
+    if kok.is_dir():
+        for p in kok.iterdir():
+            if not p.is_dir():
+                continue
+            try:
+                kayitlar.append((p.stat().st_mtime, p))
+            except OSError:
+                continue
     silinen = 0
 
     def sil(p: Path) -> bool:
@@ -868,11 +968,35 @@ def dsh_oturum_temizle(gun: int = 7, azami_bayt: int = 1_000_000_000,
                 print(mesaj, file=sys.stderr)
             return False
 
+    def sil_dosya(p: Path) -> bool:
+        try:
+            p.unlink()
+            return True
+        except OSError as hata:
+            mesaj = f"DSH storage silinemedi: {p} ({hata})"
+            if gunluk_yolu:
+                gunluk(gunluk_yolu, mesaj)
+            else:
+                print(mesaj, file=sys.stderr)
+            return False
+
     for mtime, p in sorted(kayitlar):
         if mtime < esik and sil(p):
             silinen += 1
-    kayitlar = [(p.stat().st_mtime, p) for p in kok.iterdir() if p.is_dir()]
+    for p in sorted(_dsh_storage_dosyalari(), key=lambda x: x.stat().st_mtime):
+        try:
+            if p.stat().st_mtime < esik and sil_dosya(p):
+                silinen += 1
+        except OSError:
+            continue
+    kayitlar = ([(p.stat().st_mtime, p) for p in kok.iterdir() if p.is_dir()]
+                if kok.is_dir() else [])
     toplam = sum(_dizin_bayt(p) for _, p in kayitlar)
+    for p in _dsh_storage_dosyalari():
+        try:
+            toplam += p.stat().st_size
+        except OSError:
+            pass
     for _mtime, p in sorted(kayitlar):
         if toplam <= azami_bayt:
             break
@@ -880,7 +1004,18 @@ def dsh_oturum_temizle(gun: int = 7, azami_bayt: int = 1_000_000_000,
         if sil(p):
             toplam -= boyut
             silinen += 1
-    kalan = sum(1 for p in kok.iterdir() if p.is_dir())
+    for p in sorted(_dsh_storage_dosyalari(), key=lambda x: x.stat().st_mtime):
+        if toplam <= azami_bayt:
+            break
+        try:
+            boyut = p.stat().st_size
+        except OSError:
+            continue
+        if sil_dosya(p):
+            toplam -= boyut
+            silinen += 1
+    kalan = ((sum(1 for p in kok.iterdir() if p.is_dir()) if kok.is_dir() else 0)
+             + len(_dsh_storage_dosyalari()))
     return silinen, kalan, toplam
 
 
@@ -1142,6 +1277,9 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
         if silinen:
             gunluk(gunluk_yolu, f"{rol}: DSH oturum temizliği: {silinen} silindi, "
                                 f"{kalan_oturum} kaldı, {boyut // 1024 // 1024} MB")
+        if not dsh_profil_hazirla(depo, gunluk_yolu):
+            gunluk(gunluk_yolu, f"{rol}: DSH profili güvenli değil → oturum açılmadı")
+            return 2
         karar_dosyalarini_temizle(is_listesi)
         dsh_pr_verisini_hazirla(depo, is_listesi, gunluk_yolu)
         dsh_paket_hazirla(depo, rol, is_listesi, gunluk_yolu)
@@ -1269,6 +1407,8 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
         satir(runner.is_file() and os.access(runner, os.X_OK), "DSH sandbox runner",
               str(runner) if runner.is_file() else f"yok: {runner}")
         satir(DSH_PERMISSION_MODE == "read-only", "DSH izin modu", DSH_PERMISSION_MODE)
+        profil_ok, profil_neden = dsh_profil_denetle()
+        satir(profil_ok, "DSH profil güvenli", profil_neden)
     else:
         try:
             vt = Path.home() / ".hermes" / "state.db"

@@ -37,7 +37,8 @@ for a in "${args[@]}"; do
       yeni+=(--ro-bind "$PAKET_BIND" "$PAKET_BIND")
     fi
     # Sırları ve ağı kapat: ajan token/.env okuyamaz, GitHub'a yazamaz.
-    for gizli in "$HOME/.config/hermes-secrets" "$HOME/.dsh" "$HOME/.ssh" "$HOME/.aws"; do
+    for gizli in "$HOME/.config/hermes-secrets" "$HOME/.dsh" "$HOME/.ssh" "$HOME/.aws" \
+                 "$HOME/.local/state/yourkiosk-otomasyon/dsh-home"; do
       [ -d "$gizli" ] && yeni+=(--tmpfs "$gizli")
     done
     [ -f "$HOME/.git-credentials" ] && yeni+=(--ro-bind /dev/null "$HOME/.git-credentials")

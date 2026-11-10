@@ -177,6 +177,57 @@ class DshKomutTesti(unittest.TestCase):
         self.assertIn("KARAR_DIR", kwargs["env"])
 
 
+class DshProfilTesti(unittest.TestCase):
+    """Kurulu profil güvenli runner + kapalı native araçlar içermeli."""
+
+    def _profil(self, eksik: str = "") -> Path:
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        yol = Path(d.name) / "cordis.patch.yml"
+        parcalar = [
+            "runnerCommand:",
+            "  - " + str(Path.home() / ".agents" / "bin" / "dsh-bwrap-kiosk"),
+            "runnerFailureSignatures:",
+            '  - "dsh-bwrap-kiosk:"',
+        ]
+        for arac in ("tool-fs", "tool-fs-search", "tool-web", "tool-subagent",
+                     "tool-subagent-fork", "tool-workflow", "tool-agent-team"):
+            if arac == eksik:
+                continue
+            parcalar += [f"- id: {arac}", "  disabled: true"]
+        yol.write_text("\n".join(parcalar) + "\n", encoding="utf-8")
+        return yol
+
+    def test_gecerli_profil_kabul_edilir(self):
+        ok, neden = nobetci.dsh_profil_denetle(self._profil())
+        self.assertTrue(ok, neden)
+
+    def test_native_arac_kapali_degilse_reddedilir(self):
+        ok, neden = nobetci.dsh_profil_denetle(self._profil("tool-web"))
+        self.assertFalse(ok)
+        self.assertIn("tool-web", neden)
+
+    def test_profil_depodan_atomik_yenilenir(self):
+        with tempfile.TemporaryDirectory() as d:
+            depo = Path(d) / "depo"
+            (depo / "otomasyon").mkdir(parents=True)
+            kaynak = self._profil()
+            (depo / "otomasyon" / "dsh-headless.cordis.patch.yml").write_text(
+                kaynak.read_text(), encoding="utf-8")
+            hedef = Path(d) / "hedef.yml"
+            with mock.patch.object(nobetci, "dsh_profil_yolu", return_value=hedef):
+                self.assertTrue(nobetci.dsh_profil_hazirla(depo))
+            self.assertTrue(hedef.is_file())
+            self.assertTrue(nobetci.dsh_profil_denetle(hedef)[0])
+
+    def test_runner_yanlissa_reddedilir(self):
+        yol = self._profil()
+        yol.write_text(yol.read_text().replace("dsh-bwrap-kiosk", "/bin/true"))
+        ok, neden = nobetci.dsh_profil_denetle(yol)
+        self.assertFalse(ok)
+        self.assertIn("runnerCommand", neden)
+
+
 class DshOturumTesti(unittest.TestCase):
     """DSH oturum deposu 7 gün/1 GB politikasıyla budanmalı (7 Kasım i5 bulgusu)."""
 
@@ -199,6 +250,20 @@ class DshOturumTesti(unittest.TestCase):
         (yeni / "log").write_text("y" * 10)
         sekiz_gun = time.time() - 8 * 86400
         os.utime(eski, (sekiz_gun, sekiz_gun))
+        silinen, kalan, _ = nobetci.dsh_oturum_temizle(gun=7)
+        self.assertGreaterEqual(silinen, 1)
+        self.assertFalse(eski.exists())
+        self.assertTrue(yeni.exists())
+        self.assertEqual(kalan, 1)
+
+    def test_eski_storage_dosyasi_silinir(self):
+        kok = nobetci.dsh_home() / "storages" / "session_projcache"
+        kok.mkdir(parents=True)
+        eski = kok / "eski.json"
+        yeni = kok / "yeni.json"
+        eski.write_text("{}")
+        yeni.write_text("{}")
+        os.utime(eski, (time.time() - 8 * 86400,) * 2)
         silinen, kalan, _ = nobetci.dsh_oturum_temizle(gun=7)
         self.assertGreaterEqual(silinen, 1)
         self.assertFalse(eski.exists())
