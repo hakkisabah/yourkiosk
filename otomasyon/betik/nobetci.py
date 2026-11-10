@@ -1217,6 +1217,9 @@ def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bo
             return 2, f"DSH evi hazırlanamadı: {hata}"
         ortam = os.environ.copy()
         ortam["DSH_HOME"] = str(ev)
+        depo_isaret = DURUM_KLASORU / "depo-yolu"
+        depo_isaret.write_text(str(depo.resolve()), encoding="utf-8")
+        os.chmod(depo_isaret, 0o600)
         ortam["KARAR_DIR"] = str(karar_klasoru())
         ortam["DSH_KARAR_DIR"] = str(karar_klasoru())
         ortam["PAKET_DIR"] = str(paket_klasoru())

@@ -288,42 +288,76 @@ class DshSandboxDosyaTesti(unittest.TestCase):
 
 
 class DshRunnerCalistirTesti(unittest.TestCase):
-    """Runner'ı gerçekten çalıştır: token, repo yazımı ve systemd kapalı olmalı."""
+    """Runner'ı workdir=$HOME ile çalıştır: ev/sırlar gizli, repo ro, karar rw."""
 
     @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
-    def test_runner_sirlari_repo_yazimini_ve_systemd_i_engeller(self):
+    def test_workdir_home_sirlari_repo_yazimini_ve_systemd_i_engeller(self):
         runner = BETIK.parents[1] / "otomasyon" / "dsh-bwrap-kiosk"
-        hedef = Path.cwd() / ".dsh-sandbox-test"
-        komut = [
-            str(runner), "--ro-bind", "/", "/", "--dev", "/dev",
-            "--unshare-pid", "--proc", "/proc", "--die-with-parent", "--",
-            "bash", "-c",
-            'test -r "$HOME/.config/hermes-secrets/github-yourkiosk.token" && echo TOKEN_OK || echo TOKEN_YOK; '
-            f'echo x > {hedef} 2>/dev/null; echo REPO=$?; '
-            'timeout 3 systemd-run --user --scope true >/dev/null 2>&1; echo SYSTEMD=$?; '
-            'test -S /run/docker.sock && echo DOCKER_SOCK || echo DOCKER_YOK; '
-            'timeout 3 docker info >/dev/null 2>&1; echo DOCKER=$?; '
-            'test -r "$HOME/.config" && echo HOME_OK || echo HOME_GIZLI',
-        ]
-        s = subprocess.run(komut, capture_output=True, text=True, timeout=40, env=os.environ)
-        self.assertIn("REPO=", s.stdout, "runner komutu çalışmadı: " + s.stderr[:400])
-        self.assertNotIn("TOKEN_OK", s.stdout)
-        self.assertNotRegex(s.stdout, r"REPO=0")
-        self.assertNotRegex(s.stdout, r"SYSTEMD=0")
-        self.assertNotIn("DOCKER_SOCK", s.stdout)
-        self.assertNotRegex(s.stdout, r"DOCKER=0")
-        self.assertNotIn("HOME_OK", s.stdout)
-        self.assertFalse(hedef.exists())
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
+            home = Path(d) / "home"
+            home.mkdir()
+            depo = home / "repo"
+            (depo / ".git").mkdir(parents=True)
+            (depo / "ok").write_text("OK", encoding="utf-8")
+            (home / ".bashrc").write_text("CANARY", encoding="utf-8")
+            gizli = home / ".config" / "hermes-secrets"
+            gizli.mkdir(parents=True)
+            (gizli / "token").write_text("CANARY_TOKEN", encoding="utf-8")
+            state = home / ".local" / "state" / "yourkiosk-otomasyon"
+            state.mkdir(parents=True)
+            (state / "karar").mkdir()
+            (state / "paket").mkdir()
+            (state / "depo-yolu").write_text(str(depo), encoding="utf-8")
+            (state / "paket" / "test.json").write_text('{"ok":1}', encoding="utf-8")
+            (state / "paket-yolu").write_text(str(state / "paket"), encoding="utf-8")
+            hedef = depo / ".dsh-sandbox-test"
+            komut = [
+                str(runner), "--ro-bind", "/", "/", "--dev", "/dev",
+                "--unshare-pid", "--proc", "/proc", "--die-with-parent",
+                "--",
+                "bash", "-c",
+                'cd "$HOME"; test -r "$HOME/.bashrc" && echo HOME_OK || echo HOME_GIZLI; '
+                'test -r "$HOME/.config/hermes-secrets/token" && echo TOKEN_OK || echo TOKEN_YOK; '
+                f'cat {depo}/ok >/dev/null && echo REPO_OK; '
+                f'echo x > {hedef} 2>/dev/null; echo REPO=$?; '
+                'timeout 3 systemd-run --user --scope true >/dev/null 2>&1; echo SYSTEMD=$?; '
+                'test -S /run/docker.sock && echo DOCKER_SOCK || echo DOCKER_YOK; '
+                'timeout 3 docker info >/dev/null 2>&1; echo DOCKER=$?; '
+                'cat "$HOME/.local/state/yourkiosk-otomasyon/paket/test.json" 2>/dev/null || echo PAKET_YOK',
+            ]
+            env = {**os.environ, "HOME": str(home),
+                   "PAKET_DIR": str(state / "paket"), "DSH_SHADOW_DIR": d}
+            s = subprocess.run(komut, capture_output=True, text=True, timeout=40, env=env)
+            self.assertIn("REPO_OK", s.stdout, "runner komutu çalışmadı: " + s.stderr[:400])
+            self.assertNotIn("HOME_OK", s.stdout)
+            self.assertNotIn("TOKEN_OK", s.stdout)
+            self.assertNotRegex(s.stdout, r"REPO=0")
+            self.assertNotRegex(s.stdout, r"SYSTEMD=0")
+            self.assertNotIn("DOCKER_SOCK", s.stdout)
+            self.assertNotRegex(s.stdout, r"DOCKER=0")
+            self.assertIn('{"ok":1}', s.stdout)
+            self.assertFalse(hedef.exists())
 
     @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
     def test_runner_normal_hata_imzasi_basmaz(self):
         runner = BETIK.parents[1] / "otomasyon" / "dsh-bwrap-kiosk"
-        komut = [str(runner), "--ro-bind", "/", "/", "--dev", "/dev",
-                 "--unshare-pid", "--proc", "/proc", "--die-with-parent", "--",
-                 "bash", "-c", "false"]
-        s = subprocess.run(komut, capture_output=True, text=True, timeout=30, env=os.environ)
-        self.assertEqual(s.returncode, 1)
-        self.assertNotIn("dsh-bwrap-kiosk:", s.stderr)
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
+            home = Path(d) / "home"
+            home.mkdir()
+            depo = home / "repo"
+            (depo / ".git").mkdir(parents=True)
+            state = home / ".local" / "state" / "yourkiosk-otomasyon"
+            state.mkdir(parents=True)
+            (state / "karar").mkdir()
+            (state / "depo-yolu").write_text(str(depo), encoding="utf-8")
+            komut = [str(runner), "--ro-bind", "/", "/", "--dev", "/dev",
+                     "--unshare-pid", "--proc", "/proc", "--die-with-parent", "--",
+                     "bash", "-c", "false"]
+            s = subprocess.run(komut, capture_output=True, text=True, timeout=30,
+                               env={**os.environ, "HOME": str(home),
+                                    "DSH_SHADOW_DIR": d})
+            self.assertEqual(s.returncode, 1)
+            self.assertNotIn("dsh-bwrap-kiosk:", s.stderr)
 
     @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
     def test_runner_ayracsiz_cagriyi_reddeder(self):
