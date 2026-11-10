@@ -357,12 +357,15 @@ class ZamanAsimiTesti(unittest.TestCase):
         gunluk_yolu = Path(dizin.name) / "nobetci.log"
         is_ = {"pr": 83, "sha": "a" * 40, "baslik": "x", "yas_dk": 10}
         eski_calistir, eski_isler = nobetci.hermes_calistir, nobetci.isler
+        eski_arac = nobetci.NOBETCI_ARAC
         nobetci.hermes_calistir = lambda *a, **k: (124, "zaman aşımı (1860s)")
         nobetci.isler = lambda *a, **k: [is_]          # karar YAZILMADI (liste değişmedi)
+        nobetci.NOBETCI_ARAC = "hermes"                 # DSH_* ortamından bağımsız test
         try:
             kod = nobetci.tek_tur(self.SahteGh(), Path(dizin.name), "i5", 1, False, 1860, gunluk_yolu)
         finally:
             nobetci.hermes_calistir, nobetci.isler = eski_calistir, eski_isler
+            nobetci.NOBETCI_ARAC = eski_arac
         metin = gunluk_yolu.read_text(encoding="utf-8")
         self.assertEqual(kod, 124)
         self.assertIn("ZAMAN AŞIMI", metin, "124 için eylem satırı yok")

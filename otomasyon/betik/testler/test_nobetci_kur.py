@@ -266,8 +266,8 @@ class DshSandboxDosyaTesti(unittest.TestCase):
 
     def test_runner_user_systemd_ve_dbus_maskeler(self):
         runner = (BETIK.parents[1] / "otomasyon" / "dsh-bwrap-kiosk").read_text(encoding="utf-8")
-        self.assertIn("--tmpfs /run/user", runner)
-        self.assertIn("--tmpfs /run/dbus", runner)
+        self.assertIn("--tmpfs /run", runner)
+        self.assertIn("--unshare-net", runner)
         self.assertIn("--bind", runner)
         self.assertIn("bwrap", runner)
 
@@ -299,14 +299,36 @@ class DshRunnerCalistirTesti(unittest.TestCase):
             "bash", "-c",
             'test -r "$HOME/.config/hermes-secrets/github-yourkiosk.token" && echo TOKEN_OK || echo TOKEN_YOK; '
             f'echo x > {hedef} 2>/dev/null; echo REPO=$?; '
-            'timeout 3 systemd-run --user --scope true >/dev/null 2>&1; echo SYSTEMD=$?',
+            'timeout 3 systemd-run --user --scope true >/dev/null 2>&1; echo SYSTEMD=$?; '
+            'test -S /run/docker.sock && echo DOCKER_SOCK || echo DOCKER_YOK; '
+            'timeout 3 docker info >/dev/null 2>&1; echo DOCKER=$?',
         ]
         s = subprocess.run(komut, capture_output=True, text=True, timeout=40, env=os.environ)
         self.assertIn("REPO=", s.stdout, "runner komutu çalışmadı: " + s.stderr[:400])
         self.assertNotIn("TOKEN_OK", s.stdout)
         self.assertNotRegex(s.stdout, r"REPO=0")
         self.assertNotRegex(s.stdout, r"SYSTEMD=0")
+        self.assertNotIn("DOCKER_SOCK", s.stdout)
+        self.assertNotRegex(s.stdout, r"DOCKER=0")
         self.assertFalse(hedef.exists())
+
+    @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
+    def test_runner_normal_hata_imzasi_basmaz(self):
+        runner = BETIK.parents[1] / "otomasyon" / "dsh-bwrap-kiosk"
+        komut = [str(runner), "--ro-bind", "/", "/", "--dev", "/dev",
+                 "--unshare-pid", "--proc", "/proc", "--die-with-parent", "--",
+                 "bash", "-c", "false"]
+        s = subprocess.run(komut, capture_output=True, text=True, timeout=30, env=os.environ)
+        self.assertEqual(s.returncode, 1)
+        self.assertNotIn("dsh-bwrap-kiosk:", s.stderr)
+
+    @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
+    def test_runner_ayracsiz_cagriyi_reddeder(self):
+        runner = BETIK.parents[1] / "otomasyon" / "dsh-bwrap-kiosk"
+        s = subprocess.run([str(runner), "--ro-bind", "/", "/"],
+                           capture_output=True, text=True, timeout=30, env=os.environ)
+        self.assertEqual(s.returncode, 2)
+        self.assertIn("eksik --", s.stderr)
 
 
 class BakimDshTesti(unittest.TestCase):

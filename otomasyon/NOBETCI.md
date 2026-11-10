@@ -184,14 +184,15 @@ node "$DSH_CHECKOUT/apps/cli/lib/bin.js" headless \
   ajan yalnız `PAKET_DIR` altındaki JSON'ları okur. Runner `~/.config/hermes-secrets`, `~/.dsh`,
   `~/.ssh`, `~/.aws` ve `.git-credentials` yollarını maskeler, `--unshare-net` ile ağı kapatır.
 - **Sandbox sertleştirmesi** (7 Kasım i5 yüksek bulgusu): `~/.agents/bin/dsh-bwrap-kiosk` stock
-  bwrap profilinin üzerine `/run/user`, `/run/dbus` maskeleri ekler; `systemd-run --user` ve D-Bus
-  kaçışı kapanır. `workspace-write`/`danger-full-access` kabul edilmez.
+  bwrap profilinin üzerine `/run` dizinini maskeler; user systemd/D-Bus, Docker/containerd soketleri
+  ve `/run/user` erişimi kapanır. `workspace-write`/`danger-full-access` kabul edilmez.
 - **Kimlik bilgisi** `~/.dsh/.env` (0600) içindeki `DEEPSEEK_API_KEY`; headless credential store'u
   kapalıdır. Sır repoya girmez.
 - **Zaman aşımı** Python tarafından uygulanır (`subprocess.run(timeout=…)`); DSH'nin kendi tur
   bütçesi yoktur. `--zaman-asimi` aynı kalır.
-- **Oturum sayacı** DSH'de Hermes `state.db` olmadığı için `--kendini-denetle` bu maddeyi atlar;
-  DSH oturumları `~/.dsh/sessions` altında tutulur.
+- **Oturum sayacı** DSH'de Hermes `state.db` olmadığı için `--kendini-denetle` ayrı bir DSH
+  oturum/storage taraması yapar: `~/.local/state/yourkiosk-otomasyon/dsh-home/sessions` ve
+  `.../storages/session_projcache`; 200 oturum / 1000 MB sınırını raporlar.
 
 ## Ayarlar
 

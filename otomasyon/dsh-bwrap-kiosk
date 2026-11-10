@@ -42,19 +42,18 @@ for a in "${args[@]}"; do
       [ -d "$gizli" ] && yeni+=(--tmpfs "$gizli")
     done
     [ -f "$HOME/.git-credentials" ] && yeni+=(--ro-bind /dev/null "$HOME/.git-credentials")
-    yeni+=(--tmpfs /tmp --tmpfs /run/user --tmpfs /run/dbus --unshare-net --)
+    # /run tamamı maskelenir: docker/containerd/podman soketleri, user systemd ve D-Bus.
+    yeni+=(--tmpfs /tmp --tmpfs /run --unshare-net --)
     ayrac=1
   else
     yeni+=("$a")
   fi
 done
 if [ "$ayrac" -eq 0 ]; then
-  yeni+=(--tmpfs /tmp --tmpfs /run/user --tmpfs /run/dbus)
+  # Sözleşme dışı çağrı: ağ/sır maskeleri olmadan çalıştırma (fail-open) yerine reddet.
+  echo "dsh-bwrap-kiosk: eksik -- ayracı" >&2
+  exit 2
 fi
 
 bwrap "${yeni[@]}"
-kod=$?
-if [ "$kod" -ne 0 ]; then
-  echo "dsh-bwrap-kiosk: bwrap çıkış $kod" >&2
-fi
-exit "$kod"
+exit $?
