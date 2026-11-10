@@ -791,7 +791,8 @@ def dsh_profil_denetle(profil: Path | None = None) -> tuple[bool, str]:
         return False, f"runnerCommand güvenli runner değil (beklenen {hedef_runner})"
     # blok bazlı kesin denetim
     for arac in ("tool-fs", "tool-fs-search", "tool-web", "tool-subagent",
-                 "tool-subagent-fork", "tool-workflow", "tool-agent-team"):
+                 "tool-subagent-fork", "tool-workflow", "tool-agent-team",
+                 "tool-subagent-control"):
         m = re.search(rf"^- id: {re.escape(arac)}\s*$", metin, re.M)
         if not m:
             return False, f"{arac} satırı yok"
@@ -1086,13 +1087,30 @@ def dsh_paket_hazirla(depo: Path, rol: str, is_listesi: list[dict],
         uret(["--pr", str(pr)], pk / f"pr-{pr}.json")
 
 
-def karar_dosyalarini_temizle(is_listesi: list[dict]) -> None:
-    """Yeni oturum öncesi eski karar dosyalarını sil (bayat karar yayınlanmasın)."""
+def karar_dosyalarini_temizle(is_listesi: list[dict],
+                               gunluk_yolu: Path | None = None) -> None:
+    """Yeni oturum öncesi eski karar dosyalarını sil (bayat karar yayınlanmasın).
+
+    Ajan KARAR_DIR'e aynı adla DİZİ veya sembolik bağ bırakabilir; bu durum nöbetçiyi
+    IsADirectoryError ile düşürmemeli. Dizin güvenli biçimde kaldırılır, hata günlüğe yazılır.
+    """
     for is_ in is_listesi:
+        yol = karar_klasoru() / f"karar-{is_['pr']}.json"
         try:
-            (karar_klasoru() / f"karar-{is_['pr']}.json").unlink()
+            if yol.is_symlink() or yol.is_file():
+                yol.unlink()
+            elif yol.is_dir():
+                shutil.rmtree(yol)
+            else:
+                yol.unlink(missing_ok=True)
         except FileNotFoundError:
             pass
+        except OSError as hata:
+            mesaj = f"KARAR temizlenemedi: {yol} ({hata})"
+            if gunluk_yolu:
+                gunluk(gunluk_yolu, mesaj)
+            else:
+                print(mesaj, file=sys.stderr)
 
 
 def kararlari_yayinla(depo: Path, rol: str, is_listesi: list[dict], gunluk_yolu: Path | None) -> None:
@@ -1280,7 +1298,7 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
         if not dsh_profil_hazirla(depo, gunluk_yolu):
             gunluk(gunluk_yolu, f"{rol}: DSH profili güvenli değil → oturum açılmadı")
             return 2
-        karar_dosyalarini_temizle(is_listesi)
+        karar_dosyalarini_temizle(is_listesi, gunluk_yolu)
         dsh_pr_verisini_hazirla(depo, is_listesi, gunluk_yolu)
         dsh_paket_hazirla(depo, rol, is_listesi, gunluk_yolu)
 

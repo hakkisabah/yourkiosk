@@ -191,7 +191,8 @@ class DshProfilTesti(unittest.TestCase):
             '  - "dsh-bwrap-kiosk:"',
         ]
         for arac in ("tool-fs", "tool-fs-search", "tool-web", "tool-subagent",
-                     "tool-subagent-fork", "tool-workflow", "tool-agent-team"):
+                     "tool-subagent-fork", "tool-workflow", "tool-agent-team",
+                     "tool-subagent-control"):
             if arac == eksik:
                 continue
             parcalar += [f"- id: {arac}", "  disabled: true"]
@@ -324,6 +325,15 @@ class KararYayinTesti(unittest.TestCase):
         self.assertIn("yaz.py", yaz[1])
         self.assertIn("--birlestir", yaz)
         self.assertIn("--cift-onay", yaz)
+
+    def test_karar_yolu_dizin_ise_cokmez_ve_temizler(self):
+        yol = nobetci.karar_klasoru() / "karar-97.json"
+        yol.unlink()
+        yol.mkdir()
+        (yol / "ic").write_text("x")
+        gunluk = Path(self.dizin.name) / "nobetci.log"
+        nobetci.karar_dosyalarini_temizle([{"pr": 97}], gunluk)
+        self.assertFalse(yol.exists())
 
     def test_karar_yoksa_yaz_calistirilmaz(self):
         (nobetci.karar_klasoru() / "karar-97.json").unlink()

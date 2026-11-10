@@ -19,6 +19,11 @@ yeni=()
 ayrac=0
 for a in "${args[@]}"; do
   if [ "$a" = "--" ] && [ "$ayrac" -eq 0 ]; then
+    KOK="$(pwd -P)"
+    # $HOME'ı varsayılan olarak görünmez yap: yalnız repo (ro), PAKET (ro),
+    # KARAR (rw) ve /tmp görünür. Sabit sır listesi yerine tüm ev gizlenir.
+    yeni+=(--tmpfs "$HOME")
+    [ -n "$KOK" ] && [ -d "$KOK" ] && yeni+=(--ro-bind "$KOK" "$KOK")
     KARAR_BIND="${DSH_KARAR_DIR:-${KARAR_DIR:-}}"
     ISARET="$HOME/.local/state/yourkiosk-otomasyon/karar-yolu"
     if [ -z "$KARAR_BIND" ] && [ -r "$ISARET" ]; then
@@ -36,12 +41,7 @@ for a in "${args[@]}"; do
     if [ -n "$PAKET_BIND" ] && [ -d "$PAKET_BIND" ]; then
       yeni+=(--ro-bind "$PAKET_BIND" "$PAKET_BIND")
     fi
-    # Sırları ve ağı kapat: ajan token/.env okuyamaz, GitHub'a yazamaz.
-    for gizli in "$HOME/.config/hermes-secrets" "$HOME/.dsh" "$HOME/.ssh" "$HOME/.aws" \
-                 "$HOME/.local/state/yourkiosk-otomasyon/dsh-home"; do
-      [ -d "$gizli" ] && yeni+=(--tmpfs "$gizli")
-    done
-    [ -f "$HOME/.git-credentials" ] && yeni+=(--ro-bind /dev/null "$HOME/.git-credentials")
+    # Sırlar: $HOME tamamen tmpfs; yukarıda yalnız repo/PAKET/KARAR geri bind edildi.
     # /run tamamı maskelenir: docker/containerd/podman soketleri, user systemd ve D-Bus.
     yeni+=(--tmpfs /tmp --tmpfs /run --unshare-net --)
     ayrac=1

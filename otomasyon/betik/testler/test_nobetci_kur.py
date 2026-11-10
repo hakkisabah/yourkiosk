@@ -274,7 +274,8 @@ class DshSandboxDosyaTesti(unittest.TestCase):
     def test_headless_profili_native_fs_web_araclarini_kapatir(self):
         profil = (BETIK.parents[1] / "otomasyon" / "dsh-headless.cordis.patch.yml").read_text(encoding="utf-8")
         for arac in ("tool-fs", "tool-fs-search", "tool-web", "tool-subagent",
-                     "tool-subagent-fork", "tool-workflow"):
+                     "tool-subagent-fork", "tool-workflow", "tool-agent-team",
+                     "tool-subagent-control"):
             self.assertIn(f"- id: {arac}", profil)
             # aynı satırın hemen ardından disabled: true gelmeli
             blok = profil.split(f"- id: {arac}", 1)[1].split("- id:", 1)[0]
@@ -301,7 +302,8 @@ class DshRunnerCalistirTesti(unittest.TestCase):
             f'echo x > {hedef} 2>/dev/null; echo REPO=$?; '
             'timeout 3 systemd-run --user --scope true >/dev/null 2>&1; echo SYSTEMD=$?; '
             'test -S /run/docker.sock && echo DOCKER_SOCK || echo DOCKER_YOK; '
-            'timeout 3 docker info >/dev/null 2>&1; echo DOCKER=$?',
+            'timeout 3 docker info >/dev/null 2>&1; echo DOCKER=$?; '
+            'test -r "$HOME/.config" && echo HOME_OK || echo HOME_GIZLI',
         ]
         s = subprocess.run(komut, capture_output=True, text=True, timeout=40, env=os.environ)
         self.assertIn("REPO=", s.stdout, "runner komutu çalışmadı: " + s.stderr[:400])
@@ -310,6 +312,7 @@ class DshRunnerCalistirTesti(unittest.TestCase):
         self.assertNotRegex(s.stdout, r"SYSTEMD=0")
         self.assertNotIn("DOCKER_SOCK", s.stdout)
         self.assertNotRegex(s.stdout, r"DOCKER=0")
+        self.assertNotIn("HOME_OK", s.stdout)
         self.assertFalse(hedef.exists())
 
     @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
