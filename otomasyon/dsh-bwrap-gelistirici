@@ -35,6 +35,14 @@ for a in "${args[@]}"; do
     case "$HOME_REAL" in "$DEPO_REAL"/*) gecerli=0 ;; esac
     [ "$gecerli" -eq 1 ] || { echo "dsh-bwrap-gelistirici: geçersiz depo yolu" >&2; exit 2; }
 
+    KURALLAR_GIRDI="${GELISTIRICI_KURALLAR:-}"
+    KURALLAR_ISARET="$HOME/.local/state/yourkiosk-otonom/kurallar-yolu"
+    if [ -z "$KURALLAR_GIRDI" ] && [ -r "$KURALLAR_ISARET" ]; then
+      KURALLAR_GIRDI="$(cat "$KURALLAR_ISARET" 2>/dev/null || true)"
+    fi
+    KURALLAR_REAL="$(realpath -e "$KURALLAR_GIRDI" 2>/dev/null || true)"
+    [ -f "$KURALLAR_REAL" ] || { echo "dsh-bwrap-gelistirici: güvenilir AGENTS.md yok" >&2; exit 2; }
+
     SHADOW_DIR="${DSH_SHADOW_DIR:-/var/tmp}"
     [ -d "$SHADOW_DIR" ] || SHADOW_DIR=/var/tmp
     SHADOW="$(mktemp -d "$SHADOW_DIR/dsh-gelistirici.XXXXXX" 2>/dev/null)" || {
@@ -86,6 +94,13 @@ for a in "${args[@]}"; do
     [ -d "$DEPO_REAL/.git/hooks" ] && yeni+=(--ro-bind "$DEPO_REAL/.git/hooks" "$HEDEF_DEPO/.git/hooks")
     [ -f "$DEPO_REAL/.git/config" ] && yeni+=(--ro-bind "$DEPO_REAL/.git/config" "$HEDEF_DEPO/.git/config")
     [ -n "$PAKET_BIND_DIZIN" ] && yeni+=(--ro-bind "$PAKET_REAL" "$PAKET_BIND_DIZIN")
+    # Kurallar PR ağacından değil güvenilir kopyadan okunur.
+    [ -f "$DEPO_REAL/AGENTS.md" ] && yeni+=(--ro-bind "$KURALLAR_REAL" "$HEDEF_DEPO/AGENTS.md")
+
+    # PID ve /proc bağımsız; çağıran vermese bile runner kendisi ekler.
+    icinde() { local x; for x in "${yeni[@]}"; do [ "$x" = "$1" ] && return 0; done; return 1; }
+    icinde --unshare-pid || yeni+=(--unshare-pid)
+    icinde --proc || yeni+=(--proc /proc)
 
     # /run tamamen maskelenir; ağ kapalı. Docker/systemd/D-Bus kaçışı yok.
     yeni+=(--tmpfs /tmp --tmpfs /run --unshare-net)

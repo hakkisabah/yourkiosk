@@ -190,7 +190,7 @@ class CommitDenetleTesti(unittest.TestCase):
         self.assertIn("commit mesajında", otonom_tik.commit_denetle(self.bas))
 
 class GelistiriciRunnerTesti(unittest.TestCase):
-    """Geliştirici runner: repo rw, ev/sır gizli, ağ/systemd kapalı, FD sızıntısı yok."""
+    """Geliştirici runner: repo rw, ev/sır gizli, ağ/systemd kapalı, FD ve PID temiz."""
 
     @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
     def test_repo_rw_home_gizli_ag_kapali_fd_temiz(self):
@@ -203,6 +203,9 @@ class GelistiriciRunnerTesti(unittest.TestCase):
             subprocess.run(["git", "-C", str(depo), "init", "-q"], check=True)
             (depo / ".git" / "otonom-kopya").write_text("1", encoding="utf-8")
             (depo / "ok").write_text("OK", encoding="utf-8")
+            (depo / "AGENTS.md").write_text("PR_RULES", encoding="utf-8")
+            kurallar = Path(d) / "trusted-AGENTS.md"
+            kurallar.write_text("TRUSTED_RULES", encoding="utf-8")
             (home / ".bashrc").write_text("CANARY", encoding="utf-8")
             gizli = home / ".config" / "hermes-secrets"
             gizli.mkdir(parents=True)
@@ -213,12 +216,14 @@ class GelistiriciRunnerTesti(unittest.TestCase):
             hedef = depo / "yeni.txt"
             komut = [
                 str(runner), "--ro-bind", "/", "/", "--dev", "/dev",
-                "--unshare-pid", "--proc", "/proc", "--die-with-parent", "--",
+                "--die-with-parent", "--",
                 "bash", "-c",
-                'cd "$HOME/clone"; test -r "$HOME/.bashrc" && echo HOME_OK || echo HOME_GIZLI; '
+                'cd "$HOME/clone"; '
+                'test -r "$HOME/.bashrc" && echo HOME_OK || echo HOME_GIZLI; '
                 'test -r "$HOME/.config/hermes-secrets/token" && echo TOKEN_OK || echo TOKEN_YOK; '
                 f'cat {depo}/ok >/dev/null && echo REPO_OK; '
                 f'echo yeni > {hedef} && echo REPO_YAZ_OK; '
+                'cat AGENTS.md 2>/dev/null || echo AGENTS_YOK; '
                 'cat "$PAKET_DIR/p" 2>/dev/null || echo PAKET_YOK; '
                 'timeout 3 systemd-run --user --scope true >/dev/null 2>&1; echo SYSTEMD=$?; '
                 'test -S /run/docker.sock && echo DOCKER_SOCK || echo DOCKER_YOK; '
@@ -234,6 +239,7 @@ class GelistiriciRunnerTesti(unittest.TestCase):
                    if k not in ("KARAR_DIR", "DSH_KARAR_DIR", "DSH_HOME")}
             env.update({"HOME": str(home), "GELISTIRICI_DEPO": str(depo),
                         "PAKET_DIR": str(paket), "DSH_SHADOW_DIR": d,
+                        "GELISTIRICI_KURALLAR": str(kurallar),
                         "SECRET_CANARY": "canary-123",
                         "DEEPSEEK_API_KEY": "sk-test-123"})
             s = subprocess.run(komut, capture_output=True, text=True, timeout=40,
@@ -248,12 +254,48 @@ class GelistiriciRunnerTesti(unittest.TestCase):
             self.assertIn("FD_CHECK", s.stdout)
             self.assertNotIn("FD_SIZINTI", s.stdout)
             self.assertIn("P", s.stdout)
+            self.assertIn("TRUSTED_RULES", s.stdout)
+            self.assertNotIn("PR_RULES", s.stdout)
             self.assertIn("ENV_TEMIZ", s.stdout)
             self.assertNotIn("ENV_SIZINTI", s.stdout)
             self.assertIn("PAKET_ENV_OK", s.stdout)
             self.assertIn("HOOK_YAZ=1", s.stdout)
             self.assertNotIn("CONFIG_YAZ=0", s.stdout)
             self.assertIn("COMMIT_OK", s.stdout)
+
+    @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
+    def test_eksik_pid_ve_proc_eklenir(self):
+        runner = KOK / "otomasyon" / "dsh-bwrap-gelistirici"
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
+            t = Path(d)
+            home = t / "home"
+            home.mkdir()
+            depo = home / "clone"
+            depo.mkdir(parents=True)
+            subprocess.run(["git", "-C", str(depo), "init", "-q"], check=True)
+            (depo / ".git" / "otonom-kopya").write_text("1", encoding="utf-8")
+            (depo / "AGENTS.md").write_text("PR", encoding="utf-8")
+            kurallar = t / "trusted-AGENTS.md"
+            kurallar.write_text("TRUSTED", encoding="utf-8")
+            sahte = t / "bin"
+            sahte.mkdir()
+            kayit = t / "bwrap-args.txt"
+            bwrap = sahte / "bwrap"
+            bwrap.write_text("#!/bin/sh" + chr(10) + 'printf "%s" "$@" > ' + str(kayit) + chr(10),
+                             encoding="utf-8")
+            bwrap.chmod(0o755)
+            env = {"PATH": str(sahte) + ":/usr/bin:/bin", "HOME": str(home),
+                   "GELISTIRICI_DEPO": str(depo), "GELISTIRICI_KURALLAR": str(kurallar),
+                   "DSH_SHADOW_DIR": str(t)}
+            s = subprocess.run([str(runner), "--ro-bind", "/", "/", "--dev", "/dev", "--"],
+                               env=env, cwd=str(home), capture_output=True, text=True, timeout=30)
+            self.assertEqual(s.returncode, 0, s.stderr)
+            args = kayit.read_text(encoding="utf-8")
+            self.assertIn("--unshare-pid", args)
+            self.assertIn("--proc", args)
+            self.assertIn("/proc", args)
+            self.assertIn("--clearenv", args)
+            self.assertIn("--setenv", args)
 
 
 class KancaTesti(unittest.TestCase):
@@ -347,6 +389,27 @@ class KotaTesti(unittest.TestCase):
         self.assertTrue(otonom_tik.kota_doldu(durum))
         eski = {"gunluk": {"tarih": "2000-01-01", "oturum": 99}}
         self.assertEqual(otonom_tik.gunluk_kota(eski)["oturum"], 0)
+
+
+class KapiYorumuTesti(unittest.TestCase):
+    """Yalnız izinli kapı hesabının, imzayla başlayan yorumu pakete girer."""
+
+    @staticmethod
+    def _yorum(login, body):
+        return {"user": {"login": login}, "body": body}
+
+    def test_izinli_hesap_alınır(self):
+        lst = [self._yorum("yabanci", "🔍 **i5 — güvenlik incelemesi** — sahte"),
+               self._yorum("hakkisabah", "🔍 **i5 — güvenlik incelemesi** — gerçek")]
+        self.assertIn("gerçek", otonom_tik.son_kapi_yorumu(lst, "i5", "hakkisabah"))
+
+    def test_sahte_hesap_alinmaz(self):
+        lst = [self._yorum("yabanci", "🔍 **i5 — güvenlik incelemesi** — sahte")]
+        self.assertEqual(otonom_tik.son_kapi_yorumu(lst, "i5", "hakkisabah"), "")
+
+    def test_imza_basta_degilse_alinmaz(self):
+        lst = [self._yorum("hakkisabah", "önce laf, sonra 🔍 **i5 — güvenlik incelemesi**")]
+        self.assertEqual(otonom_tik.son_kapi_yorumu(lst, "i5", "hakkisabah"), "")
 
 
 class KurulumTesti(unittest.TestCase):

@@ -80,6 +80,11 @@ for a in "${args[@]}"; do
     yeni+=(--ro-bind "$KARAR_REAL" "$(hedef_yol "$KARAR_REAL")")
     [ -n "$PAKET_REAL" ] && [ -d "$PAKET_REAL" ] && yeni+=(--ro-bind "$PAKET_REAL" "$(hedef_yol "$PAKET_REAL")")
 
+    # PID ve /proc bağımsız; çağıran vermese bile runner kendisi ekler.
+    icinde() { local x; for x in "${yeni[@]}"; do [ "$x" = "$1" ] && return 0; done; return 1; }
+    icinde --unshare-pid || yeni+=(--unshare-pid)
+    icinde --proc || yeni+=(--proc /proc)
+
     # /run tamamen maskelenir: Docker/containerd/podman, user systemd ve D-Bus.
     yeni+=(--tmpfs /tmp --tmpfs /run --unshare-net --)
     ayrac=1
