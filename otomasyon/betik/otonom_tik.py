@@ -346,6 +346,10 @@ def ajan_calistir(paket: Path) -> tuple[int, str]:
         raise TikHatasi(f"geliştirici runner yok: {runner}")
 
     ev = dsh_home_hazirla()
+    (EV / "depo-yolu").write_text(str(KLON.resolve()), encoding="utf-8")
+    os.chmod(EV / "depo-yolu", 0o600)
+    (EV / "paket-yolu").write_text(str(PAKET_KLASORU), encoding="utf-8")
+    os.chmod(EV / "paket-yolu", 0o600)
     ortam = os.environ.copy()
     ortam.update({
         "DSH_HOME": str(ev),
