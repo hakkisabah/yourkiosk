@@ -1,9 +1,11 @@
 #!/bin/bash
-# DSH bwrap runner for the yourkiosk review agent.
+# DSH bwrap runner — i5/i3 güvenlik incelemesi (salt-okunur ajan).
 #
-# Amaç: ajanın gördüğü dosya sistemi = repo (ro) + PAKET_DIR (ro) + KARAR_DIR (rw)
-# + boş bir $HOME + /tmp + /run. Token, .env, SSH, Docker soketleri ve diğer ev
-# dosyaları görünmez. DSH'nin stock bwrap profili güvenlik sınırı değildir.
+# Ajanın gördüğü dünya: repo (ro) + PAKET_DIR (ro) + KARAR_DIR (rw) + boş $HOME + /tmp.
+# Ev, sırlar, Docker/socket, user systemd ve ağ görünmez. FD ile dizin devri YAPILMAZ:
+# açık dizin fd'si sandbox içinden /proc/self/fd üzerinden ana makineye çıkış verir.
+# Kaynaklar (repo/paket/karar) gölge $HOME bind edildikten SONRA, mutlak host yoluyla
+# bağlanır; bwrap kaynağı host kökünden çözer.
 set -u
 
 if ! command -v bwrap >/dev/null 2>&1; then
@@ -20,35 +22,33 @@ for a in "${args[@]}"; do
     HOME_REAL="$(realpath -e "$HOME" 2>/dev/null || true)"
     [ -n "$HOME_REAL" ] || { echo "dsh-bwrap-kiosk: HOME çözülemedi" >&2; exit 2; }
 
-    # Depo yolu MODELİN cwd'sinden DEĞİL, nöbetçinin yazdığı işaretten gelir.
     DEPO_ISARET="$HOME/.local/state/yourkiosk-otomasyon/depo-yolu"
-    DEPO_BIND=""
-    [ -r "$DEPO_ISARET" ] && DEPO_BIND="$(cat "$DEPO_ISARET" 2>/dev/null || true)"
-    DEPO_REAL="$(realpath -e "$DEPO_BIND" 2>/dev/null || true)"
+    DEPO_GIRDI=""
+    [ -r "$DEPO_ISARET" ] && DEPO_GIRDI="$(cat "$DEPO_ISARET" 2>/dev/null || true)"
+    DEPO_REAL="$(realpath -e "$DEPO_GIRDI" 2>/dev/null || true)"
     gecerli=1
     [ -n "$DEPO_REAL" ] && [ -d "$DEPO_REAL/.git" ] || gecerli=0
     [ "$DEPO_REAL" = "$HOME_REAL" ] && gecerli=0
-    case "$HOME_REAL" in "$DEPO_REAL"/*) gecerli=0 ;; esac
     [ "$DEPO_REAL" = "/" ] && gecerli=0
+    case "$HOME_REAL" in "$DEPO_REAL"/*) gecerli=0 ;; esac
     [ "$gecerli" -eq 1 ] || { echo "dsh-bwrap-kiosk: geçersiz depo yolu" >&2; exit 2; }
 
-    KARAR_BIND="${DSH_KARAR_DIR:-${KARAR_DIR:-}}"
+    KARAR_GIRDI="${DSH_KARAR_DIR:-${KARAR_DIR:-}}"
     ISARET="$HOME/.local/state/yourkiosk-otomasyon/karar-yolu"
-    if [ -z "$KARAR_BIND" ] && [ -r "$ISARET" ]; then
-      KARAR_BIND="$(cat "$ISARET" 2>/dev/null || true)"
+    if [ -z "$KARAR_GIRDI" ] && [ -r "$ISARET" ]; then
+      KARAR_GIRDI="$(cat "$ISARET" 2>/dev/null || true)"
     fi
-    [ -n "$KARAR_BIND" ] || KARAR_BIND="$HOME/.local/state/yourkiosk-otomasyon/karar"
-    KARAR_REAL="$(realpath -e "$KARAR_BIND" 2>/dev/null || true)"
+    [ -n "$KARAR_GIRDI" ] || KARAR_GIRDI="$HOME/.local/state/yourkiosk-otomasyon/karar"
+    KARAR_REAL="$(realpath -e "$KARAR_GIRDI" 2>/dev/null || true)"
     [ -n "$KARAR_REAL" ] && [ -d "$KARAR_REAL" ] || { echo "dsh-bwrap-kiosk: karar dizini yok" >&2; exit 2; }
 
-    PAKET_BIND="${PAKET_DIR:-}"
+    PAKET_GIRDI="${PAKET_DIR:-}"
     PAKET_ISARET="$HOME/.local/state/yourkiosk-otomasyon/paket-yolu"
-    if [ -z "$PAKET_BIND" ] && [ -r "$PAKET_ISARET" ]; then
-      PAKET_BIND="$(cat "$PAKET_ISARET" 2>/dev/null || true)"
+    if [ -z "$PAKET_GIRDI" ] && [ -r "$PAKET_ISARET" ]; then
+      PAKET_GIRDI="$(cat "$PAKET_ISARET" 2>/dev/null || true)"
     fi
-    PAKET_REAL="$(realpath -e "$PAKET_BIND" 2>/dev/null || true)"
+    PAKET_REAL="$(realpath -e "$PAKET_GIRDI" 2>/dev/null || true)"
 
-    # /tmp sandbox içinde maskelenir; gölge kaynağı /var/tmp'de olmalı.
     SHADOW_DIR="${DSH_SHADOW_DIR:-/var/tmp}"
     [ -d "$SHADOW_DIR" ] || SHADOW_DIR=/var/tmp
     SHADOW="$(mktemp -d "$SHADOW_DIR/dsh-home.XXXXXX" 2>/dev/null)" || {
@@ -57,13 +57,13 @@ for a in "${args[@]}"; do
 
     rel_yol() {
       case "$1" in
-        "$HOME"/*) printf '%s' "${1#"$HOME"/}" ;;
+        "$HOME_REAL"/*) printf '%s' "${1#"$HOME_REAL"/}" ;;
         *) printf '%s' "" ;;
       esac
     }
     hedef_yol() {
       rel="$(rel_yol "$1")"
-      if [ -n "$rel" ]; then printf '%s/%s' "$HOME" "$rel"; else printf '%s' "$1"; fi
+      if [ -n "$rel" ]; then printf '%s/%s' "$HOME_REAL" "$rel"; else printf '%s' "$1"; fi
     }
     REL_DEPO="$(rel_yol "$DEPO_REAL")"
     REL_KARAR="$(rel_yol "$KARAR_REAL")"
@@ -74,19 +74,13 @@ for a in "${args[@]}"; do
     [ -n "$REL_KARAR" ] && mkdir -p "$SHADOW/$REL_KARAR"
     [ -n "$REL_PAKET" ] && mkdir -p "$SHADOW/$REL_PAKET"
 
-    # Kaynakları FD üzerinden tut: HOME maskelendikten sonra da erişilebilir.
-    exec {KARAR_FD}<"$KARAR_REAL"
-    PAKET_FD=""
-    [ -n "$PAKET_REAL" ] && [ -d "$PAKET_REAL" ] && exec {PAKET_FD}<"$PAKET_REAL"
-    exec {DEPO_FD}<"$DEPO_REAL"
+    # 1) Ev gölgeyle değiştirilir. 2) Kaynaklar host'tan mutlak yolla geri bağlanır.
+    yeni+=(--ro-bind "$SHADOW" "$HOME_REAL")
+    yeni+=(--ro-bind "$DEPO_REAL" "$(hedef_yol "$DEPO_REAL")")
+    yeni+=(--bind "$KARAR_REAL" "$(hedef_yol "$KARAR_REAL")")
+    [ -n "$PAKET_REAL" ] && [ -d "$PAKET_REAL" ] && yeni+=(--ro-bind "$PAKET_REAL" "$(hedef_yol "$PAKET_REAL")")
 
-    # Ev dizini boş gölge ağacıyla değiştirilir; alt hedefler shadow içinde hazır.
-    yeni+=(--ro-bind "$SHADOW" "$HOME")
-    yeni+=(--bind "/proc/self/fd/$KARAR_FD" "$(hedef_yol "$KARAR_REAL")")
-    [ -n "$PAKET_FD" ] && yeni+=(--ro-bind "/proc/self/fd/$PAKET_FD" "$(hedef_yol "$PAKET_REAL")")
-    yeni+=(--ro-bind "/proc/self/fd/$DEPO_FD" "$(hedef_yol "$DEPO_REAL")")
-
-    # /run tamamen maskelenir: Docker/containerd/podman, user systemd, D-Bus.
+    # /run tamamen maskelenir: Docker/containerd/podman, user systemd ve D-Bus.
     yeni+=(--tmpfs /tmp --tmpfs /run --unshare-net --)
     ayrac=1
   else

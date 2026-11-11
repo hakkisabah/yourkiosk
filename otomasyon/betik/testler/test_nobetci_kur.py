@@ -288,7 +288,15 @@ class DshSandboxDosyaTesti(unittest.TestCase):
 
 
 class DshRunnerCalistirTesti(unittest.TestCase):
-    """Runner'ı workdir=$HOME ile çalıştır: ev/sırlar gizli, repo ro, karar rw."""
+    """Runner'ı workdir=$HOME ile çalıştır: ev/sırlar gizli, repo ro, karar rw, FD sızıntısı yok."""
+
+    @staticmethod
+    def _env(d: str, home: Path, **ek: str) -> dict:
+        # Dış oturumun KARAR_DIR/DSH_HOME değerleri testi kirletmesin.
+        at = ("KARAR_DIR", "DSH_KARAR_DIR", "DSH_HOME", "GELISTIRICI_DEPO",
+              "NOBETCI_ARAC", "DSH_PERMISSION_MODE")
+        temel = {k: v for k, v in os.environ.items() if k not in at}
+        return {**temel, "HOME": str(home), "DSH_SHADOW_DIR": d, **ek}
 
     @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
     def test_workdir_home_sirlari_repo_yazimini_ve_systemd_i_engeller(self):
@@ -323,11 +331,14 @@ class DshRunnerCalistirTesti(unittest.TestCase):
                 'timeout 3 systemd-run --user --scope true >/dev/null 2>&1; echo SYSTEMD=$?; '
                 'test -S /run/docker.sock && echo DOCKER_SOCK || echo DOCKER_YOK; '
                 'timeout 3 docker info >/dev/null 2>&1; echo DOCKER=$?; '
-                'cat "$HOME/.local/state/yourkiosk-otomasyon/paket/test.json" 2>/dev/null || echo PAKET_YOK',
+                'cat "$HOME/.local/state/yourkiosk-otomasyon/paket/test.json" 2>/dev/null || echo PAKET_YOK; '
+                'for f in /proc/self/fd/*; do h=$(readlink -f "$f/.." 2>/dev/null || true); '
+                'case "$h" in /home/*|/var/tmp/*) echo FD_SIZINTI:$h;; esac; done; echo FD_CHECK',
             ]
-            env = {**os.environ, "HOME": str(home),
-                   "PAKET_DIR": str(state / "paket"), "DSH_SHADOW_DIR": d}
-            s = subprocess.run(komut, capture_output=True, text=True, timeout=40, env=env)
+            env = self._env(d, home, KARAR_DIR=str(state / "karar"),
+                            PAKET_DIR=str(state / "paket"))
+            s = subprocess.run(komut, capture_output=True, text=True, timeout=40, env=env,
+                               cwd=str(home))
             self.assertIn("REPO_OK", s.stdout, "runner komutu çalışmadı: " + s.stderr[:400])
             self.assertNotIn("HOME_OK", s.stdout)
             self.assertNotIn("TOKEN_OK", s.stdout)
@@ -336,6 +347,8 @@ class DshRunnerCalistirTesti(unittest.TestCase):
             self.assertNotIn("DOCKER_SOCK", s.stdout)
             self.assertNotRegex(s.stdout, r"DOCKER=0")
             self.assertIn('{"ok":1}', s.stdout)
+            self.assertIn("FD_CHECK", s.stdout)
+            self.assertNotIn("FD_SIZINTI", s.stdout)
             self.assertFalse(hedef.exists())
 
     @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
@@ -354,8 +367,8 @@ class DshRunnerCalistirTesti(unittest.TestCase):
                      "--unshare-pid", "--proc", "/proc", "--die-with-parent", "--",
                      "bash", "-c", "false"]
             s = subprocess.run(komut, capture_output=True, text=True, timeout=30,
-                               env={**os.environ, "HOME": str(home),
-                                    "DSH_SHADOW_DIR": d})
+                               env=self._env(d, home, KARAR_DIR=str(state / "karar")),
+                               cwd=str(home))
             self.assertEqual(s.returncode, 1)
             self.assertNotIn("dsh-bwrap-kiosk:", s.stderr)
 
