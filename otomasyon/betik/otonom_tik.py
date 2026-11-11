@@ -23,6 +23,7 @@ import re
 import signal
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -44,6 +45,9 @@ AZAMI_DENEME = int(os.environ.get("OTONOM_AZAMI_DENEME", "5"))
 AZAMI_TOPLAM = int(os.environ.get("OTONOM_AZAMI_TOPLAM", "8"))
 AZAMI_DOSYA = int(os.environ.get("OTONOM_AZAMI_DOSYA", "200"))
 AZAMI_DIFF_BAYT = int(os.environ.get("OTONOM_AZAMI_DIFF_BAYT", "2000000"))
+GUNLUK_AZAMI = int(os.environ.get("OTONOM_GUNLUK_AZAMI", "12"))
+PUSH_TABANI = os.environ.get("OTONOM_PUSH_TABANI", f"https://github.com/{DEPO}.git")
+IZINLI_DAL_ONEKLERI = ("dsh/", "duzeltme/", "ozellik/")
 
 DENETIM_I5 = "guvenlik/inceleme"
 DENETIM_I3 = "guvenlik/karar"
@@ -169,6 +173,20 @@ def head_guncel_mi(pr: dict, guncel: dict) -> bool:
             == str((guncel.get("head") or {}).get("sha") or ""))
 
 
+def gunluk_kota(durum: dict) -> dict:
+    """Günlük ajan oturumu sayacı; gece yarısı sıfırlanır."""
+    bugun = datetime.now().astimezone().strftime("%Y-%m-%d")
+    kayit = durum.get("gunluk")
+    if not isinstance(kayit, dict) or kayit.get("tarih") != bugun:
+        kayit = {"tarih": bugun, "oturum": 0, "ajan_sn": 0}
+        durum["gunluk"] = kayit
+    return kayit
+
+
+def kota_doldu(durum: dict) -> bool:
+    return int(gunluk_kota(durum).get("oturum") or 0) >= GUNLUK_AZAMI
+
+
 def sadece_pr_kumesi() -> set[int]:
     """OTONOM_SADECE_PR (virgüllü liste) ile PR seçimi; boşsa tümü."""
     ham = os.environ.get("OTONOM_SADECE_PR", "").replace(" ", "")
@@ -216,7 +234,11 @@ def karar_ver(pr: dict, durumlar_: dict[str, dict], kayit: dict) -> dict:
 
 def git(*arg: str, timeout: int = 180, env: dict | None = None,
         depo: Path | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(depo or KLON), *arg],
+    # Ajan .git/hooks veya .git/config yazabilse bile güvenilir git komutları
+    # hook/fsmonitor çalıştırmaz.
+    return subprocess.run(["git", "-C", str(depo or KLON),
+                           "-c", "core.hooksPath=/dev/null",
+                           "-c", "core.fsmonitor=false", *arg],
                           capture_output=True, text=True, timeout=timeout, env=env)
 
 
@@ -441,6 +463,15 @@ def commit_denetle(bas_sha: str) -> str:
     mesajlar = git("log", "--format=%B", f"{bas_sha}..HEAD").stdout
     if "-----BEGIN" in mesajlar:
         return "commit mesajında anahtar bloğu var"
+    hooks = KLON / ".git" / "hooks"
+    if hooks.is_dir():
+        for dosya in hooks.iterdir():
+            if dosya.name.endswith(".sample"):
+                continue
+            if dosya.is_file() and os.access(dosya, os.X_OK):
+                return f"git hook çalıştırılabilir: {dosya.name}"
+    if git("config", "--local", "--get", "core.hooksPath").stdout.strip():
+        return "repo config core.hooksPath tanımlı"
     return ""
 
 
@@ -450,6 +481,8 @@ def geri_al(bas_sha: str) -> None:
 
 
 def push_et(head_ref: str) -> str:
+    if not any(head_ref.startswith(onek) for onek in IZINLI_DAL_ONEKLERI):
+        raise TikHatasi(f"dal izinli değil (main/force yok): {head_ref}")
     token = token_oku()
     if not token:
         raise TikHatasi("GitHub token yok")
@@ -463,7 +496,8 @@ def push_et(head_ref: str) -> str:
     })
     sha = git("rev-parse", "HEAD").stdout.strip()
     sonuc = subprocess.run(
-        ["git", "-C", str(KLON), "push", f"https://github.com/{DEPO}.git",
+        ["git", "-C", str(KLON), "-c", "core.hooksPath=/dev/null",
+         "-c", "core.fsmonitor=false", "push", PUSH_TABANI,
          f"HEAD:refs/heads/{head_ref}"],
         capture_output=True, text=True, timeout=180, env=ortam)
     if sonuc.returncode != 0:
@@ -523,6 +557,8 @@ def tik(kuru: bool = False, zorla_pr: int | None = None) -> int:
     if not token:
         gunluk("ENGE: GitHub token yok")
         return 1
+    if TOKEN_YOLU == Path.home() / ".config" / "hermes-secrets" / "github-yourkiosk.token":
+        gunluk("UYARI: OTONOM_TOKEN tanımlı değil; kapı token'ı kullanılıyor (ayrı token önerilir)")
     durum = durum_oku()
     durum["son_tik"] = simdi()
 
@@ -567,6 +603,11 @@ def tik(kuru: bool = False, zorla_pr: int | None = None) -> int:
 
     for pr, k in kararlar:
         if k["eylem"] == "duzelt":
+            if kota_doldu(durum):
+                gunluk(f"günlük bütçe doldu ({gunluk_kota(durum)['oturum']}/{GUNLUK_AZAMI}) → ajan çağrılmadı")
+                durum["son_karar"] = "gunluk-butce"
+                durum_yaz(durum)
+                return 0
             # Karar verildikten sonra head değişmiş olabilir (başka bir tik/push).
             # Bayat head ile ajan çalıştırmak yanlış tabana commit üretir.
             kod, guncel = api(f"/pulls/{pr['number']}", token)
@@ -581,8 +622,11 @@ def tik(kuru: bool = False, zorla_pr: int | None = None) -> int:
             kayit["toplam"] = int(kayit.get("toplam") or 0) + 1
             kayit["son_eylem"] = "duzelt"
             kayit["son_deneme"] = simdi()
+            gunluk_kota(durum)["oturum"] = int(gunluk_kota(durum).get("oturum") or 0) + 1
             durum_yaz(durum)
+            baslangic = time.monotonic()
             sonuc = tek_pr_yurut(pr, token, durum)
+            gunluk_kota(durum)["ajan_sn"] = int(gunluk_kota(durum).get("ajan_sn") or 0) + int(time.monotonic() - baslangic)
             durum["son_karar"] = f"PR#{pr['number']}:{sonuc}"
             durum_yaz(durum)
             return 0

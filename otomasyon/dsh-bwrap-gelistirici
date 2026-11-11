@@ -60,6 +60,11 @@ for a in "${args[@]}"; do
     fi
 
     PAKET_GIRDI="${PAKET_DIR:-}"
+    # Paket dizini evin/atanın üstü olamaz; aksi hâlde ro-bind tüm evi kilitler.
+    case "$PAKET_GIRDI" in
+      ""|"/") PAKET_GIRDI="" ;;
+      *) case "$HOME_REAL" in "$PAKET_GIRDI"/*) PAKET_GIRDI="" ;; esac ;;
+    esac
     PAKET_ISARET="$HOME/.local/state/yourkiosk-otonom/paket-yolu"
     if [ -z "$PAKET_GIRDI" ] && [ -r "$PAKET_ISARET" ]; then
       PAKET_GIRDI="$(cat "$PAKET_ISARET" 2>/dev/null || true)"
@@ -69,12 +74,33 @@ for a in "${args[@]}"; do
     [ -n "$PAKET_REAL" ] && REL_PAKET="$(rel_yol "$PAKET_REAL")"
     [ -n "$REL_PAKET" ] && mkdir -p "$SHADOW/$REL_PAKET"
 
+    PAKET_BIND_DIZIN=""
+    if [ -n "$PAKET_REAL" ] && [ -d "$PAKET_REAL" ]; then
+      PAKET_BIND_DIZIN="$(hedef_yol "$PAKET_REAL")"
+    fi
+
     yeni+=(--bind "$SHADOW" "$HOME_REAL")
     yeni+=(--bind "$DEPO_REAL" "$HEDEF_DEPO")
-    [ -n "$PAKET_REAL" ] && [ -d "$PAKET_REAL" ] && yeni+=(--ro-bind "$PAKET_REAL" "$(hedef_yol "$PAKET_REAL")")
+    # .git/hooks ve .git/config ajan tarafından yazılamaz: güvenilir süreçte
+    # hook/config kaçırma yolu kalmaz (ayrıca güvenilir git -c core.hooksPath ile koşar).
+    [ -d "$DEPO_REAL/.git/hooks" ] && yeni+=(--ro-bind "$DEPO_REAL/.git/hooks" "$HEDEF_DEPO/.git/hooks")
+    [ -f "$DEPO_REAL/.git/config" ] && yeni+=(--ro-bind "$DEPO_REAL/.git/config" "$HEDEF_DEPO/.git/config")
+    [ -n "$PAKET_BIND_DIZIN" ] && yeni+=(--ro-bind "$PAKET_REAL" "$PAKET_BIND_DIZIN")
 
     # /run tamamen maskelenir; ağ kapalı. Docker/systemd/D-Bus kaçışı yok.
-    yeni+=(--tmpfs /tmp --tmpfs /run --unshare-net --)
+    yeni+=(--tmpfs /tmp --tmpfs /run --unshare-net)
+    # Ortam sıfırlanır; yalnız allowlist değişkenleri verilir (sır sızmaz).
+    yeni+=(--clearenv)
+    yeni+=(--setenv HOME "$HOME_REAL" --setenv PATH "/usr/local/bin:/usr/bin:/bin")
+    yeni+=(--setenv LANG "C.UTF-8" --setenv TERM "dumb" --setenv TMPDIR "/tmp")
+    yeni+=(--setenv GIT_CONFIG_GLOBAL "/dev/null" --setenv GIT_CONFIG_NOSYSTEM "1")
+    yeni+=(--setenv GIT_TERMINAL_PROMPT "0")
+    yeni+=(--setenv GIT_AUTHOR_NAME "${GIT_AUTHOR_NAME:-otonom-koordinator}")
+    yeni+=(--setenv GIT_AUTHOR_EMAIL "${GIT_AUTHOR_EMAIL:-otonom@localhost}")
+    yeni+=(--setenv GIT_COMMITTER_NAME "${GIT_COMMITTER_NAME:-otonom-koordinator}")
+    yeni+=(--setenv GIT_COMMITTER_EMAIL "${GIT_COMMITTER_EMAIL:-otonom@localhost}")
+    [ -n "$PAKET_BIND_DIZIN" ] && yeni+=(--setenv PAKET_DIR "$PAKET_BIND_DIZIN")
+    yeni+=(--)
     ayrac=1
   else
     yeni+=("$a")

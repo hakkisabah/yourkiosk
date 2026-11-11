@@ -165,7 +165,8 @@ class GelistiriciRunnerTesti(unittest.TestCase):
             home = Path(d) / "home"
             home.mkdir()
             depo = home / "clone"
-            (depo / ".git").mkdir(parents=True)
+            depo.mkdir(parents=True)
+            subprocess.run(["git", "-C", str(depo), "init", "-q"], check=True)
             (depo / ".git" / "otonom-kopya").write_text("1", encoding="utf-8")
             (depo / "ok").write_text("OK", encoding="utf-8")
             (home / ".bashrc").write_text("CANARY", encoding="utf-8")
@@ -180,7 +181,7 @@ class GelistiriciRunnerTesti(unittest.TestCase):
                 str(runner), "--ro-bind", "/", "/", "--dev", "/dev",
                 "--unshare-pid", "--proc", "/proc", "--die-with-parent", "--",
                 "bash", "-c",
-                'test -r "$HOME/.bashrc" && echo HOME_OK || echo HOME_GIZLI; '
+                'cd "$HOME/clone"; test -r "$HOME/.bashrc" && echo HOME_OK || echo HOME_GIZLI; '
                 'test -r "$HOME/.config/hermes-secrets/token" && echo TOKEN_OK || echo TOKEN_YOK; '
                 f'cat {depo}/ok >/dev/null && echo REPO_OK; '
                 f'echo yeni > {hedef} && echo REPO_YAZ_OK; '
@@ -188,12 +189,19 @@ class GelistiriciRunnerTesti(unittest.TestCase):
                 'timeout 3 systemd-run --user --scope true >/dev/null 2>&1; echo SYSTEMD=$?; '
                 'test -S /run/docker.sock && echo DOCKER_SOCK || echo DOCKER_YOK; '
                 'for f in /proc/self/fd/*; do h=$(readlink -f "$f/.." 2>/dev/null || true); '
-                'case "$h" in /home/*|/var/tmp/*) echo FD_SIZINTI:$h;; esac; done; echo FD_CHECK',
+                'case "$h" in /home/*|/var/tmp/*) echo FD_SIZINTI:$h;; esac; done; echo FD_CHECK; '
+                'env | grep -E "SECRET_CANARY|DEEPSEEK_API_KEY" && echo ENV_SIZINTI || echo ENV_TEMIZ; '
+                'test -n "$PAKET_DIR" && echo PAKET_ENV_OK || echo PAKET_ENV_YOK; '
+                'echo x > .git/hooks/pre-push 2>/dev/null; echo HOOK_YAZ=$?; '
+                'git config user.email x@y 2>/dev/null; echo CONFIG_YAZ=$?; '
+                'git add yeni.txt && git commit -qm "sandbox commit" && echo COMMIT_OK || echo COMMIT_YOK',
             ]
             env = {k: v for k, v in os.environ.items()
                    if k not in ("KARAR_DIR", "DSH_KARAR_DIR", "DSH_HOME")}
             env.update({"HOME": str(home), "GELISTIRICI_DEPO": str(depo),
-                        "PAKET_DIR": str(paket), "DSH_SHADOW_DIR": d})
+                        "PAKET_DIR": str(paket), "DSH_SHADOW_DIR": d,
+                        "SECRET_CANARY": "canary-123",
+                        "DEEPSEEK_API_KEY": "sk-test-123"})
             s = subprocess.run(komut, capture_output=True, text=True, timeout=40,
                                env=env, cwd=str(home))
             self.assertIn("REPO_OK", s.stdout, s.stderr[:400])
@@ -206,9 +214,115 @@ class GelistiriciRunnerTesti(unittest.TestCase):
             self.assertIn("FD_CHECK", s.stdout)
             self.assertNotIn("FD_SIZINTI", s.stdout)
             self.assertIn("P", s.stdout)
+            self.assertIn("ENV_TEMIZ", s.stdout)
+            self.assertNotIn("ENV_SIZINTI", s.stdout)
+            self.assertIn("PAKET_ENV_OK", s.stdout)
+            self.assertIn("HOOK_YAZ=1", s.stdout)
+            self.assertNotIn("CONFIG_YAZ=0", s.stdout)
+            self.assertIn("COMMIT_OK", s.stdout)
+
+
+class KancaTesti(unittest.TestCase):
+    """Güvenilir git komutları repo hook'larını çalıştırmamalı."""
+
+    def test_guvenilir_git_hook_calistirmaz(self):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
+            depo = Path(d)
+            subprocess.run(["git", "-C", str(depo), "init", "-q", "-b", "main"], check=True)
+            subprocess.run(["git", "-C", str(depo), "-c", "user.email=t@t",
+                            "-c", "user.name=t", "commit", "--allow-empty", "-qm", "x"], check=True)
+            isaret = depo / "kanca-calisti"
+            kanca = depo / ".git" / "hooks" / "post-checkout"
+            kanca.write_text("#!/bin/sh" + chr(10) + "touch " + str(isaret) + chr(10),
+                             encoding="utf-8")
+            kanca.chmod(0o755)
+            eski = otonom_tik.KLON
+            otonom_tik.KLON = depo
+            try:
+                otonom_tik.git("checkout", "-B", "yeni-dal")
+            finally:
+                otonom_tik.KLON = eski
+            self.assertFalse(isaret.exists(), "hook güvenilir git komutunda çalıştı")
+
+    def test_aktif_hook_commit_denetiminde_reddedilir(self):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
+            depo = Path(d)
+            subprocess.run(["git", "-C", str(depo), "init", "-q", "-b", "main"], check=True)
+            subprocess.run(["git", "-C", str(depo), "-c", "user.email=t@t",
+                            "-c", "user.name=t", "commit", "--allow-empty", "-qm", "x"], check=True)
+            bas = subprocess.run(["git", "-C", str(depo), "rev-parse", "HEAD"],
+                                 capture_output=True, text=True).stdout.strip()
+            (depo / "yeni.txt").write_text("x", encoding="utf-8")
+            subprocess.run(["git", "-C", str(depo), "add", "-A"], check=True)
+            subprocess.run(["git", "-C", str(depo), "-c", "user.email=t@t",
+                            "-c", "user.name=t", "commit", "-qm", "y"], check=True)
+            kanca = depo / ".git" / "hooks" / "evil"
+            kanca.write_text("#!/bin/sh" + chr(10), encoding="utf-8")
+            kanca.chmod(0o755)
+            eski = otonom_tik.KLON
+            otonom_tik.KLON = depo
+            try:
+                neden = otonom_tik.commit_denetle(bas)
+            finally:
+                otonom_tik.KLON = eski
+            self.assertIn("git hook", neden)
+
+
+class PushTesti(unittest.TestCase):
+    def test_main_dalina_push_reddedilir(self):
+        with self.assertRaises(otonom_tik.TikHatasi):
+            otonom_tik.push_et("main")
+
+    def test_pre_push_hook_calistirmaz(self):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
+            t = Path(d)
+            uzak = t / "uzak.git"
+            subprocess.run(["git", "init", "--bare", "-q", str(uzak)], check=True)
+            klon = t / "klon"
+            subprocess.run(["git", "clone", "-q", str(uzak), str(klon)], check=True)
+            subprocess.run(["git", "-C", str(klon), "-c", "user.email=t@t",
+                            "-c", "user.name=t", "commit", "--allow-empty", "-qm", "ilk"], check=True)
+            isaret = t / "push-kanca"
+            kanca = klon / ".git" / "hooks" / "pre-push"
+            kanca.write_text("#!/bin/sh" + chr(10) + "touch " + str(isaret) + chr(10),
+                             encoding="utf-8")
+            kanca.chmod(0o755)
+            token = t / "token"
+            token.write_text("x", encoding="utf-8")
+            eski = (otonom_tik.KLON, otonom_tik.PUSH_TABANI, otonom_tik.TOKEN_YOLU)
+            otonom_tik.KLON, otonom_tik.PUSH_TABANI, otonom_tik.TOKEN_YOLU = klon, str(uzak), token
+            try:
+                sha = otonom_tik.push_et("dsh/test")
+            finally:
+                otonom_tik.KLON, otonom_tik.PUSH_TABANI, otonom_tik.TOKEN_YOLU = eski
+            self.assertFalse(isaret.exists(), "pre-push hook çalıştı")
+            self.assertEqual(len(sha), 40)
+            kontrol = subprocess.run(["git", "--git-dir", str(uzak), "rev-parse",
+                                      "refs/heads/dsh/test"], capture_output=True, text=True)
+            self.assertEqual(kontrol.returncode, 0)
+
+
+class KotaTesti(unittest.TestCase):
+    def test_gunluk_sifirlama_ve_tavan(self):
+        durum = {}
+        gunluk = otonom_tik.gunluk_kota(durum)
+        self.assertEqual(gunluk["oturum"], 0)
+        gunluk["oturum"] = otonom_tik.GUNLUK_AZAMI - 1
+        self.assertFalse(otonom_tik.kota_doldu(durum))
+        gunluk["oturum"] = otonom_tik.GUNLUK_AZAMI
+        self.assertTrue(otonom_tik.kota_doldu(durum))
+        eski = {"gunluk": {"tarih": "2000-01-01", "oturum": 99}}
+        self.assertEqual(otonom_tik.gunluk_kota(eski)["oturum"], 0)
 
 
 class KurulumTesti(unittest.TestCase):
+    def test_kuru_dsh_yokken_uyarir(self):
+        ortam = {**os.environ, "DSH_CHECKOUT": "/nonexistent-dsh"}
+        s = subprocess.run(["bash", str(KOK / "otomasyon" / "otonom-kur.sh"), "--kuru"],
+                           capture_output=True, text=True, timeout=120, env=ortam)
+        self.assertEqual(s.returncode, 0, s.stderr)
+        self.assertIn("UYARI", s.stdout)
+
     def test_kuru_cikti_profil_runner_timer_icerir(self):
         s = subprocess.run(["bash", str(KOK / "otomasyon" / "otonom-kur.sh"), "--kuru"],
                            capture_output=True, text=True, timeout=120)

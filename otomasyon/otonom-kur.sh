@@ -111,11 +111,18 @@ TIMER
 }
 
 on_kontrol() {
+  local yumusak="${1:-0}"
   [ -f "$BETIK" ] || { hata "betik yok: $BETIK"; exit 3; }
   [ -f "$RUNNER_KAYNAK" ] || { hata "runner yok: $RUNNER_KAYNAK"; exit 3; }
   [ -f "$DEPO/otomasyon/dsh-gelistirici.cordis.patch.yml" ] || { hata "profil yaması yok"; exit 3; }
   [ -f "$DEPO/otomasyon/dsh-gelistirici-profile.json" ] || { hata "profil package.json yok"; exit 3; }
-  [ -f "$DSH_CHECKOUT/apps/cli/lib/bin.js" ] || { hata "DSH CLI yok: $DSH_CHECKOUT"; exit 3; }
+  if [ ! -f "$DSH_CHECKOUT/apps/cli/lib/bin.js" ]; then
+    if [ "$yumusak" = "1" ]; then
+      soyle "UYARI: DSH CLI yok: $DSH_CHECKOUT (kurulum için gerekir; --kuru devam ediyor)"
+    else
+      hata "DSH CLI yok: $DSH_CHECKOUT"; exit 3
+    fi
+  fi
   "$PYTHON" -m py_compile "$BETIK" || { hata "otonom_tik.py derlenemedi"; exit 3; }
   bash -n "$RUNNER_KAYNAK" || { hata "runner sözdizimi bozuk"; exit 3; }
 }
@@ -179,7 +186,7 @@ durum() {
 
 case "$KIP" in
   kuru)
-    on_kontrol
+    on_kontrol 1
     soyle "--- runner ---"
     soyle "  $RUNNER_KAYNAK -> $HOME/.agents/bin/dsh-bwrap-gelistirici (0755)"
     soyle "--- profil ---"
