@@ -55,8 +55,15 @@ SORUNLU = {"failure", "error"}
 BASARILI = {"success"}
 
 #: Push edilmesi yasak dosya önekleri (kapı ve CI tanımı).
-YASAK_YOLLAR = (".github/", ".gitmodules", "otomasyon/betik/karar_dogrula.py",
-                "otomasyon/betik/yaz.py", "otomasyon/prompt/")
+YASAK_YOLLAR = (
+    ".github/", ".gitmodules", ".gitattributes",
+    "otomasyon/betik/karar_dogrula.py", "otomasyon/betik/yaz.py",
+    "otomasyon/prompt/",
+    # Koordinatör kendi güvenlik sınırını değiştiremez:
+    "otomasyon/betik/otonom_tik.py", "otomasyon/dsh-bwrap-gelistirici",
+    "otomasyon/dsh-gelistirici", "otomasyon/otonom-kur.sh",
+    "otomasyon/OTONOM-PLAN.md", "docs/GUVENLIK-BAGLAM.md",
+)
 
 SIR_DESENLERI = (
     re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),
@@ -236,7 +243,7 @@ def git(*arg: str, timeout: int = 180, env: dict | None = None,
         depo: Path | None = None) -> subprocess.CompletedProcess:
     # Ajan .git/hooks veya .git/config yazabilse bile güvenilir git komutları
     # hook/fsmonitor çalıştırmaz.
-    return subprocess.run(["git", "-C", str(depo or KLON),
+    return subprocess.run(["git", "-C", str(depo or KLON), "--no-replace-objects",
                            "-c", "core.hooksPath=/dev/null",
                            "-c", "core.fsmonitor=false", *arg],
                           capture_output=True, text=True, timeout=timeout, env=env)
@@ -425,14 +432,21 @@ def ajan_calistir(paket: Path) -> tuple[int, str]:
     return kod, ((cikti or "") + (hata or ""))
 
 
+def _sir_metin(metin: str) -> str:
+    for satir in metin.splitlines():
+        for desen in SIR_DESENLERI:
+            if desen.search(satir):
+                return f"sır benzeri desen: {desen.pattern[:40]}"
+    return ""
+
+
 def _sir_tara(diff: str) -> str:
     for satir in diff.splitlines():
         if not satir.startswith("+") or satir.startswith("+++"):
             continue
-        icerik = satir[1:]
-        for desen in SIR_DESENLERI:
-            if desen.search(icerik):
-                return f"sır benzeri desen: {desen.pattern[:40]}"
+        sir = _sir_metin(satir[1:])
+        if sir:
+            return sir
     return ""
 
 
@@ -454,15 +468,30 @@ def commit_denetle(bas_sha: str) -> str:
             return f"yasak yol değişti: {yol}"
         if any(d.search(yol) for d in SIR_DOSYA_DESENLERI):
             return f"sır dosyası eklendi/değişti: {yol}"
-    diff = git("diff", f"{bas_sha}..HEAD").stdout
+    if (KLON / ".git" / "info" / "attributes").is_file():
+        try:
+            if (KLON / ".git" / "info" / "attributes").read_text(encoding="utf-8", errors="replace").strip():
+                return ".git/info/attributes dolu (diff gizleme)"
+        except OSError:
+            return ".git/info/attributes okunamadı"
+    replace = KLON / ".git" / "refs" / "replace"
+    if replace.is_dir() and any(replace.iterdir()):
+        return "git replace ref var (geçmiş gizleme)"
+    grafts = KLON / ".git" / "info" / "grafts"
+    if grafts.is_file() and grafts.read_text(encoding="utf-8", errors="replace").strip():
+        return "git grafts var (geçmiş gizleme)"
+
+    diff = git("-c", "core.attributesfile=/dev/null", "diff", "--text", "--no-ext-diff",
+               f"{bas_sha}..HEAD").stdout
     if len(diff.encode("utf-8")) > AZAMI_DIFF_BAYT:
         return f"diff çok büyük (> {AZAMI_DIFF_BAYT} bayt)"
     sir = _sir_tara(diff)
     if sir:
         return sir
     mesajlar = git("log", "--format=%B", f"{bas_sha}..HEAD").stdout
-    if "-----BEGIN" in mesajlar:
-        return "commit mesajında anahtar bloğu var"
+    sir = _sir_metin(mesajlar)
+    if sir:
+        return f"commit mesajında {sir}"
     hooks = KLON / ".git" / "hooks"
     if hooks.is_dir():
         for dosya in hooks.iterdir():

@@ -155,6 +155,40 @@ class CommitDenetleTesti(unittest.TestCase):
         self.assertIn("sır benzeri", otonom_tik.commit_denetle(self.bas))
 
 
+    def _temizle(self):
+        self.git("reset", "--hard", self.bas)
+        self.git("clean", "-fd", "--quiet")
+
+    def test_yasak_yollarin_tamami(self):
+        for yol in otonom_tik.YASAK_YOLLAR:
+            with self.subTest(yol=yol):
+                self._temizle()
+                hedef = yol + "x.txt" if yol.endswith("/") else yol
+                dosya = self.depo / hedef
+                dosya.parent.mkdir(parents=True, exist_ok=True)
+                dosya.write_text("x", encoding="utf-8")
+                self.git("add", "-A")
+                self.git("commit", "-qm", "deneme")
+                self.assertIn("yasak yol", otonom_tik.commit_denetle(self.bas))
+
+    def test_binary_dosyada_sir_yakalanir(self):
+        self._commit("sir.bin", "GIZLI" + chr(0) + "ghp_" + "a" * 30 + chr(10))
+        self.assertIn("sır benzeri", otonom_tik.commit_denetle(self.bas))
+
+    def test_info_attributes_reddedilir(self):
+        self._commit("normal.txt", "x")
+        (self.depo / ".git" / "info" / "attributes").write_text("*.bin -diff", encoding="utf-8")
+        self.assertIn("attributes", otonom_tik.commit_denetle(self.bas))
+
+    def test_replace_ref_reddedilir(self):
+        self._commit("normal.txt", "x")
+        subprocess.run(["git", "-C", str(self.depo), "replace", "HEAD", self.bas], check=True)
+        self.assertIn("replace ref", otonom_tik.commit_denetle(self.bas))
+
+    def test_commit_mesajinda_sir_reddedilir(self):
+        self._commit("normal.txt", "x", mesaj="ghp_" + "a" * 30)
+        self.assertIn("commit mesajında", otonom_tik.commit_denetle(self.bas))
+
 class GelistiriciRunnerTesti(unittest.TestCase):
     """Geliştirici runner: repo rw, ev/sır gizli, ağ/systemd kapalı, FD sızıntısı yok."""
 
@@ -330,6 +364,13 @@ class KurulumTesti(unittest.TestCase):
         self.assertIn("dsh-bwrap-gelistirici", s.stdout)
         self.assertIn("otonom-gelistirici", s.stdout)
         self.assertIn("OnUnitInactiveSec=20min", s.stdout)
+        for _satir in ("PrivateTmp=true", "ProtectSystem=strict",
+                          "ProtectHome=read-only", "ReadWritePaths=",
+                          "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX"):
+            self.assertIn(_satir, s.stdout)
+        for satir in ("PrivateTmp=true", "ProtectSystem=strict", "ProtectHome=read-only",
+                      "ReadWritePaths=", "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX"):
+            self.assertIn(satir, s.stdout)
 
 
     def test_bilinmeyen_secenek_reddedilir(self):

@@ -88,6 +88,11 @@ MemoryAccounting=yes
 MemoryHigh=${MEM_HIGH_MB}M
 MemoryMax=${MEM_MAX_MB}M
 NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=$DURUM_DIZIN $OTONOM_DEPO
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 TimeoutStartSec=$(( ZAMAN_ASIMI + 300 ))
 ExecStart=$PYTHON $BETIK
 UNIT
@@ -148,7 +153,7 @@ profil_kur() {
 
 kur() {
   on_kontrol
-  install -d -m 700 "$HOME/.agents/bin" "$DURUM_DIZIN"
+  install -d -m 700 "$HOME/.agents/bin" "$DURUM_DIZIN" "$OTONOM_DEPO"
   install -m 0755 "$RUNNER_KAYNAK" "$HOME/.agents/bin/dsh-bwrap-gelistirici"
   profil_kur
   install -d -m 700 "$UNIT_DIZIN"
