@@ -15,6 +15,7 @@
 | `./otomasyon/yaz /tmp/karar.json [--birlestir] [--tek-onay --gerekce \"…\"]` | kararı GitHub'a yaz; koşullar tamamsa birleştir (çift onay **varsayılan**) |
 | `bash otomasyon/kur.sh i5 --cron` | makine kurulumu (denetim + sarmalayıcılar + cron) |
 | `bash otomasyon/nobetci-kur.sh i5 --arac dsh` | nöbetçiyi DSH headless ile kur (Hermes varsayılan) |
+| `bash otomasyon/otonom-kur.sh` | otonom koordinatörü kur (zamanlı DSH geliştirici ajanı) |
 
 ## Akış (D modu)
 

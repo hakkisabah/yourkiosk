@@ -1,0 +1,82 @@
+#!/bin/bash
+# DSH bwrap runner — otonom koordinatör geliştirici ajanı.
+#
+# Ajanın gördüğü dünya: repo (rw) + PAKET_DIR (ro) + boş $HOME + /tmp.
+# Ev, sırlar, Docker/socket, user systemd ve ağ görünmez.
+# FD ile dizin devri YAPILMAZ (sandbox içinden /proc/self/fd ana makineye çıkış verir).
+# Repo yolu MODELİN cwd'sinden değil, GELISTIRICI_DEPO ortam değişkeninden gelir.
+set -u
+
+if ! command -v bwrap >/dev/null 2>&1; then
+  echo "dsh-bwrap-gelistirici: bwrap bulunamadı" >&2
+  exit 127
+fi
+
+args=("$@")
+yeni=()
+ayrac=0
+
+for a in "${args[@]}"; do
+  if [ "$a" = "--" ] && [ "$ayrac" -eq 0 ]; then
+    HOME_REAL="$(realpath -e "$HOME" 2>/dev/null || true)"
+    [ -n "$HOME_REAL" ] || { echo "dsh-bwrap-gelistirici: HOME çözülemedi" >&2; exit 2; }
+
+    DEPO_GIRDI="${GELISTIRICI_DEPO:-}"
+    DEPO_REAL="$(realpath -e "$DEPO_GIRDI" 2>/dev/null || true)"
+    gecerli=1
+    [ -n "$DEPO_REAL" ] && [ -d "$DEPO_REAL/.git" ] || gecerli=0
+    [ -f "$DEPO_REAL/.git/otonom-kopya" ] || gecerli=0
+    [ "$DEPO_REAL" = "$HOME_REAL" ] && gecerli=0
+    [ "$DEPO_REAL" = "/" ] && gecerli=0
+    case "$HOME_REAL" in "$DEPO_REAL"/*) gecerli=0 ;; esac
+    [ "$gecerli" -eq 1 ] || { echo "dsh-bwrap-gelistirici: geçersiz depo yolu" >&2; exit 2; }
+
+    SHADOW_DIR="${DSH_SHADOW_DIR:-/var/tmp}"
+    [ -d "$SHADOW_DIR" ] || SHADOW_DIR=/var/tmp
+    SHADOW="$(mktemp -d "$SHADOW_DIR/dsh-gelistirici.XXXXXX" 2>/dev/null)" || {
+      echo "dsh-bwrap-gelistirici: gölge ev açılamadı" >&2; exit 2; }
+    trap 'rm -rf "$SHADOW"' EXIT
+
+    rel_yol() {
+      case "$1" in
+        "$HOME_REAL"/*) printf '%s' "${1#"$HOME_REAL"/}" ;;
+        *) printf '%s' "" ;;
+      esac
+    }
+    hedef_yol() {
+      rel="$(rel_yol "$1")"
+      if [ -n "$rel" ]; then printf '%s/%s' "$HOME_REAL" "$rel"; else printf '%s' "$1"; fi
+    }
+    REL_DEPO="$(rel_yol "$DEPO_REAL")"
+    if [ -n "$REL_DEPO" ]; then
+      mkdir -p "$SHADOW/$REL_DEPO"
+      HEDEF_DEPO="$HOME_REAL/$REL_DEPO"
+    else
+      HEDEF_DEPO="$DEPO_REAL"
+    fi
+
+    PAKET_GIRDI="${PAKET_DIR:-}"
+    PAKET_REAL="$(realpath -e "$PAKET_GIRDI" 2>/dev/null || true)"
+    REL_PAKET=""
+    [ -n "$PAKET_REAL" ] && REL_PAKET="$(rel_yol "$PAKET_REAL")"
+    [ -n "$REL_PAKET" ] && mkdir -p "$SHADOW/$REL_PAKET"
+
+    yeni+=(--bind "$SHADOW" "$HOME_REAL")
+    yeni+=(--bind "$DEPO_REAL" "$HEDEF_DEPO")
+    [ -n "$PAKET_REAL" ] && [ -d "$PAKET_REAL" ] && yeni+=(--ro-bind "$PAKET_REAL" "$(hedef_yol "$PAKET_REAL")")
+
+    # /run tamamen maskelenir; ağ kapalı. Docker/systemd/D-Bus kaçışı yok.
+    yeni+=(--tmpfs /tmp --tmpfs /run --unshare-net --)
+    ayrac=1
+  else
+    yeni+=("$a")
+  fi
+done
+
+if [ "$ayrac" -eq 0 ]; then
+  echo "dsh-bwrap-gelistirici: eksik -- ayracı" >&2
+  exit 2
+fi
+
+bwrap "${yeni[@]}"
+exit $?
