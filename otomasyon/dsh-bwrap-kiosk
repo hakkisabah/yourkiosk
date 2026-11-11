@@ -1,7 +1,7 @@
 #!/bin/bash
 # DSH bwrap runner — i5/i3 güvenlik incelemesi (salt-okunur ajan).
 #
-# Ajanın gördüğü dünya: repo (ro) + PAKET_DIR (ro) + KARAR_DIR (rw) + boş $HOME + /tmp.
+# Ajanın gördüğü dünya: repo (ro) + PAKET_DIR (ro) + KARAR_DIR (ro) + boş $HOME + /tmp.
 # Ev, sırlar, Docker/socket, user systemd ve ağ görünmez. FD ile dizin devri YAPILMAZ:
 # açık dizin fd'si sandbox içinden /proc/self/fd üzerinden ana makineye çıkış verir.
 # Kaynaklar (repo/paket/karar) gölge $HOME bind edildikten SONRA, mutlak host yoluyla
@@ -77,7 +77,7 @@ for a in "${args[@]}"; do
     # 1) Ev gölgeyle değiştirilir. 2) Kaynaklar host'tan mutlak yolla geri bağlanır.
     yeni+=(--ro-bind "$SHADOW" "$HOME_REAL")
     yeni+=(--ro-bind "$DEPO_REAL" "$(hedef_yol "$DEPO_REAL")")
-    yeni+=(--bind "$KARAR_REAL" "$(hedef_yol "$KARAR_REAL")")
+    yeni+=(--ro-bind "$KARAR_REAL" "$(hedef_yol "$KARAR_REAL")")
     [ -n "$PAKET_REAL" ] && [ -d "$PAKET_REAL" ] && yeni+=(--ro-bind "$PAKET_REAL" "$(hedef_yol "$PAKET_REAL")")
 
     # /run tamamen maskelenir: Docker/containerd/podman, user systemd ve D-Bus.

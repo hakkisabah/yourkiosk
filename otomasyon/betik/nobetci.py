@@ -783,6 +783,11 @@ def karar_klasoru() -> Path:
     return DURUM_KLASORU / "karar"
 
 
+def karar_guvenli_klasoru() -> Path:
+    """Nöbetçinin kendi yazdığı karar dosyaları; sandbox'a BİND EDİLMEZ."""
+    return DURUM_KLASORU / "karar-guvenli"
+
+
 def paket_klasoru() -> Path:
     """Ajan oturumuna SALT-OKUNUR bind edilen, nöbetçinin ürettiği PR paketleri."""
     return DURUM_KLASORU / "paket"
@@ -1115,26 +1120,27 @@ def karar_dosyalarini_temizle(is_listesi: list[dict],
                                gunluk_yolu: Path | None = None) -> None:
     """Yeni oturum öncesi eski karar dosyalarını sil (bayat karar yayınlanmasın).
 
-    Ajan KARAR_DIR'e aynı adla DİZİ veya sembolik bağ bırakabilir; bu durum nöbetçiyi
-    IsADirectoryError ile düşürmemeli. Dizin güvenli biçimde kaldırılır, hata günlüğe yazılır.
+    Hem sandbox'a bind edilen eski KARAR_DIR hem de nöbetçinin güvenilir karar
+    dizini temizlenir. Dizin veya sembolik bağ kalıntısı nöbetçiyi düşürmemeli.
     """
     for is_ in is_listesi:
-        yol = karar_klasoru() / f"karar-{is_['pr']}.json"
-        try:
-            if yol.is_symlink() or yol.is_file():
-                yol.unlink()
-            elif yol.is_dir():
-                shutil.rmtree(yol)
-            else:
-                yol.unlink(missing_ok=True)
-        except FileNotFoundError:
-            pass
-        except OSError as hata:
-            mesaj = f"KARAR temizlenemedi: {yol} ({hata})"
-            if gunluk_yolu:
-                gunluk(gunluk_yolu, mesaj)
-            else:
-                print(mesaj, file=sys.stderr)
+        for klasor in (karar_klasoru(), karar_guvenli_klasoru()):
+            yol = klasor / f"karar-{is_['pr']}.json"
+            try:
+                if yol.is_symlink() or yol.is_file():
+                    yol.unlink()
+                elif yol.is_dir():
+                    shutil.rmtree(yol)
+                else:
+                    yol.unlink(missing_ok=True)
+            except FileNotFoundError:
+                pass
+            except OSError as hata:
+                mesaj = f"KARAR temizlenemedi: {yol} ({hata})"
+                if gunluk_yolu:
+                    gunluk(gunluk_yolu, mesaj)
+                else:
+                    print(mesaj, file=sys.stderr)
 
 
 KARAR_JSON_BLOGU = re.compile(
@@ -1196,12 +1202,25 @@ def kararlari_yayinla(depo: Path, rol: str, is_listesi: list[dict],
                 gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — stdout bloğu "
                                    f"{len(ham.encode())} bayt (üst sınır {KARAR_AZAMI_BAYT})")
                 continue
+            # Güvenilir dizin sandbox'a bind edilmez; yine de symlink/yarış için
+            # O_NOFOLLOW + O_EXCL ile yazılır (i5 #99 yüksek bulgusu).
+            hedef = karar_guvenli_klasoru() / f"karar-{pr}.json"
             try:
-                yol.write_text(ham, encoding="utf-8")
-                os.chmod(yol, 0o600)
+                hedef.parent.mkdir(mode=0o700, exist_ok=True)
+                if hedef.is_symlink():
+                    gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — karar yolu sembolik bağ")
+                    continue
+                try:
+                    hedef.unlink()
+                except FileNotFoundError:
+                    pass
+                fd = os.open(hedef, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as dosya:
+                    dosya.write(ham)
             except OSError as hata:
                 gunluk(gunluk_yolu, f"{rol}: KARAR YAZILAMADI #{pr} — {hata}")
                 continue
+            yol = hedef
             veri = ham_veri
         else:
             if yol.is_symlink():

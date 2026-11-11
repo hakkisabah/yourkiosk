@@ -165,8 +165,9 @@ def _api(yol: str, token: str, depo: str):
 def kanit_denetle(karar: dict, sonuc: Sonuc, token: str, depo: str) -> None:
     """Her bulgunun `dosya:satir` kanıtı PR head'inde gerçekten var mı?"""
     bulgular = [b for b in (karar.get("bulgular") or []) if isinstance(b, dict)]
-    if not bulgular:
-        return
+    # 11 Kasım i5 bulgusu: bulgusuz onay/kabul kararlarında head tazeliği hiç
+    # denetlenmiyordu; karar dosyasındaki sha keyfî olabiliyordu. Artık PR numarası
+    # olan her kararda head sha doğrulanır (bulgu listesi boş olsa da).
     #: Bulgu taşıyan karar "sorun/red/duzeltme" ise dosya:satır ZORUNLU; onay/kabul kararında değil.
     satir_zorunlu = str(karar.get("karar", "")).strip().lower() not in ONAY_KARARLARI
     pr_no, sha = karar.get("pr"), str(karar.get("sha") or "").strip()

@@ -444,6 +444,22 @@ class KararYayinTesti(unittest.TestCase):
                 kararlar={97: veri})
         self.assertEqual(calistir.call_count, 2)
 
+    def test_stdout_kararinda_symlink_reddedilir(self):
+        hedef = nobetci.karar_guvenli_klasoru() / "karar-97.json"
+        hedef.parent.mkdir(parents=True, exist_ok=True)
+        kurban = Path(self.dizin.name) / "kurban.txt"
+        kurban.write_text("KORU", encoding="utf-8")
+        hedef.symlink_to(kurban)
+        veri = {"pr": 97, "sha": self.sha, "karar": "onay", "nonce": self.nonce}
+        gunluk = Path(self.dizin.name) / "symlink.log"
+        with mock.patch.object(nobetci.subprocess, "run") as calistir:
+            nobetci.kararlari_yayinla(
+                self.depo, "i5", [{"pr": 97, "sha": self.sha, "nonce": self.nonce}], gunluk,
+                kararlar={97: veri})
+        self.assertEqual(calistir.call_count, 0)
+        self.assertEqual(kurban.read_text(encoding="utf-8"), "KORU")
+        self.assertIn("sembolik bağ", gunluk.read_text(encoding="utf-8"))
+
     def test_257kb_karar_reddedilir_ve_silinir(self):
         """Boyut sınırını aşan dosya kapıya verilmez, günlüğe yazılır ve silinir."""
         yol = nobetci.karar_klasoru() / "karar-97.json"

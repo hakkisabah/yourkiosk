@@ -268,7 +268,8 @@ class DshSandboxDosyaTesti(unittest.TestCase):
         runner = (BETIK.parents[1] / "otomasyon" / "dsh-bwrap-kiosk").read_text(encoding="utf-8")
         self.assertIn("--tmpfs /run", runner)
         self.assertIn("--unshare-net", runner)
-        self.assertIn("--bind", runner)
+        self.assertIn('--ro-bind "$KARAR_REAL"', runner)
+        self.assertNotIn('--bind "$KARAR_REAL"', runner)
         self.assertIn("bwrap", runner)
 
     def test_headless_profili_native_fs_web_araclarini_kapatir(self):

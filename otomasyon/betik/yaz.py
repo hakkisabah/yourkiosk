@@ -440,6 +440,12 @@ def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay
         if not surum_guncel(i5_aciklama):
             return False, ("i5 onayı eski inceleme sürümünde (damgasız/bayat açıklama) — "
                            "birleştirme için güncel sürümle yeniden inceleme gerekir")
+        # i3 kararı da sürüme bağlı (11 Kasım i5 bulgusu): damgasız/eski i3 success
+        # «kabul» sayılıp birleştirmeye yetmemeli.
+        i3_aciklama = aciklamalar.get("guvenlik/karar")
+        if not surum_guncel(i3_aciklama):
+            return False, ("i3 kararı eski inceleme sürümünde (damgasız/bayat açıklama) — "
+                           "birleştirme için güncel sürümle yeniden inceleme gerekir")
 
     if kuru:
         return True, "KURU: koşullar uygun, birleştirilecek (squash)"

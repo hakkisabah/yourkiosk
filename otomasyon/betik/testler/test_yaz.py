@@ -748,6 +748,15 @@ class YabanciCommitDenetimiTesti(unittest.TestCase):
         self.assertFalse(uygun, mesaj)
         self.assertIn("eski inceleme sürümünde", mesaj)
 
+    def test_damgasiz_i3_karari_birlestirmeyi_engeller(self):
+        self._sahte_istek(yabanci=False, kontroller=[
+            {"context": "guvenlik/inceleme", "state": "success", "description": "[v2] onay (dusuk): x"},
+            {"context": "guvenlik/karar", "state": "success", "description": "kabul (damgasız)"},
+        ])
+        uygun, mesaj = self._birlestir()
+        self.assertFalse(uygun, mesaj)
+        self.assertIn("i3 kararı eski inceleme sürümünde", mesaj)
+
     def test_yabanci_commit_yine_engellenir(self):
         self._sahte_istek(yabanci=True)
         uygun, mesaj = self._birlestir()
