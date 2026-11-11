@@ -255,13 +255,17 @@ def karar_ver(pr: dict, durumlar_: dict[str, dict], kayit: dict) -> dict:
 
 
 def git(*arg: str, timeout: int = 180, env: dict | None = None,
-        depo: Path | None = None) -> subprocess.CompletedProcess:
+        depo: Path | None = None, git_dir: Path | None = None) -> subprocess.CompletedProcess:
     # Ajan .git/hooks veya .git/config yazabilse bile güvenilir git komutları
-    # hook/fsmonitor çalıştırmaz.
-    return subprocess.run(["git", "-C", str(depo or KLON), "--no-replace-objects",
-                           "-c", "core.hooksPath=/dev/null",
-                           "-c", "core.fsmonitor=false", *arg],
-                          capture_output=True, text=True, timeout=timeout, env=env)
+    # hook/fsmonitor çalıştırmaz. git_dir verilirse .git keşfi kullanılmaz.
+    temel = ["git"]
+    if git_dir is not None:
+        temel += ["--git-dir", str(git_dir), "--work-tree", str(depo or KLON)]
+    else:
+        temel += ["-C", str(depo or KLON)]
+    temel += ["--no-replace-objects", "-c", "core.hooksPath=/dev/null",
+              "-c", "core.fsmonitor=false", *arg]
+    return subprocess.run(temel, capture_output=True, text=True, timeout=timeout, env=env)
 
 
 def klon_hazirla() -> None:
@@ -300,7 +304,8 @@ def pr_dali_hazirla(pr: dict) -> tuple[str, str, str]:
         raise TikHatasi(f"PR dalı checkout başarısız: {s.stderr.strip()[:200]}")
     git("clean", "-fd", "--quiet")
     bas = git("rev-parse", "HEAD").stdout.strip()
-    return bas, head_ref, base_ref
+    git_dir = Path(git("rev-parse", "--absolute-git-dir").stdout.strip())
+    return bas, head_ref, base_ref, git_dir
 
 
 def paket_yaz(pr: dict, bas_sha: str, base_ref: str, token: str,
@@ -475,17 +480,31 @@ def _sir_tara(diff: str) -> str:
     return ""
 
 
-def commit_denetle(bas_sha: str) -> str:
+def commit_denetle(bas_sha: str, git_dir: Path | None = None) -> str:
     """Ajanın bıraktığı commit'leri denetle; sorun varsa boş olmayan neden döndür."""
-    durum = git("status", "--porcelain").stdout.strip()
+    if git_dir is not None:
+        gercek = KLON / ".git"
+        if gercek.is_symlink() or not gercek.is_dir():
+            return "git dizini gerçek dizin değil (oturumdan sonra değişmiş)"
+        try:
+            if Path(git_dir).resolve() != gercek.resolve():
+                return "git dizini oturum başındakiyle aynı değil"
+        except OSError:
+            return "git dizini çözülemedi"
+    kok_git = Path(git_dir) if git_dir is not None else KLON / ".git"
+
+    def g(*arg: str):
+        return git(*arg, git_dir=git_dir)
+
+    durum = g("status", "--porcelain").stdout.strip()
     if durum:
         return "çalışma ağacı temiz değil (commit edilmemiş değişiklik)"
-    adet = git("rev-list", "--count", f"{bas_sha}..HEAD").stdout.strip()
+    adet = g("rev-list", "--count", f"{bas_sha}..HEAD").stdout.strip()
     if not adet.isdigit() or int(adet) < 1:
         return "yeni commit yok"
-    if git("rev-list", "--merges", f"{bas_sha}..HEAD").stdout.strip():
+    if g("rev-list", "--merges", f"{bas_sha}..HEAD").stdout.strip():
         return "merge commit var (tek doğrusal geçmiş kuralı)"
-    dosyalar = [s for s in git("diff", "--name-only", f"{bas_sha}..HEAD").stdout.splitlines() if s.strip()]
+    dosyalar = [s for s in g("diff", "--name-only", f"{bas_sha}..HEAD").stdout.splitlines() if s.strip()]
     if len(dosyalar) > AZAMI_DOSYA:
         return f"çok fazla dosya değişti ({len(dosyalar)} > {AZAMI_DOSYA})"
     for yol in dosyalar:
@@ -493,48 +512,47 @@ def commit_denetle(bas_sha: str) -> str:
             return f"yasak yol değişti: {yol}"
         if any(d.search(yol) for d in SIR_DOSYA_DESENLERI):
             return f"sır dosyası eklendi/değişti: {yol}"
-    if (KLON / ".git" / "info" / "attributes").is_file():
+    if (kok_git / "info" / "attributes").is_file():
         try:
-            if (KLON / ".git" / "info" / "attributes").read_text(encoding="utf-8", errors="replace").strip():
+            if (kok_git / "info" / "attributes").read_text(encoding="utf-8", errors="replace").strip():
                 return ".git/info/attributes dolu (diff gizleme)"
         except OSError:
             return ".git/info/attributes okunamadı"
-    replace = KLON / ".git" / "refs" / "replace"
+    replace = kok_git / "refs" / "replace"
     if replace.is_dir() and any(replace.iterdir()):
         return "git replace ref var (geçmiş gizleme)"
-    grafts = KLON / ".git" / "info" / "grafts"
+    grafts = kok_git / "info" / "grafts"
     if grafts.is_file() and grafts.read_text(encoding="utf-8", errors="replace").strip():
         return "git grafts var (geçmiş gizleme)"
 
-    diff = git("-c", "core.attributesfile=/dev/null", "diff", "--text", "--no-ext-diff",
-               f"{bas_sha}..HEAD").stdout
+    diff = g("-c", "core.attributesfile=/dev/null", "diff", "--text", "--no-ext-diff",
+             f"{bas_sha}..HEAD").stdout
     if len(diff.encode("utf-8")) > AZAMI_DIFF_BAYT:
         return f"diff çok büyük (> {AZAMI_DIFF_BAYT} bayt)"
     sir = _sir_tara(diff)
     if sir:
         return sir
-    mesajlar = git("log", "--format=%B", f"{bas_sha}..HEAD").stdout
+    mesajlar = g("log", "--format=%B", f"{bas_sha}..HEAD").stdout
     sir = _sir_metin(mesajlar)
     if sir:
         return f"commit mesajında {sir}"
-    hooks = KLON / ".git" / "hooks"
+    hooks = kok_git / "hooks"
     if hooks.is_dir():
         for dosya in hooks.iterdir():
             if dosya.name.endswith(".sample"):
                 continue
             if dosya.is_file() and os.access(dosya, os.X_OK):
                 return f"git hook çalıştırılabilir: {dosya.name}"
-    if git("config", "--local", "--get", "core.hooksPath").stdout.strip():
+    if g("config", "--local", "--get", "core.hooksPath").stdout.strip():
         return "repo config core.hooksPath tanımlı"
     return ""
 
+def geri_al(bas_sha: str, git_dir: Path | None = None) -> None:
+    git("reset", "--hard", bas_sha, git_dir=git_dir)
+    git("clean", "-fd", "--quiet", git_dir=git_dir)
 
-def geri_al(bas_sha: str) -> None:
-    git("reset", "--hard", bas_sha)
-    git("clean", "-fd", "--quiet")
 
-
-def push_et(head_ref: str) -> str:
+def push_et(head_ref: str, git_dir: Path | None = None) -> str:
     if not any(head_ref.startswith(onek) for onek in IZINLI_DAL_ONEKLERI):
         raise TikHatasi(f"dal izinli değil (main/force yok): {head_ref}")
     token = token_oku()
@@ -548,12 +566,14 @@ def push_et(head_ref: str) -> str:
         "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {b64}",
         "GIT_TERMINAL_PROMPT": "0",
     })
-    sha = git("rev-parse", "HEAD").stdout.strip()
-    sonuc = subprocess.run(
-        ["git", "-C", str(KLON), "-c", "core.hooksPath=/dev/null",
-         "-c", "core.fsmonitor=false", "push", PUSH_TABANI,
-         f"HEAD:refs/heads/{head_ref}"],
-        capture_output=True, text=True, timeout=180, env=ortam)
+    sha = git("rev-parse", "HEAD", git_dir=git_dir).stdout.strip()
+    if git_dir is not None:
+        temel = ["git", "--git-dir", str(git_dir), "--work-tree", str(KLON)]
+    else:
+        temel = ["git", "-C", str(KLON)]
+    temel += ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
+              "push", PUSH_TABANI, f"HEAD:refs/heads/{head_ref}"]
+    sonuc = subprocess.run(temel, capture_output=True, text=True, timeout=180, env=ortam)
     if sonuc.returncode != 0:
         raise TikHatasi(f"push başarısız: {sonuc.stderr.strip()[:400]}")
     return sha
@@ -566,7 +586,7 @@ def tek_pr_yurut(pr: dict, token: str, durum: dict) -> str:
     _kayit_sifirla(kayit, sha)
     try:
         klon_hazirla()
-        bas_sha, head_ref, base_ref = pr_dali_hazirla(pr)
+        bas_sha, head_ref, base_ref, git_dir = pr_dali_hazirla(pr)
         paket = paket_yaz(pr, bas_sha, base_ref, token, durumlar(token, sha))
         gunluk(f"PR #{no}: paket hazır {paket} · ajan başlıyor (bütçe {ZAMAN_ASIMI} sn)")
         kod, cikti = ajan_calistir(paket)
@@ -574,18 +594,18 @@ def tek_pr_yurut(pr: dict, token: str, durum: dict) -> str:
         os.chmod(EV / f"ajan-{no}.log", 0o600)
         gunluk(f"PR #{no}: ajan bitti (çıkış {kod})")
         if kod != 0:
-            geri_al(bas_sha)
+            geri_al(bas_sha, git_dir)
             kayit["sayi"] = int(kayit.get("sayi") or 0) + 1
             kayit["son_eylem"] = f"ajan-hatasi({kod})"
             return "ajan-hatasi"
-        neden = commit_denetle(bas_sha)
+        neden = commit_denetle(bas_sha, git_dir)
         if neden:
-            geri_al(bas_sha)
+            geri_al(bas_sha, git_dir)
             kayit["sayi"] = int(kayit.get("sayi") or 0) + 1
             kayit["son_eylem"] = f"dogrulama-reddi: {neden}"
             gunluk(f"PR #{no}: doğrulama reddetti — {neden}; push yok")
             return "dogrulama-reddi"
-        yeni_sha = push_et(head_ref)
+        yeni_sha = push_et(head_ref, git_dir)
         kayit["son_push"] = simdi()
         kayit["son_eylem"] = f"push:{yeni_sha[:10]}"
         gunluk(f"PR #{no}: düzeltme push edildi -> {head_ref} @ {yeni_sha[:10]}")

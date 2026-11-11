@@ -159,6 +159,22 @@ class CommitDenetleTesti(unittest.TestCase):
         self.git("reset", "--hard", self.bas)
         self.git("clean", "-fd", "--quiet")
 
+    def test_git_dizini_degistirilirse_reddedilir(self):
+        gd = Path(subprocess.run(
+            ["git", "-C", str(self.depo), "rev-parse", "--absolute-git-dir"],
+            capture_output=True, text=True).stdout.strip())
+        self._commit("yeni.txt", "x")
+        eski = self.depo / ".git-eski"
+        eski.mkdir()
+        try:
+            os.rename(self.depo / ".git", eski)
+            (self.depo / ".git").write_text("gitdir: /tmp/sahte", encoding="utf-8")
+            neden = otonom_tik.commit_denetle(self.bas, gd)
+        finally:
+            (self.depo / ".git").unlink()
+            os.rename(eski, self.depo / ".git")
+        self.assertIn("gerçek dizin", neden)
+
     def test_yasak_yollarin_tamami(self):
         for yol in otonom_tik.YASAK_YOLLAR:
             with self.subTest(yol=yol):
