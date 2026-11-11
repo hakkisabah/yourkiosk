@@ -62,7 +62,9 @@ YASAK_YOLLAR = (
     "otomasyon/prompt/",
     # Koordinatör kendi güvenlik sınırını değiştiremez:
     "otomasyon/betik/otonom_tik.py", "otomasyon/dsh-bwrap-gelistirici",
+    "otomasyon/dsh-bwrap-kiosk", "otomasyon/dsh-headless.cordis.patch.yml",
     "otomasyon/dsh-gelistirici", "otomasyon/otonom-kur.sh",
+    "otomasyon/kur.sh", "otomasyon/nobetci-kur.sh", "otomasyon/betik/nobetci.py",
     "otomasyon/OTONOM-PLAN.md", "docs/GUVENLIK-BAGLAM.md",
 )
 
@@ -402,13 +404,13 @@ def ajan_calistir(paket: Path) -> tuple[int, str]:
     os.chmod(EV / "paket-yolu", 0o600)
     (EV / "kurallar-yolu").write_text(str(KOK / "AGENTS.md"), encoding="utf-8")
     os.chmod(EV / "kurallar-yolu", 0o600)
-    ortam["GELISTIRICI_KURALLAR"] = str(KOK / "AGENTS.md")
     ortam = os.environ.copy()
     ortam.update({
         "DSH_HOME": str(ev),
         "DSH_PERMISSION_MODE": "workspace-write",
         "PAKET_DIR": str(PAKET_KLASORU),
         "GELISTIRICI_DEPO": str(KLON.resolve()),
+        "GELISTIRICI_KURALLAR": str(KOK / "AGENTS.md"),
         "GIT_AUTHOR_NAME": "otonom-koordinator",
         "GIT_AUTHOR_EMAIL": "otonom@localhost",
         "GIT_COMMITTER_NAME": "otonom-koordinator",

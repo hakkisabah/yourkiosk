@@ -298,6 +298,40 @@ class GelistiriciRunnerTesti(unittest.TestCase):
             self.assertIn("--setenv", args)
 
 
+class AjanCalistirTesti(unittest.TestCase):
+    """ajan_calistir, Popen'e güvenilir kurallar ve depo yolu içeren env vermeli."""
+
+    @unittest.skipUnless((Path.home() / ".dsh" / "profiles" / "headless" / "cordis.patch.yml").is_file(),
+                         "headless profili yok")
+    def test_popen_env_gelistirici_kurallar(self):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
+            t = Path(d)
+            ev = t / "ev"
+            ev.mkdir()
+            klon = t / "klon"
+            klon.mkdir()
+            paket = t / "paket"
+            paket.mkdir()
+            (paket / "pr-97.md").write_text("x", encoding="utf-8")
+            dsh = t / "dsh"
+            (dsh / "apps" / "cli" / "lib").mkdir(parents=True)
+            (dsh / "apps" / "cli" / "lib" / "bin.js").write_text("", encoding="utf-8")
+            with mock.patch.multiple(otonom_tik, KLON=klon, EV=ev, PAKET_KLASORU=paket,
+                                     DSH_CHECKOUT=dsh, PROFIL="headless"),                  mock.patch.object(otonom_tik, "dsh_home_hazirla", return_value=ev),                  mock.patch.object(otonom_tik.os, "access", return_value=True),                  mock.patch.object(otonom_tik.subprocess, "Popen") as popen:
+                surec = mock.Mock()
+                surec.communicate.return_value = ("rapor", "")
+                surec.returncode = 0
+                popen.return_value = surec
+                kod, cikti = otonom_tik.ajan_calistir(paket)
+        self.assertEqual((kod, cikti), (0, "rapor"))
+        komut = popen.call_args.args[0]
+        env = popen.call_args.kwargs["env"]
+        self.assertIn("--profile", komut)
+        self.assertIn("headless", komut)
+        self.assertEqual(env["GELISTIRICI_KURALLAR"], str(otonom_tik.KOK / "AGENTS.md"))
+        self.assertEqual(env["PAKET_DIR"], str(paket))
+
+
 class KancaTesti(unittest.TestCase):
     """Güvenilir git komutları repo hook'larını çalıştırmamalı."""
 
