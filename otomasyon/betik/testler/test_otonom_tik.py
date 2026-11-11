@@ -61,6 +61,13 @@ class KararTesti(unittest.TestCase):
         k = otonom_tik.karar_ver(pr, {"guvenlik/inceleme": _durum("failure")}, kayit)
         self.assertEqual(k["eylem"], "engel")
 
+    def test_head_guncel_mi(self):
+        a = _pr("a" * 40)
+        b = _pr("b" * 40)
+        self.assertTrue(otonom_tik.head_guncel_mi(a, a))
+        self.assertFalse(otonom_tik.head_guncel_mi(a, b))
+        self.assertFalse(otonom_tik.head_guncel_mi(a, {}))
+
     def test_kayit_sifirlama_sha_degisince(self):
         kayit = {"sha": "a" * 40, "sayi": 4, "toplam": 4}
         otonom_tik._kayit_sifirla(kayit, "b" * 40)
@@ -208,7 +215,7 @@ class KurulumTesti(unittest.TestCase):
         self.assertEqual(s.returncode, 0, s.stderr)
         self.assertIn("dsh-bwrap-gelistirici", s.stdout)
         self.assertIn("otonom-gelistirici", s.stdout)
-        self.assertIn("OnUnitActiveSec=20min", s.stdout)
+        self.assertIn("OnUnitInactiveSec=20min", s.stdout)
 
 
     def test_bilinmeyen_secenek_reddedilir(self):

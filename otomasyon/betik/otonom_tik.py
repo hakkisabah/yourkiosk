@@ -163,6 +163,12 @@ def son_kapi_yorumu(yorum_listesi: list[dict], makine: str) -> str:
     return ""
 
 
+def head_guncel_mi(pr: dict, guncel: dict) -> bool:
+    """Karar verilen head ile şu anki head aynı mı? (bayat kararla ajan çalıştırma)"""
+    return (str((pr.get("head") or {}).get("sha") or "")
+            == str((guncel.get("head") or {}).get("sha") or ""))
+
+
 def sadece_pr_kumesi() -> set[int]:
     """OTONOM_SADECE_PR (virgüllü liste) ile PR seçimi; boşsa tümü."""
     ham = os.environ.get("OTONOM_SADECE_PR", "").replace(" ", "")
@@ -559,6 +565,14 @@ def tik(kuru: bool = False, zorla_pr: int | None = None) -> int:
 
     for pr, k in kararlar:
         if k["eylem"] == "duzelt":
+            # Karar verildikten sonra head değişmiş olabilir (başka bir tik/push).
+            # Bayat head ile ajan çalıştırmak yanlış tabana commit üretir.
+            kod, guncel = api(f"/pulls/{pr['number']}", token)
+            if kod != 200 or not head_guncel_mi(pr, guncel):
+                gunluk(f"PR #{pr['number']}: head değişti → bu tik atlandı (bayat karar)")
+                durum["son_karar"] = "head-degisti"
+                durum_yaz(durum)
+                return 0
             kayit = _kayit(durum, int(pr["number"]))
             sha = str((pr.get("head") or {}).get("sha") or "")
             _kayit_sifirla(kayit, sha)

@@ -100,7 +100,7 @@ Description=otonom koordinator zamanlayici
 
 [Timer]
 OnBootSec=10min
-OnUnitActiveSec=${ARALIK_MIN}min
+OnUnitInactiveSec=${ARALIK_MIN}min
 Persistent=true
 RandomizedDelaySec=60
 AccuracySec=1min
