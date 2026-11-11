@@ -9,16 +9,24 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 BETIK = Path(__file__).resolve().parents[2] / "nobetci-kur.sh"
+TEMIZLENECEK = ("NOBETCI_ARAC", "DSH_CHECKOUT", "DSH_PERMISSION_MODE", "NOBETCI_PROFIL")
+
+
+def temiz_ortam(home: str, **ek: str) -> dict[str, str]:
+    """Test ortamı ana kabuğun DSH değişkenlerini devralmasın (7 Kasım i5 bulgusu)."""
+    return {**{k: v for k, v in os.environ.items() if k not in TEMIZLENECEK},
+            "HOME": home, **ek}
 
 
 def unit_uret(*argumanlar: str, home: str) -> str:
-    ortam = {**os.environ, "HOME": home}
+    ortam = temiz_ortam(home)
     s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", *argumanlar],
                        capture_output=True, text=True, timeout=60, env=ortam)
     assert s.returncode == 0, s.stderr
@@ -50,7 +58,7 @@ class UnitTesti(unittest.TestCase):
         self.assertIn("CPUWeight=50", metin)
 
     def test_rol_adi_profil_olamaz(self):
-        ortam = {**os.environ, "HOME": self.home}
+        ortam = temiz_ortam(self.home)
         s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--profil", "i5"],
                            capture_output=True, text=True, timeout=60, env=ortam)
         self.assertEqual(s.returncode, 2)
@@ -62,7 +70,7 @@ class UnitTesti(unittest.TestCase):
         self.assertIn("--zaman-asimi 3600", metin)
 
     def test_zaman_asimi_ortamla_degisir(self):
-        ortam = {**os.environ, "HOME": self.home, "NOBETCI_ZAMAN_ASIMI": "5400"}
+        ortam = temiz_ortam(self.home, NOBETCI_ZAMAN_ASIMI="5400")
         s = subprocess.run(["bash", str(BETIK), "i5", "--kuru"],
                            capture_output=True, text=True, timeout=60, env=ortam)
         self.assertEqual(s.returncode, 0, s.stderr)
@@ -70,7 +78,7 @@ class UnitTesti(unittest.TestCase):
 
     def test_gecersiz_zaman_asimi_reddedilir(self):
         for deger in ("abc", "0", "299", "7201", "60;rm -rf /"):
-            ortam = {**os.environ, "HOME": self.home, "NOBETCI_ZAMAN_ASIMI": deger}
+            ortam = temiz_ortam(self.home, NOBETCI_ZAMAN_ASIMI=deger)
             s = subprocess.run(["bash", str(BETIK), "i5", "--kuru"],
                                capture_output=True, text=True, timeout=60, env=ortam)
             self.assertEqual(s.returncode, 2, f"kabul edildi: {deger!r}")
@@ -81,7 +89,7 @@ class UnitTesti(unittest.TestCase):
         kotu = ["a\nExecStartPre=/bin/touch /tmp/pwn", "guvenlik\n", "Guvenlik", "gu venlik",
                 "a" * 40, "-x", "guvenlik;rm", "../../etc"]
         for deger in kotu:
-            ortam = {**os.environ, "HOME": self.home}
+            ortam = temiz_ortam(self.home)
             s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--profil", deger],
                                capture_output=True, text=True, timeout=60, env=ortam)
             self.assertEqual(s.returncode, 2, f"kabul edildi: {deger!r} → {s.stdout}")
@@ -167,7 +175,7 @@ class UnitTesti(unittest.TestCase):
             with self.subTest(kotu=kotu):
                 s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--dal", kotu],
                                    capture_output=True, text=True, timeout=60,
-                                   env={**os.environ, "HOME": self.home})
+                                   env=temiz_ortam(self.home))
                 self.assertEqual(s.returncode, 2, s.stdout)
                 self.assertIn("geçersiz --dal", s.stderr)
 
@@ -188,6 +196,224 @@ class UnitTesti(unittest.TestCase):
         self.assertLess(kaynak.index("reset-failed"), kaynak.index('systemctl --user start'))
 
 
+class DshUnitTesti(unittest.TestCase):
+    """2026-11-08 DSH geçişi: birim `--arac dsh` ile headless'i seçmeli, Hermes profili aramamalı."""
+
+    def setUp(self):
+        self.dizin = tempfile.TemporaryDirectory()
+        self.home = self.dizin.name
+
+    def tearDown(self):
+        self.dizin.cleanup()
+
+    def test_dsh_araci_birime_yazilir(self):
+        metin = unit_uret("--arac", "dsh", home=self.home)
+        self.assertIn("Environment=NOBETCI_ARAC=dsh", metin)
+        self.assertIn("Environment=DSH_CHECKOUT=", metin)
+        self.assertIn("Environment=DSH_PERMISSION_MODE=read-only", metin)
+        self.assertIn("--arac dsh", metin)
+        self.assertNotIn("NOBETCI_PROFIL=", metin)
+
+    def test_varsayilan_hermes_korunur(self):
+        metin = unit_uret(home=self.home)
+        self.assertIn("Environment=NOBETCI_ARAC=hermes", metin)
+        self.assertIn("--arac hermes", metin)
+        self.assertNotIn("DSH_CHECKOUT=", metin)
+
+    def test_workspace_write_reddedilir(self):
+        ortam = temiz_ortam(self.home, DSH_PERMISSION_MODE="workspace-write")
+        s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--arac", "dsh"],
+                           capture_output=True, text=True, timeout=60, env=ortam)
+        self.assertEqual(s.returncode, 2)
+        self.assertIn("yalnız read-only", s.stderr)
+
+    def test_dsh_profille_reddedilir(self):
+        ortam = temiz_ortam(self.home)
+        s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--arac", "dsh",
+                            "--profil", "guvenlik"],
+                           capture_output=True, text=True, timeout=60, env=ortam)
+        self.assertEqual(s.returncode, 2)
+        self.assertIn("profil yalnız Hermes", s.stderr)
+
+    def test_gecersiz_arac_reddedilir(self):
+        ortam = temiz_ortam(self.home)
+        s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--arac", "baska"],
+                           capture_output=True, text=True, timeout=60, env=ortam)
+        self.assertEqual(s.returncode, 2)
+        self.assertIn("geçersiz --arac", s.stderr)
+
+    def test_dsh_checkout_kabuk_metasi_reddedilir(self):
+        for kotu in ("/tmp/dsh$HOME", "/tmp/dsh space", "/tmp/dsh;rm", "/tmp/dsh`id`"):
+            with self.subTest(kotu=kotu):
+                ortam = {**os.environ, "HOME": self.home, "DSH_CHECKOUT": kotu}
+                s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--arac", "dsh"],
+                                   capture_output=True, text=True, timeout=60, env=ortam)
+                self.assertEqual(s.returncode, 2, s.stdout + s.stderr)
+                self.assertIn("geçersiz DSH_CHECKOUT", s.stderr)
+
+    def test_dsh_checkout_enjeksiyonu_reddedilir(self):
+        ortam = temiz_ortam(self.home,
+                 DSH_CHECKOUT="/tmp/dsh\nExecStartPre=/bin/true")
+        s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--arac", "dsh"],
+                           capture_output=True, text=True, timeout=60, env=ortam)
+        self.assertEqual(s.returncode, 2)
+        self.assertNotIn("ExecStartPre", s.stdout)
+        self.assertIn("geçersiz DSH_CHECKOUT", s.stderr)
+
+
+class DshSandboxDosyaTesti(unittest.TestCase):
+    """Güvenli runner ve profil depoda sürümlenmeli; user systemd/D-Bus maskeli olmalı."""
+
+    def test_runner_user_systemd_ve_dbus_maskeler(self):
+        runner = (BETIK.parents[1] / "otomasyon" / "dsh-bwrap-kiosk").read_text(encoding="utf-8")
+        self.assertIn("--tmpfs /run", runner)
+        self.assertIn("--unshare-net", runner)
+        self.assertIn("--bind", runner)
+        self.assertIn("bwrap", runner)
+
+    def test_headless_profili_native_fs_web_araclarini_kapatir(self):
+        profil = (BETIK.parents[1] / "otomasyon" / "dsh-headless.cordis.patch.yml").read_text(encoding="utf-8")
+        for arac in ("tool-fs", "tool-fs-search", "tool-web", "tool-subagent",
+                     "tool-subagent-fork", "tool-workflow", "tool-agent-team",
+                     "tool-subagent-control"):
+            self.assertIn(f"- id: {arac}", profil)
+            # aynı satırın hemen ardından disabled: true gelmeli
+            blok = profil.split(f"- id: {arac}", 1)[1].split("- id:", 1)[0]
+            self.assertIn("disabled: true", blok, f"{arac} kapatılmamış")
+
+    def test_headless_profili_guvenli_runneri_kullanir(self):
+        profil = (BETIK.parents[1] / "otomasyon" / "dsh-headless.cordis.patch.yml").read_text(encoding="utf-8")
+        self.assertIn("dsh-bwrap-kiosk", profil)
+        self.assertIn("runnerCommand", profil)
+
+
+class DshRunnerCalistirTesti(unittest.TestCase):
+    """Runner'ı workdir=$HOME ile çalıştır: ev/sırlar gizli, repo ro, karar rw, FD sızıntısı yok."""
+
+    @staticmethod
+    def _env(d: str, home: Path, **ek: str) -> dict:
+        # Dış oturumun KARAR_DIR/DSH_HOME değerleri testi kirletmesin.
+        at = ("KARAR_DIR", "DSH_KARAR_DIR", "DSH_HOME", "GELISTIRICI_DEPO",
+              "NOBETCI_ARAC", "DSH_PERMISSION_MODE")
+        temel = {k: v for k, v in os.environ.items() if k not in at}
+        return {**temel, "HOME": str(home), "DSH_SHADOW_DIR": d, **ek}
+
+    @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
+    def test_workdir_home_sirlari_repo_yazimini_ve_systemd_i_engeller(self):
+        runner = BETIK.parents[1] / "otomasyon" / "dsh-bwrap-kiosk"
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
+            home = Path(d) / "home"
+            home.mkdir()
+            depo = home / "repo"
+            (depo / ".git").mkdir(parents=True)
+            (depo / "ok").write_text("OK", encoding="utf-8")
+            (home / ".bashrc").write_text("CANARY", encoding="utf-8")
+            gizli = home / ".config" / "hermes-secrets"
+            gizli.mkdir(parents=True)
+            (gizli / "token").write_text("CANARY_TOKEN", encoding="utf-8")
+            state = home / ".local" / "state" / "yourkiosk-otomasyon"
+            state.mkdir(parents=True)
+            (state / "karar").mkdir()
+            (state / "paket").mkdir()
+            (state / "depo-yolu").write_text(str(depo), encoding="utf-8")
+            (state / "paket" / "test.json").write_text('{"ok":1}', encoding="utf-8")
+            (state / "paket-yolu").write_text(str(state / "paket"), encoding="utf-8")
+            hedef = depo / ".dsh-sandbox-test"
+            komut = [
+                str(runner), "--ro-bind", "/", "/", "--dev", "/dev",
+                "--unshare-pid", "--proc", "/proc", "--die-with-parent",
+                "--",
+                "bash", "-c",
+                'cd "$HOME"; test -r "$HOME/.bashrc" && echo HOME_OK || echo HOME_GIZLI; '
+                'test -r "$HOME/.config/hermes-secrets/token" && echo TOKEN_OK || echo TOKEN_YOK; '
+                f'cat {depo}/ok >/dev/null && echo REPO_OK; '
+                f'echo x > {hedef} 2>/dev/null; echo REPO=$?; '
+                'timeout 3 systemd-run --user --scope true >/dev/null 2>&1; echo SYSTEMD=$?; '
+                'test -S /run/docker.sock && echo DOCKER_SOCK || echo DOCKER_YOK; '
+                'timeout 3 docker info >/dev/null 2>&1; echo DOCKER=$?; '
+                'cat "$HOME/.local/state/yourkiosk-otomasyon/paket/test.json" 2>/dev/null || echo PAKET_YOK; '
+                'for f in /proc/self/fd/*; do h=$(readlink -f "$f/.." 2>/dev/null || true); '
+                'case "$h" in /home/*|/var/tmp/*) echo FD_SIZINTI:$h;; esac; done; echo FD_CHECK',
+            ]
+            env = self._env(d, home, KARAR_DIR=str(state / "karar"),
+                            PAKET_DIR=str(state / "paket"))
+            s = subprocess.run(komut, capture_output=True, text=True, timeout=40, env=env,
+                               cwd=str(home))
+            self.assertIn("REPO_OK", s.stdout, "runner komutu çalışmadı: " + s.stderr[:400])
+            self.assertNotIn("HOME_OK", s.stdout)
+            self.assertNotIn("TOKEN_OK", s.stdout)
+            self.assertNotRegex(s.stdout, r"REPO=0")
+            self.assertNotRegex(s.stdout, r"SYSTEMD=0")
+            self.assertNotIn("DOCKER_SOCK", s.stdout)
+            self.assertNotRegex(s.stdout, r"DOCKER=0")
+            self.assertIn('{"ok":1}', s.stdout)
+            self.assertIn("FD_CHECK", s.stdout)
+            self.assertNotIn("FD_SIZINTI", s.stdout)
+            self.assertFalse(hedef.exists())
+
+    @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
+    def test_runner_normal_hata_imzasi_basmaz(self):
+        runner = BETIK.parents[1] / "otomasyon" / "dsh-bwrap-kiosk"
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
+            home = Path(d) / "home"
+            home.mkdir()
+            depo = home / "repo"
+            (depo / ".git").mkdir(parents=True)
+            state = home / ".local" / "state" / "yourkiosk-otomasyon"
+            state.mkdir(parents=True)
+            (state / "karar").mkdir()
+            (state / "depo-yolu").write_text(str(depo), encoding="utf-8")
+            komut = [str(runner), "--ro-bind", "/", "/", "--dev", "/dev",
+                     "--unshare-pid", "--proc", "/proc", "--die-with-parent", "--",
+                     "bash", "-c", "false"]
+            s = subprocess.run(komut, capture_output=True, text=True, timeout=30,
+                               env=self._env(d, home, KARAR_DIR=str(state / "karar")),
+                               cwd=str(home))
+            self.assertEqual(s.returncode, 1)
+            self.assertNotIn("dsh-bwrap-kiosk:", s.stderr)
+
+    @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
+    def test_runner_ayracsiz_cagriyi_reddeder(self):
+        runner = BETIK.parents[1] / "otomasyon" / "dsh-bwrap-kiosk"
+        s = subprocess.run([str(runner), "--ro-bind", "/", "/"],
+                           capture_output=True, text=True, timeout=30, env=os.environ)
+        self.assertEqual(s.returncode, 2)
+        self.assertIn("eksik --", s.stderr)
+
+
+class BakimDshTesti(unittest.TestCase):
+    """Bakım betiği etkin DSH ayarlarını birimden okuyup kuruluma geçirmeli."""
+
+    def test_bakim_arac_ve_dsh_ayarlarini_gecirir(self):
+        metin = (BETIK.parents[1] / "otomasyon" / "betik" / "nobetci-bakim.sh").read_text(encoding="utf-8")
+        self.assertIn("birim_env", metin)
+        self.assertIn("NOBETCI_ARAC", metin)
+        self.assertIn('--arac "$ARAC"', metin)
+        self.assertIn("DSH_CHECKOUT", metin)
+        self.assertIn("DSH_PERMISSION_MODE", metin)
+        self.assertIn("read-only", metin)
+
+
+class TemizOrtamTesti(unittest.TestCase):
+    """Kurulum testleri ana kabuğun NOBETCI_ARAC/DSH_* değerlerini devralmamalı."""
+
+    def test_dsh_ortami_varsayilan_hermes_testini_bozmaz(self):
+        eski = {k: os.environ.get(k) for k in TEMIZLENECEK}
+        try:
+            os.environ.update({"NOBETCI_ARAC": "dsh", "DSH_CHECKOUT": "/yanlis",
+                               "DSH_PERMISSION_MODE": "read-only", "NOBETCI_PROFIL": "guvenlik"})
+            with tempfile.TemporaryDirectory() as home:
+                metin = unit_uret(home=home)
+            self.assertIn("Environment=NOBETCI_ARAC=hermes", metin)
+            self.assertNotIn("DSH_CHECKOUT=", metin)
+        finally:
+            for k, v in eski.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+
 class KlonDegerKapiTesti(unittest.TestCase):
     """27 Ekim i5 bulgusu (düşük): `--klon` değeri doğrulanmadan birim METNİNE yazılıyordu →
     satır sonu taşıyan bir değer birime yeni yönerge enjekte edebiliyordu."""
@@ -196,20 +422,20 @@ class KlonDegerKapiTesti(unittest.TestCase):
         s = subprocess.run(["bash", str(BETIK), "i5", "--kuru",
                             "--klon", "/tmp/klon\nExecStartPre=/bin/sh -c true"],
                            capture_output=True, text=True, timeout=60,
-                           env={**os.environ, "HOME": tempfile.mkdtemp()})
+                           env=temiz_ortam(tempfile.mkdtemp()))
         self.assertEqual(s.returncode, 2, s.stdout + s.stderr)
         self.assertIn("geçersiz --klon", s.stderr)
 
     def test_goreli_klon_yolu_reddedilir(self):
         s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--klon", "goreli/yol"],
                            capture_output=True, text=True, timeout=60,
-                           env={**os.environ, "HOME": tempfile.mkdtemp()})
+                           env=temiz_ortam(tempfile.mkdtemp()))
         self.assertEqual(s.returncode, 2)
 
     def test_nokta_nokta_iceren_klon_reddedilir(self):
         s = subprocess.run(["bash", str(BETIK), "i5", "--kuru", "--klon", "/tmp/a/../../etc"],
                            capture_output=True, text=True, timeout=60,
-                           env={**os.environ, "HOME": tempfile.mkdtemp()})
+                           env=temiz_ortam(tempfile.mkdtemp()))
         self.assertEqual(s.returncode, 2)
 
 

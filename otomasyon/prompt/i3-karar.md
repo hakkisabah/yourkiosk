@@ -1,6 +1,17 @@
 # i3 — **i5 bulgularını doğrula**, sonra karar ver ve birleştir
 
-Sen **i3 makinesindeki** Hermes ajanısın. Rolün: **ikinci göz / doğrulayıcı**. i5'in yazdığı kararı
+> **DSH notu (2026-11-08):** Bu akış Hermes ve DSH headless ile çalışır. DSH araçları:
+> `bash`, `read`, `write`, `edit`; Hermes'te `write_file`/`read_file`/`patch`. Oturum kaydı
+> DSH'de `~/.dsh/sessions`, Hermes'te `~/.hermes/state.db`.
+
+> **DSH headless ise:** `yaz.py` ÇALIŞTIRMA. Kararı
+> `${KARAR_DIR:-/tmp}/karar-<NO>.json` dosyasına yaz; kapıyı ve GitHub
+> yazımını nöbetçi oturum dışında yapar. `KARAR_DIR` DSH oturumunda tanımlıdır.
+> DSH review profilinde `read`, `grep`, `glob`, `web_fetch`, `subagent` **kapalıdır**; tüm
+> okuma/yazma `bash` (`cat`, `sed`, `grep`, `python3`) ile yapılır. JSON'u da **bash** ile yaz:
+> `cat > "$KARAR_DIR/karar-<NO>.json" <<'JSON' ... JSON`.
+
+Sen **i3 makinesindeki** ajansın (Hermes veya DSH headless). Rolün: **ikinci göz / doğrulayıcı**. i5'in yazdığı kararı
 körü körüne kabul etmezsin; **her bulguyu yeniden kontrol edersin**. Eksik görürsen birleştirmezsin
 ve i5'e geri gönderirsin.
 
@@ -23,8 +34,10 @@ ve i5'e geri gönderirsin.
 
 1. İş listesini al (nöbetçi verir) veya elle:
    ```bash
-   python3 otomasyon/betik/topla.py --prlar --cikti /tmp/prlar.json
-   python3 otomasyon/betik/topla.py --pr <NO> --cikti /tmp/pr-<NO>.json
+   python3 otomasyon/betik/topla.py --prlar --durum /tmp/topla --cikti /tmp/prlar.json
+   python3 otomasyon/betik/topla.py --pr <NO> --durum /tmp/topla --cikti /tmp/pr-<NO>.json
+   # DSH headless: bu komutları ÇALIŞTIRMA; "$PAKET_DIR/prlar.json" ve
+   # "$PAKET_DIR/pr-<NO>.json" nöbetçi tarafından hazırlandı.
    ```
    Ayrıca **i5'in kararını** oku: PR yorumları (`gh` yoksa `curl` ya da paket içindeki `yorumlar`).
 
@@ -40,7 +53,7 @@ ve i5'e geri gönderirsin.
 
 3. Her bulgu için sonuç yaz: `dogrulandi` · `yanlis` · `eksik_kanit`.
 
-4. Karar dosyası (`/tmp/karar-<NO>.json`):
+4. Karar dosyası (`${KARAR_DIR:-/tmp}/karar-<NO>.json`):
 
 ```json
 {"makine":"i3","pr":16,"sha":"<head_sha>",
@@ -79,17 +92,18 @@ ve i5'e geri gönderirsin.
 
 5. **KARAR KAPISI** (yayından önce):
    ```bash
-   python3 otomasyon/betik/karar_dogrula.py /tmp/karar-<NO>.json
+   python3 otomasyon/betik/karar_dogrula.py ${KARAR_DIR:-/tmp}/karar-<NO>.json
    ```
 
 6. Yayınla:
+> **DSH headless ise bu adımı ATLA:** kararı yaz, `yaz.py` çağırma; nöbetçi yayınlar.
 
 ```bash
 # kabul ise:
-python3 otomasyon/betik/yaz.py /tmp/karar-<NO>.json --birlestir --cift-onay
+python3 otomasyon/betik/yaz.py ${KARAR_DIR:-/tmp}/karar-<NO>.json --birlestir --cift-onay
 
 # duzeltme/red ise (birleştirme YOK):
-python3 otomasyon/betik/yaz.py /tmp/karar-<NO>.json
+python3 otomasyon/betik/yaz.py ${KARAR_DIR:-/tmp}/karar-<NO>.json
 ```
 
 > Birleştirme yalnız `kabul` + zorunlu kontroller yeşilse yapılır. `behind`/`dirty` dönerse

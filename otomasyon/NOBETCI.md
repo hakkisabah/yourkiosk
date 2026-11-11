@@ -17,7 +17,7 @@
    │                                              │
    │ değişiklik varsa                             │ iş listesi boş → uyu (0 oturum)
    ▼                                              ▼
-açık PR'ların head sha + durum kontrolleri   iş listesi dolu → TEK `hermes chat --oneshot`
+açık PR'ların head sha + durum kontrolleri   iş listesi dolu → TEK `hermes chat --oneshot` veya `dsh headless`
                                                   → listedeki tüm PR'lar işlenir
                                                   → yaz.py ile durum/yorum/etiket
 ```
@@ -152,6 +152,48 @@ python3 otomasyon/betik/nobetci.py --rol i5 --tani                 # "hermes pro
 
 Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce varsayılan profile düşmez.
 
+
+## DSH headless (2026-11-08 geçişi)
+
+Nöbetçi artık iki ajan aracını destekler: **Hermes** (varsayılan) ve **DSH headless**.
+DSH'de ayrı gateway/profil yoktur; her tur kendi `dsh headless` sürecini açar, iş bitince çıkar.
+
+```bash
+# i5'te DSH ile kur (DSH checkout'u derlenmiş olmalı)
+bash otomasyon/nobetci-kur.sh i5 --arac dsh --klon ~/.local/share/yourkiosk-nobetci/depo
+# veya ortam değişkeniyle:
+NOBETCI_ARAC=dsh DSH_CHECKOUT=$HOME/deepseek-harness bash otomasyon/nobetci-kur.sh i5
+```
+
+Birimde görünenler: `Environment=NOBETCI_ARAC=dsh`, `Environment=DSH_CHECKOUT=…`,
+`Environment=DSH_PERMISSION_MODE=read-only`, `ExecStart=… --arac dsh`.
+`--profil` yalnız Hermes içindir; DSH ile verilirse kurulum reddedilir (çıkış 2).
+
+Nöbetçinin ürettiği komut:
+
+```bash
+node "$DSH_CHECKOUT/apps/cli/lib/bin.js" headless \
+  --permission-mode read-only --approval-policy never
+# görev gövdesi stdin'den verilir; cwd depo köküdür
+```
+
+- **Karar dosyaları** `KARAR_DIR` (`~/.local/state/yourkiosk-otomasyon/karar`) altındadır ve özel
+  bwrap runner'ı tarafından sandbox'a **bind** edilir. Repo salt-okunur; ajan `yaz.py` çalıştırmaz,
+  kapı ve GitHub yazımı nöbetçinin kendi sürecinde olur.
+- **Ajan ağ ve sır görmez:** PR paketleri (`topla.py`) nöbetçi tarafından oturumdan önce üretilir;
+  ajan yalnız `PAKET_DIR` altındaki JSON'ları okur. Runner `~/.config/hermes-secrets`, `~/.dsh`,
+  `~/.ssh`, `~/.aws` ve `.git-credentials` yollarını maskeler, `--unshare-net` ile ağı kapatır.
+- **Sandbox sertleştirmesi** (7 Kasım i5 yüksek bulgusu): `~/.agents/bin/dsh-bwrap-kiosk` stock
+  bwrap profilinin üzerine `/run` dizinini maskeler; user systemd/D-Bus, Docker/containerd soketleri
+  ve `/run/user` erişimi kapanır. `workspace-write`/`danger-full-access` kabul edilmez.
+- **Kimlik bilgisi** `~/.dsh/.env` (0600) içindeki `DEEPSEEK_API_KEY`; headless credential store'u
+  kapalıdır. Sır repoya girmez.
+- **Zaman aşımı** Python tarafından uygulanır (`subprocess.run(timeout=…)`); DSH'nin kendi tur
+  bütçesi yoktur. `--zaman-asimi` aynı kalır.
+- **Oturum sayacı** DSH'de Hermes `state.db` olmadığı için `--kendini-denetle` ayrı bir DSH
+  oturum/storage taraması yapar: `~/.local/state/yourkiosk-otomasyon/dsh-home/sessions` ve
+  `.../storages/session_projcache`; 200 oturum / 1000 MB sınırını raporlar.
+
 ## Ayarlar
 
 | Ayar | Yer | Varsayılan |
@@ -165,6 +207,9 @@ Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce v
 | Günlük oturum tavanı | `nobetci.py` `GUNLUK_OTURUM_TAVANI` | 120 |
 | Depo | `Environment=GITHUB_DEPO` | `hakkisabah/yourkiosk` |
 | Token | `~/.config/hermes-secrets/github-yourkiosk.token` | — |
+| Ajan aracı | `nobetci.py --arac` / `NOBETCI_ARAC` | `hermes` |
+| DSH checkout | `DSH_CHECKOUT` | `~/deepseek-harness` |
+| DSH izin modu | `DSH_PERMISSION_MODE` | `read-only` |
 
 ## Sorun giderme
 
@@ -178,7 +223,7 @@ Profil yoksa `nobetci-kur.sh` **kurulumu reddeder** (çıkış 3) — sessizce v
 | PR saatlerdir incelenmiyor | günlükte `AÇLIK:` satırı; `--tani` çıktısında en eski PR'ın `dk açık` değeri |
 | Oturum açılıyor ama durum yazılmıyor | `nobetci-i5.log` sonunda oturum çıktısı; `hermes chat -q` çalışıyor mu |
 | Aynı PR'a tekrar tekrar oturum | i5 durumu yazamıyor olabilir; `kapi-red.log` + `yaz.py` çıktısına bak |
-| Ajan karar yazamıyor | `python3 otomasyon/betik/karar_dogrula.py /tmp/karar-<no>.json` → eksik alan/kanıt |
+| Ajan karar yazamıyor | `python3 otomasyon/betik/karar_dogrula.py "$KARAR_DIR/karar-<no>.json"` → eksik alan/kanıt |
 | Oturum kapanınca duruyor | `loginctl enable-linger $USER` — bazı sistemlerde polkit onayı ister: `sudo loginctl enable-linger $USER` (kurulum betiği uyarı verir, hata değil) |
 | Günlükte `pam_faillock ... account temporarily locked` / `auth could not identify password` | Ajan parolasız `sudo` denedi; 3 denemede hesap kilitlenir. Kontrol 16 ✗ verir. **Sıfırlama sudo GEREKTİRMEZ:** `faillock --reset --user $USER`. Sonra ajanın sudo denemesini kes (prompttaki `SUDO YOK` bloğu); yetki adımı bulgu olarak yazılır |
 | `[v2] sorun` kararı var, yeni oturum yok | **Doğru davranış:** karar (sha + inceleme sürümü) güncel → top geliştiricide. Günlük satırı PR'ları tek tek sayar (`düzeltme bekliyor: #83(sorun, 564 dk)`). Bulgular PR yorumunda; yeni commit gelince sha değişir ve PR kuyruğa döner |

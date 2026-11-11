@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """nobetci — olay güdümlü i5/i3 nöbetçisi (cron yerine).
 
-NEDEN: `hermes cron` her turda bir oturum açar; 30 dakikalık aralıkta iş olmasa da oturum sayısı
+NEDEN: `hermes cron` her turda bir oturum açar; DSH `headless` ise tur başına süreç açar; 30 dakikalık aralıkta iş olmasa da oturum sayısı
 büyür ve PR'lar en kötü 30 dakika bekler. Nöbetçi tek bir uzun ömürlü süreçtir:
 
   * GitHub'ı **koşullu istek** (ETag / If-None-Match) ile yoklar → değişiklik yoksa 304 döner,
     yanıt gövdesi indirilmez ve 304'ler oran sınırına sayılmaz (GitHub belgelenmiş davranışı),
   * **yapılacak iş listesi** çıkarır (rol başına: i5 → incelenecek PR'lar, i3 → karar/merge),
   * liste boşsa **hiç oturum açmaz** (0 token),
-  * liste doluysa **tek** `hermes chat -q` oturumu açar; o oturum listeden `OTURUM_BASI_PR` kadar
+  * liste doluysa **tek** `hermes chat -q` veya `dsh headless` oturumu açar; o oturum listeden `OTURUM_BASI_PR` kadar
     PR alır (i5: 1, i3: 3) ve kalanlar bir sonraki tura kalır (zaman aşımını önler),
   * liste **en eski PR önce** sıralanır; bu yüzden yeni bir PR eskiyi asla aç bırakmaz,
   * iş bitince uyur; yeni commit/PR geldiğinde en geç `--aralik` saniye içinde yeniden uyanır.
@@ -19,7 +19,7 @@ Kullanım:
     ./otomasyon/betik/nobetci.py --rol i5 --durum          # durum (tek sefer, oturum açmaz)
     ./otomasyon/betik/nobetci.py --rol i5 --bir-kez --kuru # ne yapacağını göster, çalıştırma
     ./otomasyon/betik/nobetci.py --rol i5 --bir-kez        # tek tur (test)
-    ./otomasyon/betik/nobetci.py --rol i5                  # 7/24 döngü (systemd servisi bunu çalıştırır)
+    ./otomasyon/betik/nobetci.py --rol i5 --arac dsh        # DSH headless ile 7/24 döngü
 
 Servis kurulumu: ./otomasyon/nobetci-kur.sh i5
 """
@@ -31,6 +31,7 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -167,6 +168,35 @@ ACLIK_ESIGI_DK = 120
 # Çözüm: nöbetçi AYRI bir profilde (`hermes -p <ad>`) çalışır → kendi config/oturum sayacı/model
 # anahtarı. Boşsa davranış eskisi gibi (varsayılan profil).
 NOBETCI_PROFIL = os.environ.get("NOBETCI_PROFIL", "").strip()
+
+# ── AJAN ARACI (2026-11-08 DSH geçişi) ───────────────────────────────────────────────────────
+# Hermes `chat --query-file --oneshot` yerine DSH `headless` kullanılabilir. Varsayılan `hermes`
+# (mevcut kurulum bozulmasın); yeni kurulumlar `--arac dsh` / `NOBETCI_ARAC=dsh` kullanır.
+ARACLAR = ("hermes", "dsh")
+NOBETCI_ARAC = (os.environ.get("NOBETCI_ARAC", "hermes").strip().lower() or "hermes")
+DSH_CHECKOUT = Path(os.environ.get(
+    "DSH_CHECKOUT", str(Path.home() / "deepseek-harness"))).expanduser()
+#: DSH review ajanı yalnız salt-okunur çalışır. Karar dosyası paylaşılan KARAR_DIR'e yazılır;
+#: repo ve sistem dosyaları yazılamaz. `workspace-write`/`danger-full-access` kabul EDİLMEZ.
+DSH_IZIN_MODLARI = ("read-only",)
+DSH_PERMISSION_MODE = (os.environ.get("DSH_PERMISSION_MODE", "read-only").strip()
+                       or "read-only")
+
+#: Ajanın KARAR_DIR'e yazdığı JSON için üst sınır (i5 2026-11-11 orta bulgusu). Kapı ve
+#: `yaz.py` dosyayı tamamen okur; 256 KB üzeri bir karar meşru değildir. Sınır yayıncıda
+#: uygulanır çünkü asıl güvenilmeyen taraf ajanın ürettiği dosyadır.
+KARAR_AZAMI_BAYT = 256 * 1024
+
+#: DSH alt sürecine geçen ortam değişkenleri (i5 2026-11-11 orta bulgusu). Eskiden
+#: `os.environ.copy()` tüm ortamı sandbox'a taşıyordu; `SECRET_CANARY` deneyi bunu doğruladı.
+#: API anahtarı `~/.dsh/.env`ten gelir, ortamdan GEÇMEZ; PATH/HOME olmadan node/runner çalışmaz.
+DSH_ORTAM_ANAHTARLARI = (
+    "PATH", "HOME", "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "LC_MESSAGES",
+    "TZ", "TERM", "TMPDIR", "USER", "LOGNAME", "SHELL", "NO_COLOR", "FORCE_COLOR",
+    # Birimdeki bellek tavanı (nobetci-kur.sh: --max-old-space-size). Sır değil; düşerse
+    # i5'in 3,8 GB'lık makinesinde Node OOM riski geri gelir.
+    "NODE_OPTIONS",
+)
 
 
 def simdi() -> str:
@@ -729,12 +759,468 @@ def gorev_metni(rol: str, depo: Path, is_listesi: list[dict]) -> str:
     if rol == "i3":
         satirlar += ["", "i5 onayı olan ve birleştirilebilir PR'ları `--birlestir --cift-onay` ile BİRLEŞTİR.",
                      "Bir PR birleşince diğerleri 'behind' kalabilir; o PR'a 'dal güncellenmeli' yorumu bırak."]
+    if NOBETCI_ARAC == "dsh":
+        satirlar += ["", "DSH: `topla.py` ÇALIŞTIRMA; PR paketi `$PAKET_DIR` altında hazır. "
+                         "`read`/`grep`/`glob`/`web_fetch`/`subagent` KAPALI; her şeyi `bash` ile yap "
+                         "(`cat`, `sed`, `grep`, `python3`). Kararı `$KARAR_DIR/karar-<NO>.json` "
+                         "dosyasına **bash ile** yaz; `yaz.py` ÇALIŞTIRMA. "
+                         "Kapı ve GitHub yazımını nöbetçi oturum dışında yapar."]
     satirlar += ["", "Bitince kısa bir özet yaz: hangi PR'a ne yazdın, ne birleşti."]
     return "\n".join(satirlar) + "\n"
 
 
+def karar_klasoru() -> Path:
+    """DSH ajanı ile nöbetçi arasında PAYLAŞILAN karar dizini (bwrap içine bind edilir)."""
+    return DURUM_KLASORU / "karar"
+
+
+def paket_klasoru() -> Path:
+    """Ajan oturumuna SALT-OKUNUR bind edilen, nöbetçinin ürettiği PR paketleri."""
+    return DURUM_KLASORU / "paket"
+
+
+def dsh_home() -> Path:
+    """Nöbetçiye özel DSH evi — web/sohbet oturumlarından ayrı, silinebilir."""
+    return DURUM_KLASORU / "dsh-home"
+
+
+def dsh_profil_yolu() -> Path:
+    return Path.home() / ".dsh" / "profiles" / "headless" / "cordis.patch.yml"
+
+
+def dsh_profil_denetle(profil: Path | None = None) -> tuple[bool, str]:
+    """Kurulu headless profilinde güvenli runner ve kapalı native araçlar var mı?"""
+    yol = profil or dsh_profil_yolu()
+    try:
+        metin = yol.read_text(encoding="utf-8")
+    except OSError as hata:
+        return False, f"profil okunamadı: {yol} ({hata})"
+    hedef_runner = str(Path.home() / ".agents" / "bin" / "dsh-bwrap-kiosk")
+    m = re.search(r"^[ \t]*runnerCommand:\s*$", metin, re.M)
+    if not m:
+        return False, "runnerCommand yok"
+    son = re.search(r"^[^ \t\r\n-]", metin[m.end():], re.M)
+    blok = metin[m.end(): m.end() + son.start()] if son else metin[m.end():]
+    runnerlar = [x.strip().strip('"').strip("'") for x in re.findall(r"^\s*-\s*(.+)$", blok, re.M)]
+    if hedef_runner not in runnerlar:
+        return False, f"runnerCommand güvenli runner değil (beklenen {hedef_runner})"
+    # blok bazlı kesin denetim
+    for arac in ("tool-fs", "tool-fs-search", "tool-web", "tool-subagent",
+                 "tool-subagent-fork", "tool-workflow", "tool-agent-team",
+                 "tool-subagent-control"):
+        m = re.search(rf"^- id: {re.escape(arac)}\s*$", metin, re.M)
+        if not m:
+            return False, f"{arac} satırı yok"
+        son = re.search(r"^- id: ", metin[m.end():], re.M)
+        blok = metin[m.end(): m.end() + son.start()] if son else metin[m.end():]
+        if not re.search(r"^\s*disabled:\s*true\s*$", blok, re.M):
+            return False, f"{arac} disabled: true değil"
+    return True, "güvenli"
+
+
+def dsh_runner_hazirla(depo: Path, gunluk_yolu: Path | None = None) -> bool:
+    """Kod güncellenince sandbox runner'ını da yenile (servis --guncelle sonrası)."""
+    kaynak = depo / "otomasyon" / "dsh-bwrap-kiosk"
+    hedef = Path.home() / ".agents" / "bin" / "dsh-bwrap-kiosk"
+    try:
+        if kaynak.is_file():
+            veri = kaynak.read_bytes()
+            if not hedef.is_file() or hedef.read_bytes() != veri:
+                hedef.parent.mkdir(parents=True, exist_ok=True)
+                gecici = hedef.with_name(hedef.name + ".tmp")
+                gecici.write_bytes(veri)
+                os.chmod(gecici, 0o755)
+                os.replace(gecici, hedef)
+                gunluk(gunluk_yolu, "DSH sandbox runner depodan yenilendi")
+        return hedef.is_file() and os.access(hedef, os.X_OK)
+    except OSError as hata:
+        gunluk(gunluk_yolu, f"DSH runner hazırlanamadı: {hata}")
+        return False
+
+
+def dsh_profil_hazirla(depo: Path, gunluk_yolu: Path | None = None) -> bool:
+    """Kod güncellenince profili de yenile; eksikse fail-closed.
+
+    Profil depoda sürümlenir. Servis `--guncelle` ile yeni kodu alınca bu fonksiyon
+    güvenli profili atomik olarak yazar; böylece eski/eksik profil sessizce kalmaz.
+    """
+    if not dsh_runner_hazirla(depo, gunluk_yolu):
+        return False
+    kaynak = depo / "otomasyon" / "dsh-headless.cordis.patch.yml"
+    hedef = dsh_profil_yolu()
+    try:
+        if kaynak.is_file():
+            metin = kaynak.read_text(encoding="utf-8").replace(
+                "/home/hakki", str(Path.home()))
+            eski = hedef.read_text(encoding="utf-8") if hedef.is_file() else ""
+            if metin != eski:
+                hedef.parent.mkdir(parents=True, exist_ok=True)
+                if eski:
+                    yedek = hedef.with_name(hedef.name + ".bak-" + time.strftime("%Y%m%dT%H%M%S"))
+                    yedek.write_text(eski, encoding="utf-8")
+                    os.chmod(yedek, 0o600)
+                gecici = hedef.with_name(hedef.name + ".tmp")
+                gecici.write_text(metin, encoding="utf-8")
+                os.chmod(gecici, 0o600)
+                os.replace(gecici, hedef)
+                gunluk(gunluk_yolu, "DSH profili depodan yenilendi")
+        return dsh_profil_denetle(hedef)[0]
+    except OSError as hata:
+        gunluk(gunluk_yolu, f"DSH profili hazırlanamadı: {hata}")
+        return False
+
+
+def dsh_home_hazirla() -> Path:
+    """DSH_HOME'u hazırla: profil ve .env bağla, oturum/karar dizinlerini oluştur.
+
+    Neden ayrı ev: `~/.dsh/sessions` hem web sohbetlerini hem nöbetçiyi tutar; orada yaş
+    tabanlı silme yapmak kullanıcı sohbetlerini siler. Nöbetçinin oturumları kendi evinde
+    toplanınca saklama politikası güvenle uygulanabilir.
+    """
+    ev = dsh_home()
+    ev.mkdir(parents=True, exist_ok=True)
+    os.chmod(ev, 0o700)
+    profiles = ev / "profiles"
+    hedef = Path.home() / ".dsh" / "profiles"
+    if not profiles.exists():
+        if not hedef.is_dir():
+            raise FileNotFoundError(f"DSH profili yok: {hedef}")
+        profiles.symlink_to(hedef, target_is_directory=True)
+    env_dosyasi = ev / ".env"
+    kaynak_env = Path.home() / ".dsh" / ".env"
+    if not env_dosyasi.exists() and kaynak_env.is_file():
+        env_dosyasi.symlink_to(kaynak_env)
+    (ev / "sessions").mkdir(mode=0o700, exist_ok=True)
+    kk = karar_klasoru()
+    kk.mkdir(parents=True, exist_ok=True)
+    os.chmod(kk, 0o700)
+    # bwrap runner ortam değişkenlerini devralmıyor; paylaşılan dizini sabit bir işaret
+    # dosyasından okur. Bu dosya makineye özeldir, 0600'dür.
+    isaret = DURUM_KLASORU / "karar-yolu"
+    isaret.write_text(str(kk), encoding="utf-8")
+    os.chmod(isaret, 0o600)
+    pk = paket_klasoru()
+    pk.mkdir(parents=True, exist_ok=True)
+    os.chmod(pk, 0o700)
+    (DURUM_KLASORU / "paket-yolu").write_text(str(pk), encoding="utf-8")
+    os.chmod(DURUM_KLASORU / "paket-yolu", 0o600)
+    return ev
+
+
+def _dizin_bayt(dizin: Path) -> int:
+    toplam = 0
+    try:
+        for f in dizin.rglob("*"):
+            try:
+                if f.is_file():
+                    toplam += f.stat().st_size
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return toplam
+
+
+def _dsh_storage_dosyalari() -> list[Path]:
+    """DSH_HOME/storages/session_projcache altındaki dosyalar (oturum başına JSON)."""
+    kok = dsh_home() / "storages" / "session_projcache"
+    if not kok.is_dir():
+        return []
+    try:
+        return [p for p in kok.rglob("*") if p.is_file()]
+    except OSError:
+        return []
+
+
+def dsh_oturum_ozet() -> tuple[int, int]:
+    """Nöbetçinin DSH oturum deposu: (oturum/kayıt sayısı, bayt)."""
+    kok = dsh_home() / "sessions"
+    sayi = 0
+    bayt = 0
+    if kok.is_dir():
+        for p in kok.iterdir():
+            if not p.is_dir():
+                continue
+            sayi += 1
+            bayt += _dizin_bayt(p)
+    for p in _dsh_storage_dosyalari():
+        sayi += 1
+        try:
+            bayt += p.stat().st_size
+        except OSError:
+            pass
+    return sayi, bayt
+
+
+def dsh_oturum_temizle(gun: int = 7, azami_bayt: int = 1_000_000_000,
+                        gunluk_yolu: Path | None = None) -> tuple[int, int, int]:
+    """Eski/büyük nöbetçi DSH oturumlarını sil; (silinen, kalan, bayt) döndür.
+
+    Yalnız `dsh_home()` altındaki oturumlara dokunur; web/sohbet oturumları ayrı evdedir.
+    """
+    kok = dsh_home() / "sessions"
+    simdi = time.time()
+    esik = simdi - max(1, gun) * 86400
+    kayitlar: list[tuple[float, Path]] = []
+    if kok.is_dir():
+        for p in kok.iterdir():
+            if not p.is_dir():
+                continue
+            try:
+                kayitlar.append((p.stat().st_mtime, p))
+            except OSError:
+                continue
+    silinen = 0
+
+    def sil(p: Path) -> bool:
+        try:
+            shutil.rmtree(p)
+            return True
+        except OSError as hata:
+            mesaj = f"DSH oturum silinemedi: {p} ({hata})"
+            if gunluk_yolu:
+                gunluk(gunluk_yolu, mesaj)
+            else:
+                print(mesaj, file=sys.stderr)
+            return False
+
+    def sil_dosya(p: Path) -> bool:
+        try:
+            p.unlink()
+            return True
+        except OSError as hata:
+            mesaj = f"DSH storage silinemedi: {p} ({hata})"
+            if gunluk_yolu:
+                gunluk(gunluk_yolu, mesaj)
+            else:
+                print(mesaj, file=sys.stderr)
+            return False
+
+    for mtime, p in sorted(kayitlar):
+        if mtime < esik and sil(p):
+            silinen += 1
+    for p in sorted(_dsh_storage_dosyalari(), key=lambda x: x.stat().st_mtime):
+        try:
+            if p.stat().st_mtime < esik and sil_dosya(p):
+                silinen += 1
+        except OSError:
+            continue
+    kayitlar = ([(p.stat().st_mtime, p) for p in kok.iterdir() if p.is_dir()]
+                if kok.is_dir() else [])
+    toplam = sum(_dizin_bayt(p) for _, p in kayitlar)
+    for p in _dsh_storage_dosyalari():
+        try:
+            toplam += p.stat().st_size
+        except OSError:
+            pass
+    for _mtime, p in sorted(kayitlar):
+        if toplam <= azami_bayt:
+            break
+        boyut = _dizin_bayt(p)
+        if sil(p):
+            toplam -= boyut
+            silinen += 1
+    for p in sorted(_dsh_storage_dosyalari(), key=lambda x: x.stat().st_mtime):
+        if toplam <= azami_bayt:
+            break
+        try:
+            boyut = p.stat().st_size
+        except OSError:
+            continue
+        if sil_dosya(p):
+            toplam -= boyut
+            silinen += 1
+    kalan = ((sum(1 for p in kok.iterdir() if p.is_dir()) if kok.is_dir() else 0)
+             + len(_dsh_storage_dosyalari()))
+    return silinen, kalan, toplam
+
+
+def dsh_pr_verisini_hazirla(depo: Path, is_listesi: list[dict], gunluk_yolu: Path | None = None) -> None:
+    """PR ref'lerini ve taban dallarını ajan OTURUMUNDAN ÖNCE, sandbox dışında çek.
+
+    DSH review ajanı read-only çalışır; `topla.py` içindeki `git fetch` yazamaz. Ref'ler
+    önceden çekilmezse `origin/pr/<no>` ve `origin/<base>` yoktur → diff üretilemez ve ajan
+    boşuna döner. Bu fetch'ler güvenilir nöbetçi sürecinde yapılır.
+    """
+    def git(*arg: str) -> None:
+        try:
+            s = subprocess.run(["git", "-C", str(depo), *arg],
+                               capture_output=True, text=True, timeout=180)
+            if s.returncode != 0:
+                gunluk(gunluk_yolu, f"PR hazırlığı: git {' '.join(arg[:3])} çıkış {s.returncode}")
+        except (OSError, subprocess.SubprocessError) as hata:
+            gunluk(gunluk_yolu, f"PR hazırlığı: git hatası: {hata}")
+
+    git("fetch", "--prune", "--quiet", "origin", "+refs/heads/*:refs/remotes/origin/*")
+    for is_ in is_listesi:
+        pr = is_["pr"]
+        git("fetch", "--quiet", "origin",
+            f"+refs/pull/{pr}/head:refs/remotes/origin/pr/{pr}")
+
+
+def dsh_paket_hazirla(depo: Path, rol: str, is_listesi: list[dict],
+                      gunluk_yolu: Path | None = None) -> None:
+    """PR bağlam paketlerini ajan OTURUMUNDAN ÖNCE, sandbox dışında üret.
+
+    Ajan read-only çalışır ve ağ/token göremez; `topla.py` burada, güvenilir nöbetçi
+    sürecinde çalışır. Ajan yalnız `PAKET_DIR` altındaki hazır JSON'ları okur.
+    """
+    pk = paket_klasoru()
+    pk.mkdir(parents=True, exist_ok=True)
+    os.chmod(pk, 0o700)
+    (DURUM_KLASORU / "paket-yolu").write_text(str(pk), encoding="utf-8")
+    os.chmod(DURUM_KLASORU / "paket-yolu", 0o600)
+    topla = depo / "otomasyon" / "betik" / "topla.py"
+    if not topla.is_file():
+        gunluk(gunluk_yolu, f"{rol}: PAKET HAZIRLANAMADI — topla.py yok: {topla}")
+        return
+
+    for eski in list(pk.glob("pr-*.json")) + list(pk.glob("prlar.json")):
+        try:
+            eski.unlink()
+        except OSError:
+            pass
+
+    def uret(ek: list[str], hedef: Path) -> None:
+        try:
+            s = subprocess.run(
+                [sys.executable, str(topla), "--depo", str(depo),
+                 "--durum", str(pk / "topla"), "--cikti", str(hedef), *ek],
+                cwd=str(depo), capture_output=True, text=True, timeout=240)
+        except (OSError, subprocess.SubprocessError) as hata:
+            gunluk(gunluk_yolu, f"{rol}: PAKET HATASI {hedef.name}: {hata}")
+            return
+        if s.returncode != 0 or not hedef.is_file():
+            neden = ((s.stderr or "") + (s.stdout or "")).strip().splitlines()
+            gunluk(gunluk_yolu, f"{rol}: PAKET HATASI {hedef.name} (çıkış {s.returncode}) — "
+                               + (neden[-1][:300] if neden else "çıktı yok"))
+
+    if rol == "i3":
+        uret(["--prlar"], pk / "prlar.json")
+    for is_ in is_listesi:
+        pr = is_["pr"]
+        uret(["--pr", str(pr)], pk / f"pr-{pr}.json")
+
+
+def karar_dosyalarini_temizle(is_listesi: list[dict],
+                               gunluk_yolu: Path | None = None) -> None:
+    """Yeni oturum öncesi eski karar dosyalarını sil (bayat karar yayınlanmasın).
+
+    Ajan KARAR_DIR'e aynı adla DİZİ veya sembolik bağ bırakabilir; bu durum nöbetçiyi
+    IsADirectoryError ile düşürmemeli. Dizin güvenli biçimde kaldırılır, hata günlüğe yazılır.
+    """
+    for is_ in is_listesi:
+        yol = karar_klasoru() / f"karar-{is_['pr']}.json"
+        try:
+            if yol.is_symlink() or yol.is_file():
+                yol.unlink()
+            elif yol.is_dir():
+                shutil.rmtree(yol)
+            else:
+                yol.unlink(missing_ok=True)
+        except FileNotFoundError:
+            pass
+        except OSError as hata:
+            mesaj = f"KARAR temizlenemedi: {yol} ({hata})"
+            if gunluk_yolu:
+                gunluk(gunluk_yolu, mesaj)
+            else:
+                print(mesaj, file=sys.stderr)
+
+
+def kararlari_yayinla(depo: Path, rol: str, is_listesi: list[dict], gunluk_yolu: Path | None) -> None:
+    """DSH ajanının yazdığı karar JSON'larını GÜVENİLİR nöbetçi sürecinde yayınla.
+
+    DSH sandbox içinde `yaz.py` çalıştırılmaz: kimlik kapısı `/etc/machine-id`'yi göremez
+    (bwrap user namespace'inde uid 65534) ve ajanın yazma yetkisiyle karar yayınlaması
+    güven sınırını aşar. Ajan yalnız JSON üretir; kapı ve GitHub yazımı burada, sandbox
+    dışında, nöbetçinin kendi uid'siyle yapılır.
+
+    Yayın öncesi dosya GÜVENİLMEZ kabul edilir: yalnız iş listesindeki PR'a ve o PR'ın
+    head sha'sına bağlı karar geçer; boyut sınırı aşan, sembolik bağ olan veya JSON'u
+    bozuk dosya kapıya hiç verilmez.
+    """
+    kapi = depo / "otomasyon" / "betik" / "karar_dogrula.py"
+    yaz = depo / "otomasyon" / "betik" / "yaz.py"
+    for is_ in is_listesi:
+        pr = is_["pr"]
+        beklenen_sha = str(is_.get("sha") or "").strip()
+        yol = karar_klasoru() / f"karar-{pr}.json"
+        if yol.is_symlink():
+            # Ajan KARAR_DIR içinde sembolik bağ bırakabilir; nöbetçi sürecinde bu bağ
+            # sandbox dışındaki bir host yoluna çözülür. Karar yalnız normal dosyadır.
+            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — sembolik bağ")
+            continue
+        if not yol.is_file():
+            gunluk(gunluk_yolu, f"{rol}: KARAR YOK #{pr} — ajan karar dosyası yazmadı")
+            continue
+        try:
+            boyut = yol.stat().st_size
+        except OSError as hata:
+            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — boyut okunamadı: {hata}")
+            continue
+        if boyut > KARAR_AZAMI_BAYT:
+            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — dosya {boyut} bayt "
+                               f"(üst sınır {KARAR_AZAMI_BAYT})")
+            try:
+                yol.unlink()
+            except OSError as hata:
+                gunluk(gunluk_yolu, f"{rol}: KARAR SİLİNEMEDİ #{pr}: {hata}")
+            continue
+        try:
+            veri = json.loads(yol.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as hata:
+            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — JSON okunamadı: {hata}")
+            continue
+        if not isinstance(veri, dict):
+            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — JSON nesne değil")
+            continue
+        try:
+            karar_pr = int(veri.get("pr"))
+        except (TypeError, ValueError):
+            karar_pr = None
+        karar_sha = str(veri.get("sha") or "").strip()
+        if not beklenen_sha or karar_pr != pr or karar_sha != beklenen_sha:
+            # Ajan dosya adını `karar-<PR>.json` yapsa bile içerik başka PR'a/sha'ya
+            # işaret edebilir. Kapı ve `yaz.py` JSON'un içindeki pr/sha'yı kullanır;
+            # bu bağ kurulmadan yayın, kararın başka PR'a yazılması demektir.
+            gunluk(gunluk_yolu,
+                   f"{rol}: KARAR REDDEDİLDİ #{pr} — JSON pr/sha listedeki PR ile uyuşmuyor "
+                   f"(json pr={karar_pr}, sha={(karar_sha[:12] or '-')}; "
+                   f"beklenen pr={pr}, sha={(beklenen_sha[:12] or '-')})")
+            continue
+        try:
+            kapi_sonuc = subprocess.run(
+                [sys.executable, str(kapi), str(yol)], cwd=str(depo),
+                capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.SubprocessError) as hata:
+            gunluk(gunluk_yolu, f"{rol}: KARAR KAPISI çalıştırılamadı #{pr}: {hata}")
+            continue
+        if kapi_sonuc.returncode != 0:
+            neden = ((kapi_sonuc.stderr or "") + (kapi_sonuc.stdout or "")).strip().splitlines()
+            gunluk(gunluk_yolu, f"{rol}: KARAR KAPISI REDDETTİ #{pr} — "
+                               + (neden[-1][:300] if neden else f"çıkış {kapi_sonuc.returncode}"))
+            continue
+        karar = veri.get("karar")
+        komut = [sys.executable, str(yaz), str(yol)]
+        if rol == "i3" and karar == "kabul":
+            komut += ["--birlestir", "--cift-onay"]
+        try:
+            yaz_sonuc = subprocess.run(komut, cwd=str(depo), capture_output=True, text=True,
+                                       timeout=300)
+        except (OSError, subprocess.SubprocessError) as hata:
+            gunluk(gunluk_yolu, f"{rol}: KARAR YAYINLANAMADI #{pr}: {hata}")
+            continue
+        if yaz_sonuc.returncode != 0:
+            neden = ((yaz_sonuc.stderr or "") + (yaz_sonuc.stdout or "")).strip().splitlines()
+            gunluk(gunluk_yolu, f"{rol}: KARAR YAYINLANAMADI #{pr} — "
+                               + (neden[-1][:300] if neden else f"çıkış {yaz_sonuc.returncode}"))
+        else:
+            gunluk(gunluk_yolu, f"{rol}: KARAR YAYINLANDI #{pr} (karar={karar or '?'})")
+
+
 def hermes_komutu(depo: Path, gorev: Path, zaman_asimi: int) -> list[str]:
-    """Nöbetçi oturumunun komut satırı (test edilebilir tek nokta)."""
+    """Nöbetçi oturumunun Hermes komut satırı (test edilebilir tek nokta)."""
     b = butce_hesapla(zaman_asimi)
     komut = ["hermes"]
     if NOBETCI_PROFIL:                      # ayrı profil: Open WebUI yükü nöbetçiyi aç bırakmasın
@@ -745,7 +1231,30 @@ def hermes_komutu(depo: Path, gorev: Path, zaman_asimi: int) -> list[str]:
     return komut
 
 
+def dsh_komutu(depo: Path, gorev: Path, zaman_asimi: int) -> list[str]:
+    """DSH headless komut satırı — görev stdin'den, cwd depo kökü, politika salt-okunur.
+
+    Karar dosyası `KARAR_DIR`e yazılır; bu dizin özel bwrap runner'ı tarafından sandbox'a
+    **bind** edilir. `workspace-write`/`danger-full-access` kabul edilmez: DSH sandbox'ı
+    güvenlik sınırı değildir, bu yüzden ajan repo ve sistem dosyalarını yazamaz.
+    """
+    if NOBETCI_ARAC not in ARACLAR:
+        raise ValueError(f"geçersiz ajan aracı: {NOBETCI_ARAC}")
+    if DSH_PERMISSION_MODE not in DSH_IZIN_MODLARI:
+        raise ValueError(f"geçersiz DSH izin modu: {DSH_PERMISSION_MODE} "
+                         f"(izinli: {', '.join(DSH_IZIN_MODLARI)})")
+    cli = DSH_CHECKOUT / "apps/cli/lib/bin.js"
+    return ["node", str(cli), "headless",
+            "--permission-mode", DSH_PERMISSION_MODE,
+            "--approval-policy", "never"]
+
+
+
 def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bool) -> tuple[int, str]:
+    """Görevi seçili ajana ver: Hermes oneshot ya da DSH headless.
+
+    Adı geriye dönük uyumluluk için `hermes_calistir` kaldı; testler bu adı yamalıyor.
+    """
     if kuru:
         print("\n--- ÇALIŞTIRILACAK GÖREV ---")
         print(metin)
@@ -753,6 +1262,35 @@ def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bo
     gorev = DURUM_KLASORU / f"gorev-{rol}.md"
     gorev.parent.mkdir(parents=True, exist_ok=True)
     gorev.write_text(metin, encoding="utf-8")
+
+    if NOBETCI_ARAC == "dsh":
+        try:
+            komut = dsh_komutu(depo, gorev, zaman_asimi)
+        except ValueError as hata:
+            return 2, str(hata)
+        try:
+            ev = dsh_home_hazirla()
+        except OSError as hata:
+            return 2, f"DSH evi hazırlanamadı: {hata}"
+        # Allowlist: sır taşıyan değişkenler (token, AWS, DEEPSEEK_API_KEY) sandbox'a geçmez.
+        ortam = {k: os.environ[k] for k in DSH_ORTAM_ANAHTARLARI if k in os.environ}
+        ortam["DSH_HOME"] = str(ev)
+        depo_isaret = DURUM_KLASORU / "depo-yolu"
+        depo_isaret.write_text(str(depo.resolve()), encoding="utf-8")
+        os.chmod(depo_isaret, 0o600)
+        ortam["KARAR_DIR"] = str(karar_klasoru())
+        ortam["DSH_KARAR_DIR"] = str(karar_klasoru())
+        ortam["PAKET_DIR"] = str(paket_klasoru())
+        try:
+            # DSH görevi argüman yerine stdin'den okur (uzun istem argv'ye sığmaz/sızmaz).
+            sonuc = subprocess.run(komut, input=metin, cwd=str(depo), env=ortam,
+                                   capture_output=True, text=True, timeout=zaman_asimi)
+            return sonuc.returncode, (sonuc.stdout or "") + (sonuc.stderr or "")
+        except FileNotFoundError:
+            return 127, f"dsh/node bulunamadı (DSH_CHECKOUT={DSH_CHECKOUT})"
+        except subprocess.TimeoutExpired:
+            return 124, f"zaman aşımı ({zaman_asimi}s)"
+
     komut = hermes_komutu(depo, gorev, zaman_asimi)
     try:
         sonuc = subprocess.run(komut, capture_output=True, text=True, timeout=zaman_asimi)
@@ -813,8 +1351,24 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
         gunluk(gunluk_yolu, f"UYARI: --zaman-asimi {zaman_asimi} sn → tur tavanı "
                             f"{OTURUM_TUR_TAVANI} yerine {b['tur']} tur uygulanıyor "
                             f"({b['tur_basi_sn']} sn/tur). Varsayılan: {VARSAYILAN_ZAMAN_ASIMI} sn")
+    if NOBETCI_ARAC == "dsh" and not kuru:
+        silinen, kalan_oturum, boyut = dsh_oturum_temizle(gunluk_yolu=gunluk_yolu)
+        if silinen:
+            gunluk(gunluk_yolu, f"{rol}: DSH oturum temizliği: {silinen} silindi, "
+                                f"{kalan_oturum} kaldı, {boyut // 1024 // 1024} MB")
+        if not dsh_profil_hazirla(depo, gunluk_yolu):
+            gunluk(gunluk_yolu, f"{rol}: DSH profili güvenli değil → oturum açılmadı")
+            return 2
+        karar_dosyalarini_temizle(is_listesi, gunluk_yolu)
+        dsh_pr_verisini_hazirla(depo, is_listesi, gunluk_yolu)
+        dsh_paket_hazirla(depo, rol, is_listesi, gunluk_yolu)
+
     kod, cikti = hermes_calistir(depo, gorev_metni(rol, depo, is_listesi), rol, zaman_asimi, kuru)
     gunluk(gunluk_yolu, f"{rol}: oturum bitti (çıkış {kod})")
+
+    if NOBETCI_ARAC == "dsh" and not kuru:
+        # Kararı ajanın sandbox'ı DIŞINDA yayınla: kimlik kapısı ve GitHub yazımı güvenilir süreçte.
+        kararlari_yayinla(depo, rol, is_listesi, gunluk_yolu)
 
     # Sonuç: iş listesi hâlâ aynı PR'ları içeriyorsa karar YAZILAMAMIŞ demektir → beklemeyi artır.
     if not kuru:
@@ -919,23 +1473,37 @@ def kendini_denetle(rol: str, token_yolu: Path = TOKEN_VARSAYILAN, limit: int = 
         ayrinti = f"{int(yas / 60)} dk önce güncellendi"
     satir(taze, "durum dosyası taze", ayrinti)
 
-    # 5) bugün açılan nöbetçi oturumu (makul üst sınır: 24)
+    # 5) bugün açılan nöbetçi oturumu (makul üst sınır: 12)
+    # DSH'de Hermes state.db yok; DSH oturumları ayrı depoda ve web oturumlarıyla karışık.
+    # Bu kontrol DSH'de atlanır; oturum sayısı DSH Web'den / günlükten izlenir.
     adet = -1
-    try:
-        vt = Path.home() / ".hermes" / "state.db"
-        if vt.is_file():
-            c = sqlite3.connect(f"file:{vt}?mode=ro", uri=True)
-            # 27 Ekim dersi: 26 Ekim'deki OOM çökme döngüsü TEK GÜNDE 50+ oturum bıraktı; günlük
-            # sayım yeni düzeltmeden SONRA da kırmızı kalıyor ve gerçek fırtınayı gizliyordu.
-            # Ölçüt artık SON 6 SAAT: "şu an oturum fırtınası var mı?" sorusuna cevap verir.
-            gece = datetime.now(timezone.utc).timestamp() - 6 * 3600
-            adet = c.execute(
-                "select count(*) from sessions where started_at >= ? and coalesce(created_source, source) = 'nobetci'",
-                (gece,),
-            ).fetchone()[0]
-    except (OSError, sqlite3.Error):
-        pass
-    satir(0 <= adet <= 12, "son 6s oturum ≤ 12", f"{adet}" if adet >= 0 else "okunamadı")
+    if NOBETCI_ARAC == "dsh":
+        dsh_sayi, dsh_bayt = dsh_oturum_ozet()
+        satir(dsh_sayi <= 200 and dsh_bayt <= 1_000_000_000, "DSH oturum deposu",
+              f"{dsh_sayi} oturum · {dsh_bayt // 1024 // 1024} MB "
+              f"(sınır 200 / 1000 MB; 7 gün)")
+        runner = Path.home() / ".agents" / "bin" / "dsh-bwrap-kiosk"
+        satir(runner.is_file() and os.access(runner, os.X_OK), "DSH sandbox runner",
+              str(runner) if runner.is_file() else f"yok: {runner}")
+        satir(DSH_PERMISSION_MODE == "read-only", "DSH izin modu", DSH_PERMISSION_MODE)
+        profil_ok, profil_neden = dsh_profil_denetle()
+        satir(profil_ok, "DSH profil güvenli", profil_neden)
+    else:
+        try:
+            vt = Path.home() / ".hermes" / "state.db"
+            if vt.is_file():
+                c = sqlite3.connect(f"file:{vt}?mode=ro", uri=True)
+                # 27 Ekim dersi: 26 Ekim'deki OOM çökme döngüsü TEK GÜNDE 50+ oturum bıraktı; günlük
+                # sayım yeni düzeltmeden SONRA da kırmızı kalıyor ve gerçek fırtınayı gizliyordu.
+                # Ölçüt artık SON 6 SAAT: "şu an oturum fırtınası var mı?" sorusuna cevap verir.
+                gece = datetime.now(timezone.utc).timestamp() - 6 * 3600
+                adet = c.execute(
+                    "select count(*) from sessions where started_at >= ? and coalesce(created_source, source) = 'nobetci'",
+                    (gece,),
+                ).fetchone()[0]
+        except (OSError, sqlite3.Error):
+            pass
+        satir(0 <= adet <= 12, "son 6s oturum ≤ 12", f"{adet}" if adet >= 0 else "okunamadı")
 
     # 6) KUYRUK TIKANIKLIĞI: en eski iş ne kadar bekledi? (25 Ekim: #83/#84 → 10 saat görünmez)
     if token_yolu.exists():
@@ -1168,6 +1736,9 @@ def main() -> int:
     ayar.add_argument("--profil", default=None,
                       help="nöbetçi oturumunun Hermes profili (varsayılan: NOBETCI_PROFIL env; "
                            "boşsa varsayılan profil). Open WebUI yükünü ayırmak için 'guvenlik'.")
+    ayar.add_argument("--arac", choices=ARACLAR, default=None,
+                      help="ajan aracı: hermes (varsayılan) veya dsh headless "
+                           "(varsayılan: NOBETCI_ARAC env).")
     ayar.add_argument("--guncelle", action="store_true",
                       help="döngüde kodu origin/<dal>'a çek; değiştiyse yeniden başla (birim kullanır)")
     ayar.add_argument("--guncelle-aralik", type=int, default=300,
@@ -1178,9 +1749,15 @@ def main() -> int:
 
     secim = ayar.parse_args()
     dal = dal_coz(secim.dal)
-    global NOBETCI_PROFIL
+    global NOBETCI_PROFIL, NOBETCI_ARAC
     if secim.profil is not None:
         NOBETCI_PROFIL = secim.profil.strip()
+    if secim.arac is not None:
+        NOBETCI_ARAC = secim.arac
+    if NOBETCI_ARAC not in ARACLAR:
+        print(f"✗ geçersiz ajan aracı: {NOBETCI_ARAC} (izinli: {', '.join(ARACLAR)})",
+              file=sys.stderr)
+        return 2
     if secim.kendini_denetle:  # kilit gerekmez, hiçbir şeyi değiştirmez
         return kendini_denetle(secim.rol, secim.token, secim.limit, dal)
     durum_yolu = DURUM_KLASORU / f"nobetci-{secim.rol}.json"
@@ -1208,7 +1785,10 @@ def main() -> int:
         an = time.time()
         bugun = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         print(f"nöbetçi tanı · rol={secim.rol}")
-        print(f"  hermes profili      : {NOBETCI_PROFIL or '(varsayılan — Open WebUI ile paylaşılır)'}")
+        if NOBETCI_ARAC == "dsh":
+            print(f"  ajan aracı          : dsh headless · {DSH_CHECKOUT} · {DSH_PERMISSION_MODE}")
+        else:
+            print(f"  hermes profili      : {NOBETCI_PROFIL or '(varsayılan — Open WebUI ile paylaşılır)'}")
         print(f"  kod                 : {kod_sha(secim.depo)}"
               f" ({'makine kopyası' if kopya_mi(secim.depo) else 'insan deposu'})"
               f" · dal {dal} · kendini güncelleme: {'açık' if secim.guncelle else 'kapalı'}")
