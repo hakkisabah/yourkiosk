@@ -763,9 +763,10 @@ def gorev_metni(rol: str, depo: Path, is_listesi: list[dict], nonce: str = "") -
     if NOBETCI_ARAC == "dsh":
         satirlar += ["", "DSH: `topla.py` ÇALIŞTIRMA; PR paketi `$PAKET_DIR` altında hazır. "
                          "`read`/`grep`/`glob`/`web_fetch`/`subagent` KAPALI; her şeyi `bash` ile yap "
-                         "(`cat`, `sed`, `grep`, `python3`). Kararı `$KARAR_DIR/karar-<NO>.json` "
-                         "dosyasına **bash ile** yaz; `yaz.py` ÇALIŞTIRMA. "
-                         "Kapı ve GitHub yazımını nöbetçi oturum dışında yapar."]
+                         "(`cat`, `sed`, `grep`, `python3`). Kararı SON MESAJINDA "
+                         "`KARAR_JSON_BEGIN <NO>` ve `KARAR_JSON_END <NO>` satırları arasına JSON "
+                         "olarak yaz (blok içine kod çiti koyma); dosyaya YAZMA "
+                         "(`yaz.py` ÇALIŞTIRMA). Kapı ve GitHub yazımını nöbetçi oturum dışında yapar."]
     if nonce:
         satirlar += ["",
                      f"KARAR NONCE: {nonce}",
@@ -1136,17 +1137,48 @@ def karar_dosyalarini_temizle(is_listesi: list[dict],
                 print(mesaj, file=sys.stderr)
 
 
-def kararlari_yayinla(depo: Path, rol: str, is_listesi: list[dict], gunluk_yolu: Path | None) -> None:
-    """DSH ajanının yazdığı karar JSON'larını GÜVENİLİR nöbetçi sürecinde yayınla.
+KARAR_JSON_BLOGU = re.compile(
+    r"KARAR_JSON_BEGIN[ \t]+(\d+)[ \t]*\n(.*?)\n[ \t]*KARAR_JSON_END[ \t]+(\d+)",
+    re.S)
 
-    DSH sandbox içinde `yaz.py` çalıştırılmaz: kimlik kapısı `/etc/machine-id`'yi göremez
-    (bwrap user namespace'inde uid 65534) ve ajanın yazma yetkisiyle karar yayınlaması
-    güven sınırını aşar. Ajan yalnız JSON üretir; kapı ve GitHub yazımı burada, sandbox
-    dışında, nöbetçinin kendi uid'siyle yapılır.
 
-    Yayın öncesi dosya GÜVENİLMEZ kabul edilir: yalnız iş listesindeki PR'a ve o PR'ın
-    head sha'sına bağlı karar geçer; boyut sınırı aşan, sembolik bağ olan veya JSON'u
-    bozuk dosya kapıya hiç verilmez.
+def stdout_kararlari_ayikla(rol: str) -> dict[int, dict]:
+    """Ajanın son stdout'undaki KARAR_JSON bloklarını ayıkla.
+
+    DSH headless son yanıtı stdout'a yazar; sandbox içindeki PR testleri bu akışı
+    göremez/yazamaz. Karar dosyası artık bu kanaldan gelen içerikle nöbetçi
+    tarafından yazılır.
+    """
+    yol = DURUM_KLASORU / f"gorev-{rol}.stdout"
+    try:
+        metin = yol.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    cikti: dict[int, dict] = {}
+    for eslesme in KARAR_JSON_BLOGU.finditer(metin):
+        pr = int(eslesme.group(1))
+        if int(eslesme.group(3)) != pr:
+            continue
+        govde = eslesme.group(2)
+        if len(govde.encode("utf-8")) > KARAR_AZAMI_BAYT:
+            continue
+        try:
+            veri = json.loads(govde)
+        except ValueError:
+            continue
+        if isinstance(veri, dict):
+            cikti[pr] = veri
+    return cikti
+
+
+def kararlari_yayinla(depo: Path, rol: str, is_listesi: list[dict],
+                      gunluk_yolu: Path | None,
+                      kararlar: dict[int, dict] | None = None) -> None:
+    """Ajanın kararını GÜVENİLİR nöbetçi sürecinde yayınla.
+
+    DSH'de karar ajanın SON STDOUT'undaki KARAR_JSON_BEGIN/END bloklarından gelir;
+    sandbox içindeki test süreçleri bu kanalı göremez. Dosya yolu yalnız Hermes
+    geriye dönük uyumu içindir (kararlar=None).
     """
     kapi = depo / "otomasyon" / "betik" / "karar_dogrula.py"
     yaz = depo / "otomasyon" / "betik" / "yaz.py"
@@ -1154,40 +1186,53 @@ def kararlari_yayinla(depo: Path, rol: str, is_listesi: list[dict], gunluk_yolu:
         pr = is_["pr"]
         beklenen_sha = str(is_.get("sha") or "").strip()
         yol = karar_klasoru() / f"karar-{pr}.json"
-        if yol.is_symlink():
-            # Ajan KARAR_DIR içinde sembolik bağ bırakabilir; nöbetçi sürecinde bu bağ
-            # sandbox dışındaki bir host yoluna çözülür. Karar yalnız normal dosyadır.
-            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — sembolik bağ")
-            continue
-        if not yol.is_file():
-            gunluk(gunluk_yolu, f"{rol}: KARAR YOK #{pr} — ajan karar dosyası yazmadı")
-            continue
-        try:
-            boyut = yol.stat().st_size
-        except OSError as hata:
-            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — boyut okunamadı: {hata}")
-            continue
-        if boyut > KARAR_AZAMI_BAYT:
-            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — dosya {boyut} bayt "
-                               f"(üst sınır {KARAR_AZAMI_BAYT})")
+        if kararlar is not None:
+            ham_veri = kararlar.get(pr)
+            if not isinstance(ham_veri, dict):
+                gunluk(gunluk_yolu, f"{rol}: KARAR YOK #{pr} — stdout'ta KARAR_JSON bloğu yok")
+                continue
+            ham = json.dumps(ham_veri, ensure_ascii=False)
+            if len(ham.encode("utf-8")) > KARAR_AZAMI_BAYT:
+                gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — stdout bloğu "
+                                   f"{len(ham.encode())} bayt (üst sınır {KARAR_AZAMI_BAYT})")
+                continue
             try:
-                yol.unlink()
+                yol.write_text(ham, encoding="utf-8")
+                os.chmod(yol, 0o600)
             except OSError as hata:
-                gunluk(gunluk_yolu, f"{rol}: KARAR SİLİNEMEDİ #{pr}: {hata}")
-            continue
-        try:
-            veri = json.loads(yol.read_text(encoding="utf-8-sig"))
-        except (OSError, ValueError) as hata:
-            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — JSON okunamadı: {hata}")
-            continue
-        if not isinstance(veri, dict):
-            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — JSON nesne değil")
-            continue
+                gunluk(gunluk_yolu, f"{rol}: KARAR YAZILAMADI #{pr} — {hata}")
+                continue
+            veri = ham_veri
+        else:
+            if yol.is_symlink():
+                gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — sembolik bağ")
+                continue
+            if not yol.is_file():
+                gunluk(gunluk_yolu, f"{rol}: KARAR YOK #{pr} — ajan karar dosyası yazmadı")
+                continue
+            try:
+                boyut = yol.stat().st_size
+            except OSError as hata:
+                gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — boyut okunamadı: {hata}")
+                continue
+            if boyut > KARAR_AZAMI_BAYT:
+                gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — dosya {boyut} bayt "
+                                   f"(üst sınır {KARAR_AZAMI_BAYT})")
+                try:
+                    yol.unlink()
+                except OSError as hata:
+                    gunluk(gunluk_yolu, f"{rol}: KARAR SİLİNEMEDİ #{pr}: {hata}")
+                continue
+            try:
+                veri = json.loads(yol.read_text(encoding="utf-8-sig"))
+            except (OSError, ValueError) as hata:
+                gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — JSON okunamadı: {hata}")
+                continue
+            if not isinstance(veri, dict):
+                gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — JSON nesne değil")
+                continue
         beklenen_nonce = str(is_.get("nonce") or "")
         if not beklenen_nonce or str(veri.get("nonce") or "") != beklenen_nonce:
-            # PR testleri/derlemeleri aynı sandbox'ta koşar ve KARAR_DIR'e yazabilir;
-            # nonce yalnız ajan isteminde verilir, test süreçleri göremez. Eşleşmeyen
-            # karar sahte/başka süreç tarafından yazılmıştır → yayınlanmaz.
             gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — nonce uyuşmuyor "
                                f"(test/başka süreç yazmış olabilir)")
             continue
@@ -1197,9 +1242,6 @@ def kararlari_yayinla(depo: Path, rol: str, is_listesi: list[dict], gunluk_yolu:
             karar_pr = None
         karar_sha = str(veri.get("sha") or "").strip()
         if not beklenen_sha or karar_pr != pr or karar_sha != beklenen_sha:
-            # Ajan dosya adını `karar-<PR>.json` yapsa bile içerik başka PR'a/sha'ya
-            # işaret edebilir. Kapı ve `yaz.py` JSON'un içindeki pr/sha'yı kullanır;
-            # bu bağ kurulmadan yayın, kararın başka PR'a yazılması demektir.
             gunluk(gunluk_yolu,
                    f"{rol}: KARAR REDDEDİLDİ #{pr} — JSON pr/sha listedeki PR ile uyuşmuyor "
                    f"(json pr={karar_pr}, sha={(karar_sha[:12] or '-')}; "
@@ -1231,9 +1273,8 @@ def kararlari_yayinla(depo: Path, rol: str, is_listesi: list[dict], gunluk_yolu:
             neden = ((yaz_sonuc.stderr or "") + (yaz_sonuc.stdout or "")).strip().splitlines()
             gunluk(gunluk_yolu, f"{rol}: KARAR YAYINLANAMADI #{pr} — "
                                + (neden[-1][:300] if neden else f"çıkış {yaz_sonuc.returncode}"))
-        else:
-            gunluk(gunluk_yolu, f"{rol}: KARAR YAYINLANDI #{pr} (karar={karar or '?'})")
-
+            continue
+        gunluk(gunluk_yolu, f"{rol}: karar yayınlandı #{pr} ({karar})")
 
 def hermes_komutu(depo: Path, gorev: Path, zaman_asimi: int) -> list[str]:
     """Nöbetçi oturumunun Hermes komut satırı (test edilebilir tek nokta)."""
@@ -1301,6 +1342,13 @@ def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bo
             # DSH görevi argüman yerine stdin'den okur (uzun istem argv'ye sığmaz/sızmaz).
             sonuc = subprocess.run(komut, input=metin, cwd=str(depo), env=ortam,
                                    capture_output=True, text=True, timeout=zaman_asimi)
+            # Karar kanalı: son yanıt stdout'a yazılır; nöbetçi buradan okur.
+            try:
+                stdout_yolu = DURUM_KLASORU / f"gorev-{rol}.stdout"
+                stdout_yolu.write_text(sonuc.stdout or "", encoding="utf-8")
+                os.chmod(stdout_yolu, 0o600)
+            except OSError:
+                pass
             return sonuc.returncode, (sonuc.stdout or "") + (sonuc.stderr or "")
         except FileNotFoundError:
             return 127, f"dsh/node bulunamadı (DSH_CHECKOUT={DSH_CHECKOUT})"
@@ -1387,8 +1435,12 @@ def tek_tur(gh: Github, depo: Path, rol: str, limit: int, kuru: bool, zaman_asim
     gunluk(gunluk_yolu, f"{rol}: oturum bitti (çıkış {kod})")
 
     if NOBETCI_ARAC == "dsh" and not kuru:
-        # Kararı ajanın sandbox'ı DIŞINDA yayınla: kimlik kapısı ve GitHub yazımı güvenilir süreçte.
-        kararlari_yayinla(depo, rol, is_listesi, gunluk_yolu)
+        # Karar ajanın SON STDOUT'undan gelir; sandbox içindeki test süreçleri bu
+        # kanalı göremez/yazamaz. Kapı ve GitHub yazımı güvenilir süreçte yapılır.
+        kararlar = stdout_kararlari_ayikla(rol)
+        if not kararlar:
+            gunluk(gunluk_yolu, f"{rol}: stdout'ta KARAR_JSON bloğu yok")
+        kararlari_yayinla(depo, rol, is_listesi, gunluk_yolu, kararlar=kararlar)
 
     # Sonuç: iş listesi hâlâ aynı PR'ları içeriyorsa karar YAZILAMAMIŞ demektir → beklemeyi artır.
     if not kuru:

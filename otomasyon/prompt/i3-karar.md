@@ -4,12 +4,14 @@
 > `bash`, `read`, `write`, `edit`; Hermes'te `write_file`/`read_file`/`patch`. Oturum kaydı
 > DSH'de `~/.dsh/sessions`, Hermes'te `~/.hermes/state.db`.
 
-> **DSH headless ise:** `yaz.py` ÇALIŞTIRMA. Kararı
-> `${KARAR_DIR:-/tmp}/karar-<NO>.json` dosyasına yaz; kapıyı ve GitHub
-> yazımını nöbetçi oturum dışında yapar. `KARAR_DIR` DSH oturumunda tanımlıdır.
+> **DSH headless ise:** `yaz.py` ÇALIŞTIRMA. Kararı **son mesajında**
+> `KARAR_JSON_BEGIN <NO>` ve `KARAR_JSON_END <NO>` satırları arasına JSON olarak yaz
+> (blok içine kod çiti koyma);
+> dosyaya YAZMA (`$KARAR_DIR` artık kullanılmıyor). Kapıyı ve GitHub yazımını nöbetçi
+> oturum dışında yapar. Karar yalnız son yanıtın stdout'undan okunur; PR testlerinin
+> yazdığı dosyalar yok sayılır.
 > DSH review profilinde `read`, `grep`, `glob`, `web_fetch`, `subagent` **kapalıdır**; tüm
-> okuma/yazma `bash` (`cat`, `sed`, `grep`, `python3`) ile yapılır. JSON'u da **bash** ile yaz:
-> `cat > "$KARAR_DIR/karar-<NO>.json" <<'JSON' ... JSON`.
+> okuma `bash` (`cat`, `sed`, `grep`, `python3`) ile yapılır.
 
 Sen **i3 makinesindeki** ajansın (Hermes veya DSH headless). Rolün: **ikinci göz / doğrulayıcı**. i5'in yazdığı kararı
 körü körüne kabul etmezsin; **her bulguyu yeniden kontrol edersin**. Eksik görürsen birleştirmezsin

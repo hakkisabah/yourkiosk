@@ -407,6 +407,43 @@ class KararYayinTesti(unittest.TestCase):
                 self.assertEqual(calistir.call_count, 0)
                 self.assertIn("nonce uyuşmuyor", gunluk.read_text(encoding="utf-8"))
 
+    def test_stdout_bloklari_ayiklanir(self):
+        yol = nobetci.DURUM_KLASORU / "gorev-i5.stdout"
+        govde = ("on soz" + chr(10) +
+                 "KARAR_JSON_BEGIN 97" + chr(10) +
+                 '{"pr":97,"sha":"' + self.sha + '","karar":"onay","nonce":"' + self.nonce + '"}' + chr(10) +
+                 "KARAR_JSON_END 97" + chr(10))
+        yol.write_text(govde, encoding="utf-8")
+        kararlar = nobetci.stdout_kararlari_ayikla("i5")
+        self.assertIn(97, kararlar)
+        self.assertEqual(kararlar[97]["karar"], "onay")
+
+    def test_bozuk_stdout_bloklari_yok_sayilir(self):
+        yol = nobetci.DURUM_KLASORU / "gorev-i5.stdout"
+        govde = ("KARAR_JSON_BEGIN 97" + chr(10) + "{bozuk" + chr(10) + "KARAR_JSON_END 97" + chr(10) +
+                 "KARAR_JSON_BEGIN 98" + chr(10) + "{}" + chr(10) + "KARAR_JSON_END 99" + chr(10))
+        yol.write_text(govde, encoding="utf-8")
+        self.assertEqual(nobetci.stdout_kararlari_ayikla("i5"), {})
+
+    def test_dosyadaki_sahte_karar_stdout_yoksa_yayinlanmaz(self):
+        self._karar_yaz()
+        gunluk = Path(self.dizin.name) / "stdout-yok.log"
+        with mock.patch.object(nobetci.subprocess, "run") as calistir:
+            nobetci.kararlari_yayinla(
+                self.depo, "i5", [{"pr": 97, "sha": self.sha, "nonce": self.nonce}], gunluk,
+                kararlar={})
+        self.assertEqual(calistir.call_count, 0)
+        self.assertIn("stdout'ta KARAR_JSON", gunluk.read_text(encoding="utf-8"))
+
+    def test_stdout_karari_yayinlanir(self):
+        veri = {"pr": 97, "sha": self.sha, "karar": "onay", "nonce": self.nonce}
+        with mock.patch.object(nobetci.subprocess, "run") as calistir:
+            calistir.return_value = SimpleNamespace(returncode=0, stdout="ok", stderr="")
+            nobetci.kararlari_yayinla(
+                self.depo, "i5", [{"pr": 97, "sha": self.sha, "nonce": self.nonce}], None,
+                kararlar={97: veri})
+        self.assertEqual(calistir.call_count, 2)
+
     def test_257kb_karar_reddedilir_ve_silinir(self):
         """Boyut sınırını aşan dosya kapıya verilmez, günlüğe yazılır ve silinir."""
         yol = nobetci.karar_klasoru() / "karar-97.json"
