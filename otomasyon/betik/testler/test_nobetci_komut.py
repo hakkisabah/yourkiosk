@@ -132,6 +132,11 @@ class DshKomutTesti(unittest.TestCase):
         self.dizin = tempfile.TemporaryDirectory()
         self.addCleanup(self.dizin.cleanup)
         nobetci.DURUM_KLASORU = Path(self.dizin.name)
+        # Test makinenin ~/.dsh kurulumuna bağlı olmamalı: geçici evi yamala.
+        ev_yama = mock.patch.object(nobetci, "dsh_home_hazirla",
+                                    return_value=Path(self.dizin.name) / "dsh-home")
+        ev_yama.start()
+        self.addCleanup(ev_yama.stop)
 
     def tearDown(self):
         nobetci.NOBETCI_ARAC, nobetci.DSH_CHECKOUT, nobetci.DSH_PERMISSION_MODE = self.eski
@@ -164,7 +169,10 @@ class DshKomutTesti(unittest.TestCase):
         nobetci.NOBETCI_ARAC = "dsh"
         nobetci.DSH_CHECKOUT = Path("/opt/dsh")
         nobetci.DSH_PERMISSION_MODE = "read-only"
-        with mock.patch.object(nobetci.subprocess, "run") as calistir:
+        with mock.patch.dict(os.environ, {"SECRET_CANARY": "s3cr3t",
+                                          "DEEPSEEK_API_KEY": "anahtar-canary",
+                                          "NODE_OPTIONS": "--max-old-space-size=950"}), \
+                mock.patch.object(nobetci.subprocess, "run") as calistir:
             calistir.return_value = SimpleNamespace(returncode=0, stdout="ok", stderr="")
             kod, cikti = nobetci.hermes_calistir(Path("/depo"), "görev metni", "i5", 60, False)
         self.assertEqual((kod, cikti), (0, "ok"))
@@ -175,6 +183,12 @@ class DshKomutTesti(unittest.TestCase):
         self.assertEqual(kwargs["timeout"], 60)
         self.assertIn("DSH_HOME", kwargs["env"])
         self.assertIn("KARAR_DIR", kwargs["env"])
+        self.assertIn("PATH", kwargs["env"])
+        # i5 2026-11-11: tüm ortam sandbox'a geçmemeli; yalnız allowlist.
+        self.assertNotIn("SECRET_CANARY", kwargs["env"])
+        self.assertNotIn("DEEPSEEK_API_KEY", kwargs["env"])
+        # Bellek tavanı sır değil; DSH'ye geçmeye devam etmeli.
+        self.assertEqual(kwargs["env"].get("NODE_OPTIONS"), "--max-old-space-size=950")
 
 
 class DshProfilTesti(unittest.TestCase):
@@ -216,7 +230,8 @@ class DshProfilTesti(unittest.TestCase):
             (depo / "otomasyon" / "dsh-headless.cordis.patch.yml").write_text(
                 kaynak.read_text(), encoding="utf-8")
             hedef = Path(d) / "hedef.yml"
-            with mock.patch.object(nobetci, "dsh_profil_yolu", return_value=hedef):
+            with mock.patch.object(nobetci, "dsh_profil_yolu", return_value=hedef), \
+                    mock.patch.object(nobetci, "dsh_runner_hazirla", return_value=True):
                 self.assertTrue(nobetci.dsh_profil_hazirla(depo))
             self.assertTrue(hedef.is_file())
             self.assertTrue(nobetci.dsh_profil_denetle(hedef)[0])
@@ -308,8 +323,9 @@ class KararYayinTesti(unittest.TestCase):
         (self.depo / "otomasyon" / "betik" / "karar_dogrula.py").write_text("")
         (self.depo / "otomasyon" / "betik" / "yaz.py").write_text("")
         nobetci.karar_klasoru().mkdir(parents=True)
+        self.sha = "a" * 40
         (nobetci.karar_klasoru() / "karar-97.json").write_text(
-            json.dumps({"pr": 97, "karar": "kabul"}), encoding="utf-8")
+            json.dumps({"pr": 97, "sha": self.sha, "karar": "kabul"}), encoding="utf-8")
 
     def tearDown(self):
         nobetci.DURUM_KLASORU = self.eski
@@ -317,7 +333,7 @@ class KararYayinTesti(unittest.TestCase):
     def test_once_kapi_sonra_yaz_ve_i3_cift_onay(self):
         with mock.patch.object(nobetci.subprocess, "run") as calistir:
             calistir.return_value = SimpleNamespace(returncode=0, stdout="ok", stderr="")
-            nobetci.kararlari_yayinla(self.depo, "i3", [{"pr": 97}], None)
+            nobetci.kararlari_yayinla(self.depo, "i3", [{"pr": 97, "sha": self.sha}], None)
         self.assertEqual(calistir.call_count, 2)
         kapi = calistir.call_args_list[0].args[0]
         yaz = calistir.call_args_list[1].args[0]
@@ -338,8 +354,49 @@ class KararYayinTesti(unittest.TestCase):
     def test_karar_yoksa_yaz_calistirilmaz(self):
         (nobetci.karar_klasoru() / "karar-97.json").unlink()
         with mock.patch.object(nobetci.subprocess, "run") as calistir:
-            nobetci.kararlari_yayinla(self.depo, "i5", [{"pr": 97}], None)
+            nobetci.kararlari_yayinla(self.depo, "i5", [{"pr": 97, "sha": self.sha}], None)
         self.assertEqual(calistir.call_count, 0)
+
+    def _karar_yaz(self, **degisiklik) -> Path:
+        yol = nobetci.karar_klasoru() / "karar-97.json"
+        veri = {"pr": 97, "sha": self.sha, "karar": "kabul"}
+        veri.update(degisiklik)
+        yol.write_text(json.dumps(veri), encoding="utf-8")
+        return yol
+
+    def test_baska_pr_numarasi_yayinlanmaz(self):
+        """JSON 'pr' alanı listedeki PR'dan farklıysa karar başka PR'a yazılamaz."""
+        self._karar_yaz(pr=98)
+        gunluk = Path(self.dizin.name) / "nobetci.log"
+        with mock.patch.object(nobetci.subprocess, "run") as calistir:
+            nobetci.kararlari_yayinla(self.depo, "i5", [{"pr": 97, "sha": self.sha}], gunluk)
+        self.assertEqual(calistir.call_count, 0)
+        metin = gunluk.read_text(encoding="utf-8")
+        self.assertIn("uyuşmuyor", metin)
+        self.assertIn("json pr=98", metin)
+
+    def test_bos_veya_yanlis_sha_yayinlanmaz(self):
+        """JSON sha'sı head sha değilse ya da boşsa kapı/yaz hiç çalışmaz."""
+        for sha in ("", "b" * 40):
+            with self.subTest(sha=sha or "boş"):
+                self._karar_yaz(sha=sha)
+                gunluk = Path(self.dizin.name) / f"nobetci-{sha[:1] or 'bos'}.log"
+                with mock.patch.object(nobetci.subprocess, "run") as calistir:
+                    nobetci.kararlari_yayinla(
+                        self.depo, "i5", [{"pr": 97, "sha": self.sha}], gunluk)
+                self.assertEqual(calistir.call_count, 0)
+                self.assertIn("uyuşmuyor", gunluk.read_text(encoding="utf-8"))
+
+    def test_257kb_karar_reddedilir_ve_silinir(self):
+        """Boyut sınırını aşan dosya kapıya verilmez, günlüğe yazılır ve silinir."""
+        yol = nobetci.karar_klasoru() / "karar-97.json"
+        yol.write_text("x" * (257 * 1024), encoding="utf-8")
+        gunluk = Path(self.dizin.name) / "nobetci.log"
+        with mock.patch.object(nobetci.subprocess, "run") as calistir:
+            nobetci.kararlari_yayinla(self.depo, "i5", [{"pr": 97, "sha": self.sha}], gunluk)
+        self.assertEqual(calistir.call_count, 0)
+        self.assertFalse(yol.exists())
+        self.assertIn("üst sınır", gunluk.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

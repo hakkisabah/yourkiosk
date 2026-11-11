@@ -182,6 +182,21 @@ DSH_IZIN_MODLARI = ("read-only",)
 DSH_PERMISSION_MODE = (os.environ.get("DSH_PERMISSION_MODE", "read-only").strip()
                        or "read-only")
 
+#: Ajanın KARAR_DIR'e yazdığı JSON için üst sınır (i5 2026-11-11 orta bulgusu). Kapı ve
+#: `yaz.py` dosyayı tamamen okur; 256 KB üzeri bir karar meşru değildir. Sınır yayıncıda
+#: uygulanır çünkü asıl güvenilmeyen taraf ajanın ürettiği dosyadır.
+KARAR_AZAMI_BAYT = 256 * 1024
+
+#: DSH alt sürecine geçen ortam değişkenleri (i5 2026-11-11 orta bulgusu). Eskiden
+#: `os.environ.copy()` tüm ortamı sandbox'a taşıyordu; `SECRET_CANARY` deneyi bunu doğruladı.
+#: API anahtarı `~/.dsh/.env`ten gelir, ortamdan GEÇMEZ; PATH/HOME olmadan node/runner çalışmaz.
+DSH_ORTAM_ANAHTARLARI = (
+    "PATH", "HOME", "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "LC_MESSAGES",
+    "TZ", "TERM", "TMPDIR", "USER", "LOGNAME", "SHELL", "NO_COLOR", "FORCE_COLOR",
+    # Birimdeki bellek tavanı (nobetci-kur.sh: --max-old-space-size). Sır değil; düşerse
+    # i5'in 3,8 GB'lık makinesinde Node OOM riski geri gelir.
+    "NODE_OPTIONS",
+)
 
 
 def simdi() -> str:
@@ -1120,14 +1135,59 @@ def kararlari_yayinla(depo: Path, rol: str, is_listesi: list[dict], gunluk_yolu:
     (bwrap user namespace'inde uid 65534) ve ajanın yazma yetkisiyle karar yayınlaması
     güven sınırını aşar. Ajan yalnız JSON üretir; kapı ve GitHub yazımı burada, sandbox
     dışında, nöbetçinin kendi uid'siyle yapılır.
+
+    Yayın öncesi dosya GÜVENİLMEZ kabul edilir: yalnız iş listesindeki PR'a ve o PR'ın
+    head sha'sına bağlı karar geçer; boyut sınırı aşan, sembolik bağ olan veya JSON'u
+    bozuk dosya kapıya hiç verilmez.
     """
     kapi = depo / "otomasyon" / "betik" / "karar_dogrula.py"
     yaz = depo / "otomasyon" / "betik" / "yaz.py"
     for is_ in is_listesi:
         pr = is_["pr"]
+        beklenen_sha = str(is_.get("sha") or "").strip()
         yol = karar_klasoru() / f"karar-{pr}.json"
+        if yol.is_symlink():
+            # Ajan KARAR_DIR içinde sembolik bağ bırakabilir; nöbetçi sürecinde bu bağ
+            # sandbox dışındaki bir host yoluna çözülür. Karar yalnız normal dosyadır.
+            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — sembolik bağ")
+            continue
         if not yol.is_file():
             gunluk(gunluk_yolu, f"{rol}: KARAR YOK #{pr} — ajan karar dosyası yazmadı")
+            continue
+        try:
+            boyut = yol.stat().st_size
+        except OSError as hata:
+            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — boyut okunamadı: {hata}")
+            continue
+        if boyut > KARAR_AZAMI_BAYT:
+            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — dosya {boyut} bayt "
+                               f"(üst sınır {KARAR_AZAMI_BAYT})")
+            try:
+                yol.unlink()
+            except OSError as hata:
+                gunluk(gunluk_yolu, f"{rol}: KARAR SİLİNEMEDİ #{pr}: {hata}")
+            continue
+        try:
+            veri = json.loads(yol.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as hata:
+            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — JSON okunamadı: {hata}")
+            continue
+        if not isinstance(veri, dict):
+            gunluk(gunluk_yolu, f"{rol}: KARAR REDDEDİLDİ #{pr} — JSON nesne değil")
+            continue
+        try:
+            karar_pr = int(veri.get("pr"))
+        except (TypeError, ValueError):
+            karar_pr = None
+        karar_sha = str(veri.get("sha") or "").strip()
+        if not beklenen_sha or karar_pr != pr or karar_sha != beklenen_sha:
+            # Ajan dosya adını `karar-<PR>.json` yapsa bile içerik başka PR'a/sha'ya
+            # işaret edebilir. Kapı ve `yaz.py` JSON'un içindeki pr/sha'yı kullanır;
+            # bu bağ kurulmadan yayın, kararın başka PR'a yazılması demektir.
+            gunluk(gunluk_yolu,
+                   f"{rol}: KARAR REDDEDİLDİ #{pr} — JSON pr/sha listedeki PR ile uyuşmuyor "
+                   f"(json pr={karar_pr}, sha={(karar_sha[:12] or '-')}; "
+                   f"beklenen pr={pr}, sha={(beklenen_sha[:12] or '-')})")
             continue
         try:
             kapi_sonuc = subprocess.run(
@@ -1141,11 +1201,8 @@ def kararlari_yayinla(depo: Path, rol: str, is_listesi: list[dict], gunluk_yolu:
             gunluk(gunluk_yolu, f"{rol}: KARAR KAPISI REDDETTİ #{pr} — "
                                + (neden[-1][:300] if neden else f"çıkış {kapi_sonuc.returncode}"))
             continue
+        karar = veri.get("karar")
         komut = [sys.executable, str(yaz), str(yol)]
-        try:
-            karar = json.loads(yol.read_text(encoding="utf-8")).get("karar")
-        except (OSError, ValueError):
-            karar = ""
         if rol == "i3" and karar == "kabul":
             komut += ["--birlestir", "--cift-onay"]
         try:
@@ -1215,7 +1272,8 @@ def hermes_calistir(depo: Path, metin: str, rol: str, zaman_asimi: int, kuru: bo
             ev = dsh_home_hazirla()
         except OSError as hata:
             return 2, f"DSH evi hazırlanamadı: {hata}"
-        ortam = os.environ.copy()
+        # Allowlist: sır taşıyan değişkenler (token, AWS, DEEPSEEK_API_KEY) sandbox'a geçmez.
+        ortam = {k: os.environ[k] for k in DSH_ORTAM_ANAHTARLARI if k in os.environ}
         ortam["DSH_HOME"] = str(ev)
         depo_isaret = DURUM_KLASORU / "depo-yolu"
         depo_isaret.write_text(str(depo.resolve()), encoding="utf-8")
