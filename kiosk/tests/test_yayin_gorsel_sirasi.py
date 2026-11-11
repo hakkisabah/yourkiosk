@@ -117,13 +117,41 @@ def test_repoda_yeni_bir_gorsel_tuketicisi_sessizce_eklenemez() -> None:
         "tools/ornek_veri.py",    # örnek veri üretici
     }
     bulunan: list[str] = []
-    for yol in KIOSK.rglob("*.py"):
-        goreli = str(yol.relative_to(KIOSK))
+    for goreli in _taranacak_py_dosyalari():
         if "tests/" in goreli or goreli in izinli:
             continue
-        if "contentUrl" in yol.read_text(encoding="utf-8"):
+        if "contentUrl" in (KIOSK / goreli).read_text(encoding="utf-8"):
             bulunan.append(goreli)
     assert not bulunan, (
         "yeni görsel tüketicisi(leri): " + ", ".join(sorted(bulunan))
         + " — TUKETICILER listesine ekleyin ve `contentUrl ?? contentURL` sırasını uygulayın"
     )
+
+
+#: Taranmayacak dizinler (yalnız git yoksa kullanılan yedek yol için).
+_YOKSAYILAN_DIZINLER = {".venv", "_arsiv", ".qt-libs", "node_modules", "__pycache__", "dist", ".git"}
+
+
+def _taranacak_py_dosyalari() -> list[str]:
+    """Depodaki (git'in izlediği) .py dosyaları.
+
+    NEDEN git: `rglob` çalışma ağacındaki HER şeyi gezer — `kiosk/_arsiv/` arşiv
+    dizini (operatörün sildiği değil arşivlediği dosyalar) ve `.venv` gibi yerel
+    dizinler de taranıyordu. 6 Kasım'da `_arsiv/test_shift_dates.py` yüzünden test
+    yanlış kırmızı verdi: arşiv bir tüketici değildir. Git varsa tek doğru kaynak
+    izlenen dosyalardır; yoksa arşiv/venv dizinleri atlanır.
+    """
+    import subprocess
+
+    try:
+        cikti = subprocess.run(
+            ["git", "-C", str(KIOSK), "ls-files", "-z", "--", "*.py"],
+            capture_output=True, check=True, timeout=30,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return [
+            str(yol.relative_to(KIOSK))
+            for yol in KIOSK.rglob("*.py")
+            if not (_YOKSAYILAN_DIZINLER & set(yol.relative_to(KIOSK).parts))
+        ]
+    return [ad for ad in cikti.decode("utf-8", "replace").split("\0") if ad]

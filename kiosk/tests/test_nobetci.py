@@ -74,10 +74,18 @@ def test_hermes_komutu_tur_tavanini_uygular(tmp_path) -> None:
 # i3: tavan 120'ye çıkarken bütçe 1140 sn kaldı → tur başına 9,5 sn; commit gerekçesindeki
 # 1680 sn yalnız elle farklı bir --zaman-asimi verilirse doğruydu. Artık ikisi türetiliyor.
 
-def test_varsayilan_zaman_asimi_tavandan_turetilir() -> None:
-    beklenen = nobetci.OTURUM_TUR_TAVANI * nobetci.TUR_SURE_PAYI_S + nobetci.KAPANIS_PAYI_S
-    assert nobetci.VARSAYILAN_ZAMAN_ASIMI == beklenen
-    b = nobetci.butce_hesapla(beklenen)
+def test_varsayilan_zaman_asimi_tek_kaynak_ve_alt_sinir() -> None:
+    """Varsayılan 3600 sn: türetilen alt sınır (1860) 28 Ekim ölçümünde YETMEDİ.
+
+    6 Kasım i5 bulgusu: `nobetci.py` 1860 sn, `nobetci-kur.sh` 3600 sn, NOBETCI.md 1860 sn
+    yazıyordu — üç yerde üç farklı gerçek. Artık tek kaynak: VARSAYILAN_ZAMAN_ASIMI; servis
+    ve belge aynı sayıyı yazar (test_nobetci_kur bu ikisini karşılaştırır).
+    """
+    alt_sinir = nobetci.OTURUM_TUR_TAVANI * nobetci.TUR_SURE_PAYI_S + nobetci.KAPANIS_PAYI_S
+    assert nobetci.TUR_TAVANINDAN_TUREYEN_S == alt_sinir == 1860
+    assert nobetci.VARSAYILAN_ZAMAN_ASIMI == 3600, "varsayılan tek kaynakta 3600 olmalı"
+    assert nobetci.VARSAYILAN_ZAMAN_ASIMI >= alt_sinir  # alt sınırın altına inemez
+    b = nobetci.butce_hesapla(nobetci.VARSAYILAN_ZAMAN_ASIMI)
     assert b["tur"] == nobetci.OTURUM_TUR_TAVANI          # tavan tam kullanılıyor
     assert b["tur_basi_sn"] >= nobetci.EN_AZ_TUR_SURESI_S  # tur başına yeterli süre
     assert b["yeterli"] is True
