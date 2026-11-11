@@ -49,9 +49,11 @@ PR dalına yeni bir commit bırakmak. Kapıyı sen açmazsın.
 
 - **Sır yazma/okuma yok.** Token, parola, anahtar, `.env`, `id_rsa`, `*.pem` üretme;
   bulduğun sırrı raporlama (maskeli göster).
-- **Kapı dosyalarını gerekçesiz değiştirme.** `otomasyon/prompt/`,
-  `otomasyon/betik/karar_dogrula.py`, `otomasyon/betik/yaz.py` yalnız bulgu onları
-  hedefliyorsa ve gerekçe commit mesajında açıkça yazılıyorsa değişir.
+- **Kapı dosyaları bu turda SALT-OKUNUR:** `otomasyon/betik/karar_dogrula.py`,
+  `otomasyon/betik/yaz.py`, `otomasyon/prompt/` ve `.github/` altına YAZMA.
+  Bulgu bu dosyaları gerektiriyorsa değişiklik yapma; son raporunda
+  "kapı değişikliği gerekli: <dosya> — <neden>" yaz. Koordinatör bunu ayrı,
+  denetimli bir tura bırakır; aksi hâlde commit'in tamamı reddedilir.
 - **`main` dalına dokunma.** Yalnız mevcut PR dalındasın.
 - **Testi atlama.** Bir testi geçici olarak devre dışı bırakma; kırıksa nedenini düzelt.
 - **Bütçe.** Tek oturumdasın; 45 dakikayı aşma. Kararı/commit'i bütçenin son üçte birinde
