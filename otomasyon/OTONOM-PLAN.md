@@ -56,9 +56,9 @@ Faz geçişi **otomatik değildir**: `durum.json` içindeki `faz` alanını oper
 - Aynı head için **5** başarısız düzeltme denemesi → `engel`, PR'a dokunma.
 - Bir PR için toplam **8** düzeltme denemesi → `engel`.
 - Doğrulama reddi (sır, merge commit, kirli ağaç, force gereksinimi) → o tik push yok.
-- GitHub 401/403/429 → `engel`, 30 dk bekle (durum dosyasında `engel_zamani`).
+- GitHub 401/403/429 → o tik durur; otomatik geri çekilme yok (operatör görür).
 - DSH profili/runner yok ya da `--kuru` doğrulaması geçmiyor → hiç oturum açma.
-- 3 ardışık tik ilerleme üretmezse `engel` (operatör görsün).
+- İlerlemesiz tikler otomatik durdurulmaz; deneme sınırları yukarıdadır.
 
 ## 5. Güvenlik modeli
 

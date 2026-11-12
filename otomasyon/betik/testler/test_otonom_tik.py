@@ -443,6 +443,21 @@ class AjanCalistirTesti(unittest.TestCase):
         self.assertEqual(env["PAKET_DIR"], str(paket))
 
 
+    def test_uc_arti_icerik_satiri_taranir(self):
+        diff = "+++ b/x.py\n+++token=\"GIZLI123456789012\"\n"
+        self.assertTrue(otonom_tik._sir_tara(diff))
+
+
+class BoruTesti(unittest.TestCase):
+    def test_sinir_asiminda_boruyu_kapatir(self):
+        boru = io.StringIO("a" * 100)
+        kapandi = []
+        metin, asim = otonom_tik._boru_oku(boru, 10, lambda: kapandi.append(1))
+        self.assertTrue(asim)
+        self.assertEqual(len(metin), 10)
+        self.assertTrue(boru.closed)
+        self.assertEqual(kapandi, [1])
+
 class KancaTesti(unittest.TestCase):
     """Güvenilir git komutları repo hook'larını çalıştırmamalı."""
 

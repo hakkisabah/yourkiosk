@@ -489,8 +489,14 @@ def ajan_calistir(paket: Path) -> tuple[int, str]:
                              stderr=subprocess.PIPE, text=True, start_new_session=True)
     kutular: dict[str, tuple[str, bool]] = {}
 
+    def asim_oldur():
+        try:
+            os.killpg(surec.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
     def oku(boru, ad):
-        kutular[ad] = _boru_oku(boru, AZAMI_AJAN_CIKTI)
+        kutular[ad] = _boru_oku(boru, AZAMI_AJAN_CIKTI, asim_oldur)
 
     t_out = threading.Thread(target=oku, args=(surec.stdout, "stdout"), daemon=True)
     t_err = threading.Thread(target=oku, args=(surec.stderr, "stderr"), daemon=True)
@@ -526,8 +532,8 @@ def ajan_calistir(paket: Path) -> tuple[int, str]:
     return kod, (cikti + hata), (asim1 or asim2)
 
 
-def _boru_oku(boru, sinir: int) -> tuple[str, bool]:
-    """Boru çıktısını `sinir` karaktere kadar oku; aşımda bayrak döndür."""
+def _boru_oku(boru, sinir: int, asim_cb=None) -> tuple[str, bool]:
+    """Boru çıktısını `sinir` karaktere kadar oku; aşımda boruyu kapat ve süreci öldür."""
     if boru is None:
         return "", False
     parcalar: list[str] = []
@@ -542,6 +548,12 @@ def _boru_oku(boru, sinir: int) -> tuple[str, bool]:
         toplam += len(parca)
         if toplam > sinir:
             parcalar.append(parca[:max(0, sinir - (toplam - len(parca)))])
+            if asim_cb is not None:
+                asim_cb()
+            try:
+                boru.close()
+            except (OSError, ValueError):
+                pass
             return "".join(parcalar), True
         parcalar.append(parca)
     return "".join(parcalar), False
@@ -557,7 +569,9 @@ def _sir_metin(metin: str) -> str:
 
 def _sir_tara(diff: str) -> str:
     for satir in diff.splitlines():
-        if not satir.startswith("+") or satir.startswith("+++"):
+        # Yalnız gerçek diff başlıklarını atla; "+++API_KEY" gibi İÇERİK satırı taranır.
+        if (not satir.startswith("+") or satir.startswith("+++ b/")
+                or satir.startswith("--- a/")):
             continue
         sir = _sir_metin(satir[1:])
         if sir:
@@ -795,7 +809,6 @@ def tik(kuru: bool = False, zorla_pr: int | None = None) -> int:
         prlar = acik_prlar(token)
     except TikHatasi as hata:
         durum["engel"] = str(hata)
-        durum["engel_zamani"] = simdi()
         durum_yaz(durum)
         gunluk(f"ENGE: {hata}")
         return 1
