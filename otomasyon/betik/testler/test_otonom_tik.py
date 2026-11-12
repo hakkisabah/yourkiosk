@@ -23,7 +23,7 @@ def _pr(sha: str = "a" * 40, no: int = 97) -> dict:
 
 
 def _durum(state: str) -> dict:
-    return {"state": state, "description": ""}
+    return {"state": state, "description": "[v2] test"}
 
 
 class KararTesti(unittest.TestCase):
@@ -67,6 +67,16 @@ class KararTesti(unittest.TestCase):
         self.assertTrue(otonom_tik.head_guncel_mi(a, a))
         self.assertFalse(otonom_tik.head_guncel_mi(a, b))
         self.assertFalse(otonom_tik.head_guncel_mi(a, {}))
+
+    def test_damgasiz_i5_bekle(self):
+        k = otonom_tik.karar_ver(
+            _pr(), {"guvenlik/inceleme": {"state": "failure", "description": ""}}, {})
+        self.assertEqual(k["eylem"], "bekle")
+
+    def test_eski_damgali_i5_bekle(self):
+        k = otonom_tik.karar_ver(
+            _pr(), {"guvenlik/inceleme": {"state": "failure", "description": "[v1] sorun"}}, {})
+        self.assertEqual(k["eylem"], "bekle")
 
     def test_kayit_sifirlama_sha_degisince(self):
         kayit = {"sha": "a" * 40, "sayi": 4, "toplam": 4}
@@ -185,7 +195,11 @@ class CommitDenetleTesti(unittest.TestCase):
                 dosya.write_text("x", encoding="utf-8")
                 self.git("add", "-A")
                 self.git("commit", "-qm", "deneme")
-                self.assertIn("yasak yol", otonom_tik.commit_denetle(self.bas))
+                neden = otonom_tik.commit_denetle(self.bas)
+                if yol == ".gitattributes":
+                    self.assertIn("gitattributes", neden)
+                else:
+                    self.assertIn("yasak yol", neden)
 
     def test_binary_dosyada_sir_yakalanir(self):
         self._commit("sir.bin", "GIZLI" + chr(0) + "ghp_" + "a" * 30 + chr(10))
@@ -200,6 +214,26 @@ class CommitDenetleTesti(unittest.TestCase):
         self._commit("normal.txt", "x")
         subprocess.run(["git", "-C", str(self.depo), "replace", "HEAD", self.bas], check=True)
         self.assertIn("replace ref", otonom_tik.commit_denetle(self.bas))
+
+    def test_ic_ice_gitattributes_reddedilir(self):
+        self._commit("sub/.gitattributes", "*.py -diff")
+        self.assertIn("gitattributes", otonom_tik.commit_denetle(self.bas))
+
+    def test_satir_sonu_iceren_yasak_yol_reddedilir(self):
+        dosya = self.depo / ".github" / "workflows" / ("a" + chr(10) + "b.yml")
+        dosya.parent.mkdir(parents=True, exist_ok=True)
+        dosya.write_text("on: push", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "satir sonu")
+        self.assertIn("yasak yol", otonom_tik.commit_denetle(self.bas))
+
+    def test_git_meta_uyusmazsa_reddedilir(self):
+        gd = Path(subprocess.run(
+            ["git", "-C", str(self.depo), "rev-parse", "--absolute-git-dir"],
+            capture_output=True, text=True).stdout.strip())
+        self._commit("yeni.txt", "x")
+        neden = otonom_tik.commit_denetle(self.bas, gd, (0, 0, "yanlis"))
+        self.assertIn("inode", neden)
 
     def test_commit_mesajinda_sir_reddedilir(self):
         self._commit("normal.txt", "x", mesaj="ghp_" + "a" * 30)
@@ -247,6 +281,8 @@ class GelistiriciRunnerTesti(unittest.TestCase):
                 'case "$h" in /home/*|/var/tmp/*) echo FD_SIZINTI:$h;; esac; done; echo FD_CHECK; '
                 'env | grep -E "SECRET_CANARY|DEEPSEEK_API_KEY" && echo ENV_SIZINTI || echo ENV_TEMIZ; '
                 'test -n "$PAKET_DIR" && echo PAKET_ENV_OK || echo PAKET_ENV_YOK; '
+                'mv .git .git-x 2>/dev/null; echo GIT_RENAME=$?; '
+                'echo x > .git/config 2>/dev/null; echo CONFIG_YAZ2=$?; '
                 'echo x > .git/hooks/pre-push 2>/dev/null; echo HOOK_YAZ=$?; '
                 'git config user.email x@y 2>/dev/null; echo CONFIG_YAZ=$?; '
                 'git add yeni.txt && git commit -qm "sandbox commit" && echo COMMIT_OK || echo COMMIT_YOK',
@@ -276,6 +312,8 @@ class GelistiriciRunnerTesti(unittest.TestCase):
             self.assertNotIn("ENV_SIZINTI", s.stdout)
             self.assertIn("PAKET_ENV_OK", s.stdout)
             self.assertIn("HOOK_YAZ=1", s.stdout)
+            self.assertNotIn("GIT_RENAME=0", s.stdout)
+            self.assertNotIn("CONFIG_YAZ2=0", s.stdout)
             self.assertNotIn("CONFIG_YAZ=0", s.stdout)
             self.assertIn("COMMIT_OK", s.stdout)
 

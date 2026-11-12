@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import base64
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -65,7 +66,8 @@ YASAK_YOLLAR = (
     "otomasyon/dsh-bwrap-kiosk", "otomasyon/dsh-headless.cordis.patch.yml",
     "otomasyon/dsh-gelistirici", "otomasyon/otonom-kur.sh",
     "otomasyon/kur.sh", "otomasyon/nobetci-kur.sh", "otomasyon/betik/nobetci.py",
-    "otomasyon/OTONOM-PLAN.md", "docs/GUVENLIK-BAGLAM.md",
+    "otomasyon/betik/topla.py", "otomasyon/OTONOM-PLAN.md",
+    "docs/GUVENLIK-BAGLAM.md",
 )
 
 SIR_DESENLERI = (
@@ -215,6 +217,22 @@ def sadece_pr_kumesi() -> set[int]:
     return {int(x) for x in ham.split(",") if x.isdigit()}
 
 
+def denetim_surumu() -> int:
+    # İnceleme sözleşme sürümü — tek kaynak nobetci.py (INCELEME_SURUMU).
+    try:
+        metin = (KOK / "otomasyon" / "betik" / "nobetci.py").read_text(encoding="utf-8")
+        eslesme = re.search(r"^INCELEME_SURUMU\\s*=\\s*(\\d+)", metin, re.M)
+        if eslesme:
+            return int(eslesme.group(1))
+    except OSError:
+        pass
+    return 2
+
+
+def durum_guncel(durum: dict) -> bool:
+    return str(durum.get("description") or "").lstrip().startswith(f"[v{denetim_surumu()}]")
+
+
 def _kayit(durum: dict, pr_no: int) -> dict:
     return durum.setdefault("pr", {}).setdefault(str(pr_no), {})
 
@@ -238,15 +256,15 @@ def karar_ver(pr: dict, durumlar_: dict[str, dict], kayit: dict) -> dict:
                 "neden": f"deneme sınırı (head {sayi}/{AZAMI_DENEME}, toplam {toplam}/{AZAMI_TOPLAM})",
                 "kaynak": ""}
 
-    if not i5:
-        return {"eylem": "bekle", "neden": "i5 kararı yok (sırada)", "kaynak": ""}
+    if not i5 or not durum_guncel(i5):
+        return {"eylem": "bekle", "neden": "i5 kararı yok/bayat sürüm (sırada)", "kaynak": ""}
     if i5.get("state") in SORUNLU:
         return {"eylem": "duzelt", "neden": "i5 sorun/red", "kaynak": "i5"}
     if i5.get("state") not in BASARILI:
         return {"eylem": "bekle", "neden": f"i5 durumu {i5.get('state')}", "kaynak": ""}
 
-    if not i3:
-        return {"eylem": "bekle", "neden": "i3 kararı yok (sırada)", "kaynak": ""}
+    if not i3 or not durum_guncel(i3):
+        return {"eylem": "bekle", "neden": "i3 kararı yok/bayat sürüm (sırada)", "kaynak": ""}
     if i3.get("state") in SORUNLU:
         return {"eylem": "duzelt", "neden": "i3 düzeltme/red", "kaynak": "i3"}
     if i3.get("state") in BASARILI:
@@ -305,7 +323,13 @@ def pr_dali_hazirla(pr: dict) -> tuple[str, str, str]:
     git("clean", "-fd", "--quiet")
     bas = git("rev-parse", "HEAD").stdout.strip()
     git_dir = Path(git("rev-parse", "--absolute-git-dir").stdout.strip())
-    return bas, head_ref, base_ref, git_dir
+    try:
+        durum = os.stat(git_dir)
+        config = (git_dir / "config").read_bytes()
+    except OSError as hata:
+        raise TikHatasi(f"git meta okunamadı: {hata}")
+    meta = (durum.st_dev, durum.st_ino, hashlib.sha256(config).hexdigest())
+    return bas, head_ref, base_ref, git_dir, meta
 
 
 def paket_yaz(pr: dict, bas_sha: str, base_ref: str, token: str,
@@ -480,7 +504,7 @@ def _sir_tara(diff: str) -> str:
     return ""
 
 
-def commit_denetle(bas_sha: str, git_dir: Path | None = None) -> str:
+def commit_denetle(bas_sha: str, git_dir: Path | None = None, git_meta=None) -> str:
     """Ajanın bıraktığı commit'leri denetle; sorun varsa boş olmayan neden döndür."""
     if git_dir is not None:
         gercek = KLON / ".git"
@@ -491,6 +515,16 @@ def commit_denetle(bas_sha: str, git_dir: Path | None = None) -> str:
                 return "git dizini oturum başındakiyle aynı değil"
         except OSError:
             return "git dizini çözülemedi"
+    if git_dir is not None and git_meta is not None:
+        try:
+            durum = os.stat(git_dir)
+            config = (Path(git_dir) / "config").read_bytes()
+        except OSError:
+            return "git meta okunamadı"
+        if (durum.st_dev, durum.st_ino) != (git_meta[0], git_meta[1]):
+            return "git dizini değişmiş (inode/device)"
+        if hashlib.sha256(config).hexdigest() != git_meta[2]:
+            return ".git/config değişmiş"
     kok_git = Path(git_dir) if git_dir is not None else KLON / ".git"
 
     def g(*arg: str):
@@ -504,10 +538,12 @@ def commit_denetle(bas_sha: str, git_dir: Path | None = None) -> str:
         return "yeni commit yok"
     if g("rev-list", "--merges", f"{bas_sha}..HEAD").stdout.strip():
         return "merge commit var (tek doğrusal geçmiş kuralı)"
-    dosyalar = [s for s in g("diff", "--name-only", f"{bas_sha}..HEAD").stdout.splitlines() if s.strip()]
+    dosyalar = [s for s in g("diff", "--name-only", "-z", f"{bas_sha}..HEAD").stdout.split(chr(0)) if s]
     if len(dosyalar) > AZAMI_DOSYA:
         return f"çok fazla dosya değişti ({len(dosyalar)} > {AZAMI_DOSYA})"
     for yol in dosyalar:
+        if Path(yol).name == ".gitattributes":
+            return f"gitattributes değişti: {yol}"
         if any(yol.startswith(y) for y in YASAK_YOLLAR):
             return f"yasak yol değişti: {yol}"
         if any(d.search(yol) for d in SIR_DOSYA_DESENLERI):
@@ -586,7 +622,7 @@ def tek_pr_yurut(pr: dict, token: str, durum: dict) -> str:
     _kayit_sifirla(kayit, sha)
     try:
         klon_hazirla()
-        bas_sha, head_ref, base_ref, git_dir = pr_dali_hazirla(pr)
+        bas_sha, head_ref, base_ref, git_dir, git_meta = pr_dali_hazirla(pr)
         paket = paket_yaz(pr, bas_sha, base_ref, token, durumlar(token, sha))
         gunluk(f"PR #{no}: paket hazır {paket} · ajan başlıyor (bütçe {ZAMAN_ASIMI} sn)")
         kod, cikti = ajan_calistir(paket)
@@ -598,7 +634,7 @@ def tek_pr_yurut(pr: dict, token: str, durum: dict) -> str:
             kayit["sayi"] = int(kayit.get("sayi") or 0) + 1
             kayit["son_eylem"] = f"ajan-hatasi({kod})"
             return "ajan-hatasi"
-        neden = commit_denetle(bas_sha, git_dir)
+        neden = commit_denetle(bas_sha, git_dir, git_meta)
         if neden:
             geri_al(bas_sha, git_dir)
             kayit["sayi"] = int(kayit.get("sayi") or 0) + 1

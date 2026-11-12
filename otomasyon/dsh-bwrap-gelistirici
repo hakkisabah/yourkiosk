@@ -89,6 +89,9 @@ for a in "${args[@]}"; do
 
     yeni+=(--bind "$SHADOW" "$HOME_REAL")
     yeni+=(--bind "$DEPO_REAL" "$HEDEF_DEPO")
+    # .git ayrı bir bind mount noktasıdır: ajan .git dizinini rename edemez
+    # (EBUSY); böylece sahte gitdir + config ile doğrulama atlatılamaz.
+    [ -d "$DEPO_REAL/.git" ] && yeni+=(--bind "$DEPO_REAL/.git" "$HEDEF_DEPO/.git")
     # .git/hooks ve .git/config ajan tarafından yazılamaz: güvenilir süreçte
     # hook/config kaçırma yolu kalmaz (ayrıca güvenilir git -c core.hooksPath ile koşar).
     [ -d "$DEPO_REAL/.git/hooks" ] && yeni+=(--ro-bind "$DEPO_REAL/.git/hooks" "$HEDEF_DEPO/.git/hooks")

@@ -61,7 +61,7 @@ class BetikYollariTesti(unittest.TestCase):
             if not adlar:
                 # Kapı akışı promptlarında en az bir betik çağrısı ZORUNLU; diğer
                 # rollerde (ör. otonom koordinatör) çağrı olmayabilir.
-                self.assertNotIn(yol.name, {"i5-guvenlik.md", "i3-karar.md"},
+                self.assertEqual(yol.name, "otonom-koordinator.md",
                                  f"{yol.name}: depo köküne göre betik çağrısı yok")
                 continue
             for ad in adlar:
