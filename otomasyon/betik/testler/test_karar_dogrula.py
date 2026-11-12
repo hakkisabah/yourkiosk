@@ -249,6 +249,14 @@ class KanitKatmaniTesti(unittest.TestCase):
         self.assertFalse(sonuc.gecti)
         self.assertTrue(any("BAYAT" in h or "tazelik" in h for h in sonuc.hatalar), sonuc.hatalar)
 
+    def test_sha_yoksa_reddedilir(self):
+        karar = self._karar(sha="")
+        sonuc = kd.Sonuc()
+        with unittest.mock.patch.object(kd, "_api", self._api_taklit({}, "c" * 40)):
+            kd.kanit_denetle(karar, sonuc, "t", "depo")
+        self.assertFalse(sonuc.gecti)
+        self.assertTrue(any("sha" in h.lower() for h in sonuc.hatalar), sonuc.hatalar)
+
     def test_satir_sayisi_son_yeni_satirda_bir_fazla_saymaz(self):
         # "a\nb\nc\n" = 3 satır. Eski kod 4 diyordu → olmayan 4. satır "kanıt" sayılıyordu.
         sha = "b" * 40

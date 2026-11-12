@@ -196,8 +196,10 @@ def kanit_denetle(karar: dict, sonuc: Sonuc, token: str, depo: str) -> None:
             return
     if head_sha:
         if not sha:
-            sha = head_sha
-        elif sha != head_sha:
+            sonuc.hatalar.append(
+                f"karar sha'sı ZORUNLU: PR #{pr_no} için hangi commit'in incelendiği yazılmalı")
+            return
+        if sha != head_sha:
             sonuc.hatalar.append(
                 f"kanıt BAYAT: karar sha'sı {sha[:12]} ama PR #{pr_no} head {head_sha[:12]} "
                 f"— karar güncel commit'e yazılmalı")

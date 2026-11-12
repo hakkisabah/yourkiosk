@@ -1202,16 +1202,11 @@ def main() -> int:
         return 3
 
     sha = str(karar.get("sha") or "").strip()
-    if not sha and karar.get("pr"):
-        # PR numarası verilmişse head sha'yı API'den çöz (elle sha yazmak gerekmesin)
-        kod, pr_veri = istek(f"/repos/{a.depo_adresi}/pulls/{karar['pr']}", token)
-        if kod == 200 and isinstance(pr_veri, dict):
-            sha = str((pr_veri.get("head") or {}).get("sha", ""))
-            karar["sha"] = sha
-            print(f"[yaz] PR #{karar['pr']} head sha: {sha[:12]}")
     if not sha:
-        print("karar dosyasında 'sha' yok (ve pr yok) → commit durumu işaretlenemez", file=sys.stderr)
+        print("[yaz] REDDEDİLDİ — karar 'sha' alanı zorunlu (kapı sonrası head çözülmez)",
+              file=sys.stderr)
         return 2
+
 
     kod, yanit = istek(
         f"/repos/{a.depo_adresi}/statuses/{sha}",
