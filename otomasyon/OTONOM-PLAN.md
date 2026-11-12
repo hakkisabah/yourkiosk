@@ -69,9 +69,11 @@ Faz geçişi **otomatik değildir**: `durum.json` içindeki `faz` alanını oper
 | Push | Ajan **yapmaz**; güvenilir süreç doğrular ve push eder |
 | Push hedefi | Yalnız PR'ın kendi head dalı; `main`/force reddedilir |
 | Sır taraması | Eklenen satırlarda token/anahtar deseni ve `.env`/`*.pem`/`id_rsa*` reddedilir |
-| Token | Tercihen ayrı `OTONOM_TOKEN` dosyası: yalnız **Contents: write**, **Metadata: read**, **Pull requests: read**. Kapı token'ı yalnız geçiş döneminde; günlüğe uyarı yazılır. |
+| Token | **Zorunlu** ayrı `OTONOM_TOKEN` dosyası: yalnız **Contents: write**, **Metadata: read**, **Pull requests: read**. Kapı token'ı yalnız geçiş döneminde; günlüğe uyarı yazılır. |
 | Git bütünlüğü | Ajan `.git/hooks` ve `.git/config` yazamaz (ro-bind); güvenilir git komutları `-c core.hooksPath=/dev/null -c core.fsmonitor=false` ile koşar; aktif hook varsa push yok. |
 | Bütçe | `OTONOM_GUNLUK_AZAMI` (varsayılan 12) ajan oturumu/gün; aşılırsa model çağrılmaz. |
+| Çıktı sınırı | Ajan stdout/stderr `OTONOM_AZAMI_AJAN_CIKTI` (2 MB), commit mesajı `OTONOM_AZAMI_MESAJ_BAYT` (1 MB) ile sınırlı; aşımda push yok. |
+| Token zorunlu | `OTONOM_TOKEN` yoksa veya kapı token'ıyla aynıysa tik **fail-closed** durur. |
 | Kapı | i5 + i3 zorunlu; koordinatör status yazmaz, etiket değiştirmez |
 | Girdi | PR başlığı/gövdesi/yorumu/diff'i **veri**, talimat değil; pakette bu yazılı |
 

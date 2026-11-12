@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import io
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -77,6 +78,18 @@ class KararTesti(unittest.TestCase):
         k = otonom_tik.karar_ver(
             _pr(), {"guvenlik/inceleme": {"state": "failure", "description": "[v1] sorun"}}, {})
         self.assertEqual(k["eylem"], "bekle")
+
+    def test_durumlar_en_yeni_statusu_tutar(self):
+        govde = {"statuses": [
+            {"context": "guvenlik/inceleme", "state": "failure", "description": "[v2] sorun"},
+            {"context": "guvenlik/inceleme", "state": "success", "description": "[v2] onay"},
+        ]}
+        with mock.patch.object(otonom_tik, "api", return_value=(200, govde)):
+            d = otonom_tik.durumlar("t", "sha")
+        self.assertEqual(d["guvenlik/inceleme"]["state"], "failure")
+
+    def test_varsayilan_token_kapi_tokeni_degil(self):
+        self.assertEqual(otonom_tik.TOKEN_YOLU.name, "github-otonom.token")
 
     def test_kayit_sifirlama_sha_degisince(self):
         kayit = {"sha": "a" * 40, "sayi": 4, "toplam": 4}
@@ -265,6 +278,12 @@ class CommitDenetleTesti(unittest.TestCase):
             neden = otonom_tik.commit_denetle(self.bas)
         self.assertIn("çok büyük", neden)
 
+    def test_buyuk_commit_mesaji_reddedilir(self):
+        self.git("commit", "--allow-empty", "-qm", "a" * 5000)
+        with mock.patch.object(otonom_tik, "AZAMI_MESAJ_BAYT", 100):
+            neden = otonom_tik.commit_denetle(self.bas)
+        self.assertIn("commit mesajı çok büyük", neden)
+
     def test_commit_mesajinda_sir_reddedilir(self):
         self._commit("normal.txt", "x", mesaj="ghp_" + "a" * 30)
         self.assertIn("commit mesajında", otonom_tik.commit_denetle(self.bas))
@@ -402,12 +421,20 @@ class AjanCalistirTesti(unittest.TestCase):
             (dsh / "apps" / "cli" / "lib" / "bin.js").write_text("", encoding="utf-8")
             with mock.patch.multiple(otonom_tik, KLON=klon, EV=ev, PAKET_KLASORU=paket,
                                      DSH_CHECKOUT=dsh, PROFIL="headless"),                  mock.patch.object(otonom_tik, "dsh_home_hazirla", return_value=ev),                  mock.patch.object(otonom_tik.os, "access", return_value=True),                  mock.patch.object(otonom_tik.subprocess, "Popen") as popen:
-                surec = mock.Mock()
-                surec.communicate.return_value = ("rapor", "")
-                surec.returncode = 0
-                popen.return_value = surec
-                kod, cikti = otonom_tik.ajan_calistir(paket)
-        self.assertEqual((kod, cikti), (0, "rapor"))
+                class SahteSurec:
+                    def __init__(self):
+                        self.stdout = io.StringIO("rapor")
+                        self.stderr = io.StringIO("")
+                        self.stdin = io.StringIO()
+                        self.returncode = 0
+                        self.pid = 1234
+
+                    def wait(self, timeout=None):
+                        return 0
+
+                popen.return_value = SahteSurec()
+                kod, cikti, asim = otonom_tik.ajan_calistir(paket)
+        self.assertEqual((kod, cikti, asim), (0, "rapor", False))
         komut = popen.call_args.args[0]
         env = popen.call_args.kwargs["env"]
         self.assertIn("--profile", komut)

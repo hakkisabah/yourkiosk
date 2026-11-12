@@ -24,6 +24,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -37,7 +38,8 @@ GUNLUK_YOLU = EV / "otonom.log"
 KILIT_YOLU = EV / "otonom.lock"
 PAKET_KLASORU = EV / "paket"
 KLON = Path(os.environ.get("OTONOM_DEPO", str(Path.home() / ".local" / "share" / "yourkiosk-otonom" / "depo")))
-TOKEN_YOLU = Path(os.environ.get("OTONOM_TOKEN", str(Path.home() / ".config" / "hermes-secrets" / "github-yourkiosk.token")))
+KAPI_TOKEN_YOLU = Path.home() / ".config" / "hermes-secrets" / "github-yourkiosk.token"
+TOKEN_YOLU = Path(os.environ.get("OTONOM_TOKEN", str(Path.home() / ".config" / "hermes-secrets" / "github-otonom.token")))
 DSH_CHECKOUT = Path(os.environ.get("DSH_CHECKOUT", str(Path.home() / "deepseek-harness")))
 PROFIL = os.environ.get("OTONOM_PROFIL", "otonom-gelistirici")
 DEPO = os.environ.get("GITHUB_DEPO", "hakkisabah/yourkiosk")
@@ -46,6 +48,8 @@ AZAMI_DENEME = int(os.environ.get("OTONOM_AZAMI_DENEME", "5"))
 AZAMI_TOPLAM = int(os.environ.get("OTONOM_AZAMI_TOPLAM", "8"))
 AZAMI_DOSYA = int(os.environ.get("OTONOM_AZAMI_DOSYA", "200"))
 AZAMI_DIFF_BAYT = int(os.environ.get("OTONOM_AZAMI_DIFF_BAYT", "2000000"))
+AZAMI_MESAJ_BAYT = int(os.environ.get("OTONOM_AZAMI_MESAJ_BAYT", "1000000"))
+AZAMI_AJAN_CIKTI = int(os.environ.get("OTONOM_AZAMI_AJAN_CIKTI", "2000000"))
 GUNLUK_AZAMI = int(os.environ.get("OTONOM_GUNLUK_AZAMI", "12"))
 PUSH_TABANI = os.environ.get("OTONOM_PUSH_TABANI", f"https://github.com/{DEPO}.git")
 IZINLI_DAL_ONEKLERI = ("dsh/", "duzeltme/", "ozellik/")
@@ -161,8 +165,12 @@ def durumlar(token: str, sha: str) -> dict[str, dict]:
         return {}
     cikti: dict[str, dict] = {}
     for s in veri.get("statuses") or []:
-        if isinstance(s, dict) and s.get("context"):
-            cikti[s["context"]] = {"state": s.get("state"), "description": s.get("description") or ""}
+        if not isinstance(s, dict) or not s.get("context"):
+            continue
+        # statuses en yeniden eskiye gelir; aynı context için İLK (en yeni) geçerli.
+        if s["context"] in cikti:
+            continue
+        cikti[s["context"]] = {"state": s.get("state"), "description": s.get("description") or ""}
     return cikti
 
 
@@ -479,21 +487,64 @@ def ajan_calistir(paket: Path) -> tuple[int, str]:
     surec = subprocess.Popen(komut, cwd=str(KLON), env=ortam,
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, text=True, start_new_session=True)
+    kutular: dict[str, tuple[str, bool]] = {}
+
+    def oku(boru, ad):
+        kutular[ad] = _boru_oku(boru, AZAMI_AJAN_CIKTI)
+
+    t_out = threading.Thread(target=oku, args=(surec.stdout, "stdout"), daemon=True)
+    t_err = threading.Thread(target=oku, args=(surec.stderr, "stderr"), daemon=True)
+    t_out.start()
+    t_err.start()
     try:
-        cikti, hata = surec.communicate(input=prompt, timeout=ZAMAN_ASIMI)
+        if surec.stdin is not None:
+            surec.stdin.write(prompt)
+            surec.stdin.close()
+    except (BrokenPipeError, OSError):
+        pass
+    try:
+        surec.wait(timeout=ZAMAN_ASIMI)
         kod = surec.returncode
     except subprocess.TimeoutExpired:
         try:
             os.killpg(surec.pid, signal.SIGTERM)
-            cikti, hata = surec.communicate(timeout=15)
-        except (subprocess.TimeoutExpired, ProcessLookupError):
+        except ProcessLookupError:
+            pass
+        try:
+            surec.wait(timeout=15)
+        except subprocess.TimeoutExpired:
             try:
                 os.killpg(surec.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            cikti, hata = surec.communicate()
+            surec.wait()
         kod = 124
-    return kod, ((cikti or "") + (hata or ""))
+    t_out.join(10)
+    t_err.join(10)
+    cikti, asim1 = kutular.get("stdout", ("", False))
+    hata, asim2 = kutular.get("stderr", ("", False))
+    return kod, (cikti + hata), (asim1 or asim2)
+
+
+def _boru_oku(boru, sinir: int) -> tuple[str, bool]:
+    """Boru çıktısını `sinir` karaktere kadar oku; aşımda bayrak döndür."""
+    if boru is None:
+        return "", False
+    parcalar: list[str] = []
+    toplam = 0
+    while True:
+        try:
+            parca = boru.read(65536)
+        except (OSError, ValueError):
+            break
+        if not parca:
+            break
+        toplam += len(parca)
+        if toplam > sinir:
+            parcalar.append(parca[:max(0, sinir - (toplam - len(parca)))])
+            return "".join(parcalar), True
+        parcalar.append(parca)
+    return "".join(parcalar), False
 
 
 def _sir_metin(metin: str) -> str:
@@ -624,7 +675,11 @@ def commit_denetle(bas_sha: str, git_dir: Path | None = None, git_meta=None) -> 
     sir = _sir_tara(diff)
     if sir:
         return sir
-    mesajlar = g("log", "--format=%B", f"{bas_sha}..HEAD").stdout
+    mesaj_bayt = git_sinirli("log", "--format=%B", f"{bas_sha}..HEAD",
+                             sinir=AZAMI_MESAJ_BAYT, git_dir=git_dir)
+    if len(mesaj_bayt) > AZAMI_MESAJ_BAYT:
+        return f"commit mesajı çok büyük (> {AZAMI_MESAJ_BAYT} bayt)"
+    mesajlar = mesaj_bayt.decode("utf-8", "replace")
     sir = _sir_metin(mesajlar)
     if sir:
         return f"commit mesajında {sir}"
@@ -679,12 +734,19 @@ def tek_pr_yurut(pr: dict, token: str, durum: dict) -> str:
     try:
         klon_hazirla()
         bas_sha, head_ref, base_ref, git_dir, git_meta = pr_dali_hazirla(pr)
+        if bas_sha != str((pr.get("head") or {}).get("sha") or ""):
+            raise TikHatasi("PR head fetch sırasında değişti (bayat tur) — yeniden dene")
         paket = paket_yaz(pr, bas_sha, base_ref, token, durumlar(token, sha))
         gunluk(f"PR #{no}: paket hazır {paket} · ajan başlıyor (bütçe {ZAMAN_ASIMI} sn)")
-        kod, cikti = ajan_calistir(paket)
+        kod, cikti, asim = ajan_calistir(paket)
         (EV / f"ajan-{no}.log").write_text(cikti, encoding="utf-8")
         os.chmod(EV / f"ajan-{no}.log", 0o600)
-        gunluk(f"PR #{no}: ajan bitti (çıkış {kod})")
+        gunluk(f"PR #{no}: ajan bitti (çıkış {kod})" + (" · çıktı sınırı" if asim else ""))
+        if asim:
+            geri_al(bas_sha, git_dir)
+            kayit["sayi"] = int(kayit.get("sayi") or 0) + 1
+            kayit["son_eylem"] = "cikti-siniri"
+            return "cikti-siniri"
         if kod != 0:
             geri_al(bas_sha, git_dir)
             kayit["sayi"] = int(kayit.get("sayi") or 0) + 1
@@ -721,10 +783,11 @@ def tik(kuru: bool = False, zorla_pr: int | None = None) -> int:
 
     token = token_oku()
     if not token:
-        gunluk("ENGE: GitHub token yok")
-        return 1
-    if TOKEN_YOLU == Path.home() / ".config" / "hermes-secrets" / "github-yourkiosk.token":
-        gunluk("UYARI: OTONOM_TOKEN tanımlı değil; kapı token'ı kullanılıyor (ayrı token önerilir)")
+        gunluk(f"ENGE: OTONOM_TOKEN yok ({TOKEN_YOLU}) — ayrı, en-az-yetkili token gerekli")
+        return 2
+    if TOKEN_YOLU.resolve() == KAPI_TOKEN_YOLU.resolve():
+        gunluk("ENGE: OTONOM_TOKEN kapı token'ı olamaz — yalnız Contents:write + Metadata:read + Pull requests:read token kullanın")
+        return 2
     durum = durum_oku()
     durum["son_tik"] = simdi()
 
