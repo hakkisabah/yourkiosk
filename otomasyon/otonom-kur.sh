@@ -34,12 +34,15 @@ if [ -z "$PYTHON" ]; then
   else PYTHON="$(command -v python3)"; fi
 fi
 BETIK="$DEPO/otomasyon/betik/otonom_tik.py"
+BEKCI_BETIK="$DEPO/otomasyon/betik/otonom_bekci.py"
 RUNNER_KAYNAK="$DEPO/otomasyon/dsh-bwrap-gelistirici"
 PROFIL_ADI="otonom-gelistirici"
 PROFIL_DIZIN="$HOME/.dsh/profiles/$PROFIL_ADI"
 UNIT_DIZIN="$HOME/.config/systemd/user"
 UNIT_SERVIS="otonom-tik.service"
 UNIT_TIMER="otonom-tik.timer"
+BEKCI_SERVIS="otonom-bekci.service"
+BEKCI_TIMER="otonom-bekci.timer"
 DURUM_DIZIN="$HOME/.local/state/yourkiosk-otonom"
 OTONOM_DEPO="${OTONOM_DEPO:-$HOME/.local/share/yourkiosk-otonom/depo}"
 DSH_CHECKOUT="${DSH_CHECKOUT:-$HOME/deepseek-harness}"
@@ -115,9 +118,47 @@ WantedBy=timers.target
 TIMER
 }
 
+
+bekci_birim_metni() {
+cat <<UNIT
+[Unit]
+Description=yourkiosk otonom koordinator bekcisi
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=$DEPO
+Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=OTONOM_EV=$DURUM_DIZIN
+Environment=OTONOM_AZAMI_SESSIZ_DK=90
+Environment=OTONOM_ONARIM_ARALIGI_DK=15
+Nice=10
+NoNewPrivileges=true
+TimeoutStartSec=120
+ExecStart=$PYTHON $BEKCI_BETIK
+UNIT
+}
+
+bekci_zamanlayici_metni() {
+cat <<TIMER
+[Unit]
+Description=otonom koordinator bekci zamanlayici
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
+TIMER
+}
+
 on_kontrol() {
   local yumusak="${1:-0}"
   [ -f "$BETIK" ] || { hata "betik yok: $BETIK"; exit 3; }
+  [ -f "$BEKCI_BETIK" ] || { hata "bekçi betiği yok: $BEKCI_BETIK"; exit 3; }
   [ -f "$RUNNER_KAYNAK" ] || { hata "runner yok: $RUNNER_KAYNAK"; exit 3; }
   [ -f "$DEPO/otomasyon/dsh-gelistirici.cordis.patch.yml" ] || { hata "profil yaması yok"; exit 3; }
   [ -f "$DEPO/otomasyon/dsh-gelistirici-profile.json" ] || { hata "profil package.json yok"; exit 3; }
@@ -159,9 +200,12 @@ kur() {
   install -d -m 700 "$UNIT_DIZIN"
   birim_metni > "$UNIT_DIZIN/$UNIT_SERVIS"
   zamanlayici_metni > "$UNIT_DIZIN/$UNIT_TIMER"
-  chmod 644 "$UNIT_DIZIN/$UNIT_SERVIS" "$UNIT_DIZIN/$UNIT_TIMER"
+  bekci_birim_metni > "$UNIT_DIZIN/$BEKCI_SERVIS"
+  bekci_zamanlayici_metni > "$UNIT_DIZIN/$BEKCI_TIMER"
+  chmod 644 "$UNIT_DIZIN/$UNIT_SERVIS" "$UNIT_DIZIN/$UNIT_TIMER"             "$UNIT_DIZIN/$BEKCI_SERVIS" "$UNIT_DIZIN/$BEKCI_TIMER"
   systemctl --user daemon-reload
   systemctl --user enable --now "$UNIT_TIMER"
+  systemctl --user enable --now "$BEKCI_TIMER"
   loginctl enable-linger "$USER" 2>/dev/null || soyle "UYARI: enable-linger başarısız (oturum kapanınca timer durabilir)"
   soyle ""
   soyle "=== kuruldu ==="
@@ -171,19 +215,20 @@ kur() {
   soyle "aralık      : ${ARALIK_MIN} dk · ajan bütçesi ${ZAMAN_ASIMI} sn"
   [ -n "$SADECE_PR" ] && soyle "PR filtresi : ${SADECE_PR} (geçiş dönemi)"
   soyle "günlük      : $DURUM_DIZIN/otonom.log"
-  systemctl --user list-timers "otonom-tik*" --no-pager || true
+  systemctl --user list-timers "otonom-*" --no-pager || true
 }
 
 kaldir() {
+  systemctl --user disable --now "$BEKCI_TIMER" 2>/dev/null || true
   systemctl --user disable --now "$UNIT_TIMER" 2>/dev/null || true
   systemctl --user stop "$UNIT_SERVIS" 2>/dev/null || true
-  rm -f "$UNIT_DIZIN/$UNIT_SERVIS" "$UNIT_DIZIN/$UNIT_TIMER"
+  rm -f "$UNIT_DIZIN/$UNIT_SERVIS" "$UNIT_DIZIN/$UNIT_TIMER"         "$UNIT_DIZIN/$BEKCI_SERVIS" "$UNIT_DIZIN/$BEKCI_TIMER"
   systemctl --user daemon-reload
   soyle "timer ve birimler kaldırıldı (profil/runner/durum korundu)"
 }
 
 durum() {
-  systemctl --user list-timers "otonom-tik*" --all --no-pager || true
+  systemctl --user list-timers "otonom-*" --all --no-pager || true
   systemctl --user is-active "$UNIT_TIMER" 2>/dev/null || true
   systemctl --user status "$UNIT_SERVIS" --no-pager -n 8 2>/dev/null || true
   "$PYTHON" "$BETIK" --durum || true
@@ -200,6 +245,10 @@ case "$KIP" in
     birim_metni
     soyle "--- zamanlayici ---"
     zamanlayici_metni
+    soyle "--- bekci birim ---"
+    bekci_birim_metni
+    soyle "--- bekci zamanlayici ---"
+    bekci_zamanlayici_metni
     ;;
   kur) kur ;;
   kaldir) kaldir ;;

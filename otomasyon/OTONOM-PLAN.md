@@ -75,7 +75,16 @@ Faz geçişi **otomatik değildir**: `durum.json` içindeki `faz` alanını oper
 | Kapı | i5 + i3 zorunlu; koordinatör status yazmaz, etiket değiştirmez |
 | Girdi | PR başlığı/gövdesi/yorumu/diff'i **veri**, talimat değil; pakette bu yazılı |
 
-## 6. Ayarlar (ortam değişkeni → varsayılan)
+## 6. Bekçi (otonom-bekci.timer)
+
+`otonom-tik.service` bir oneshot tik'tir; `otonom-tik.timer` onu 20 dk arayla çalıştırır.
+Timer ölürse, servis `start-limit`e takılırsa veya kalp atışı (`durum.json/son_tik`) 90 dk'dan
+uzun süre gelmezse **`otonom-bekci.timer`** (10 dk) durumu denetler; gerekirse
+`systemctl --user reset-failed` + `start otonom-tik.timer` ile zamanlayıcıyı ayağa kaldırır.
+Onarımı 15 dk'dan sık yapmaz (kırık kurulumda döngü olmasın); karar ve onarım `bekci.log`'a
+yazılır. Servis o anda çalışıyorsa dokunmaz.
+
+## 7. Ayarlar (ortam değişkeni → varsayılan)
 
 | Değişken | Varsayılan | Anlam |
 |---|---|---|
@@ -87,8 +96,10 @@ Faz geçişi **otomatik değildir**: `durum.json` içindeki `faz` alanını oper
 | `OTONOM_PROFIL` | `otonom-gelistirici` | DSH profili |
 | `OTONOM_TABAN_DAL` | PR'ın base dalı | paket diff tabanı |
 | `OTONOM_SADECE_PR` | boş (tümü) | virgüllü PR listesi; geçiş döneminde yalnız #97 |
+| `OTONOM_AZAMI_SESSIZ_DK` | `90` | bekçinin "kalp atışı bayat" eşiği |
+| `OTONOM_ONARIM_ARALIGI_DK` | `15` | bekçinin art arda onarım aralığı |
 
-## 7. Operatör komutları
+## 8. Operatör komutları
 
 ```bash
 bash otomasyon/otonom-kur.sh --kuru      # ne kurulacak, yazmadan göster

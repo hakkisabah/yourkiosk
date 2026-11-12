@@ -62,7 +62,8 @@ YASAK_YOLLAR = (
     "otomasyon/betik/karar_dogrula.py", "otomasyon/betik/yaz.py",
     "otomasyon/prompt/",
     # Koordinatör kendi güvenlik sınırını değiştiremez:
-    "otomasyon/betik/otonom_tik.py", "otomasyon/dsh-bwrap-gelistirici",
+    "otomasyon/betik/otonom_tik.py", "otomasyon/betik/otonom_bekci.py",
+    "otomasyon/dsh-bwrap-gelistirici",
     "otomasyon/dsh-bwrap-kiosk", "otomasyon/dsh-headless.cordis.patch.yml",
     "otomasyon/dsh-gelistirici", "otomasyon/otonom-kur.sh",
     "otomasyon/kur.sh", "otomasyon/nobetci-kur.sh", "otomasyon/betik/nobetci.py",

@@ -545,6 +545,8 @@ class KurulumTesti(unittest.TestCase):
         self.assertIn("dsh-bwrap-gelistirici", s.stdout)
         self.assertIn("otonom-gelistirici", s.stdout)
         self.assertIn("OnUnitInactiveSec=20min", s.stdout)
+        self.assertIn("otonom koordinator bekci zamanlayici", s.stdout)
+        self.assertIn("OnUnitActiveSec=10min", s.stdout)
         for _satir in ("PrivateTmp=true", "ProtectSystem=strict",
                           "ProtectHome=read-only", "ReadWritePaths=",
                           "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX"):
