@@ -58,7 +58,12 @@ class BetikYollariTesti(unittest.TestCase):
         for yol in sorted(PROMPT.glob("*.md")):
             metin = yol.read_text(encoding="utf-8")
             adlar = GORELI_CAGRi.findall(metin)
-            self.assertTrue(adlar, f"{yol.name}: depo köküne göre betik çağrısı yok")
+            if not adlar:
+                # Kapı akışı promptlarında en az bir betik çağrısı ZORUNLU; diğer
+                # rollerde (ör. otonom koordinatör) çağrı olmayabilir.
+                self.assertEqual(yol.name, "otonom-koordinator.md",
+                                 f"{yol.name}: depo köküne göre betik çağrısı yok")
+                continue
             for ad in adlar:
                 self.assertTrue((KOK / "otomasyon" / "betik" / ad).is_file(),
                                 f"{yol.name}: olmayan betik → otomasyon/betik/{ad}")
