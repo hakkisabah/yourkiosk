@@ -21,10 +21,14 @@ KIP="kur"
 CRON_KALDIR=0
 PROFIL="${NOBETCI_PROFIL:-}"
 ARAC="${NOBETCI_ARAC:-hermes}"
+ARAC_VERILDI=0
+[ -n "${NOBETCI_ARAC:-}" ] && ARAC_VERILDI=1
 DSH_CHECKOUT="${DSH_CHECKOUT:-$HOME/deepseek-harness}"
 DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-read-only}"
 KLON="${NOBETCI_KOD_DEPO:-}"
 DAL="${NOBETCI_DAL:-main}"
+DAL_VERILDI=0
+[ -n "${NOBETCI_DAL:-}" ] && DAL_VERILDI=1
 for a in "$@"; do
   case "$a" in
     # --cron-kaldir EK bir işlemdir: servisi kurmayı ENGELLEMEZ (ilk sürümde engelliyordu)
@@ -37,17 +41,28 @@ for a in "$@"; do
     --bakim) KIP="bakim" ;;
     --klon=*) KLON="${a#--klon=}" ;;
     --profil=*) PROFIL="${a#--profil=}" ;;
-    --arac=*) ARAC="${a#--arac=}" ;;
-    --dal=*) DAL="${a#--dal=}" ;;
+    --arac=*) ARAC="${a#--arac=}"; ARAC_VERILDI=1 ;;
+    --dal=*) DAL="${a#--dal=}"; DAL_VERILDI=1 ;;
   esac
 done
 # --profil <ad> / --klon <yol> / --dal <ad> (ayrı boşluklu biçim)
 for ((i = 1; i <= $#; i++)); do
   if [ "${!i}" = "--profil" ]; then j=$((i + 1)); PROFIL="${!j:-}"; fi
-  if [ "${!i}" = "--arac" ]; then j=$((i + 1)); ARAC="${!j:-}"; fi
+  if [ "${!i}" = "--arac" ]; then j=$((i + 1)); ARAC="${!j:-}"; ARAC_VERILDI=1; fi
   if [ "${!i}" = "--klon" ]; then j=$((i + 1)); KLON="${!j:-}"; fi
-  if [ "${!i}" = "--dal" ]; then j=$((i + 1)); DAL="${!j:-}"; fi
+  if [ "${!i}" = "--dal" ]; then j=$((i + 1)); DAL="${!j:-}"; DAL_VERILDI=1; fi
 done
+# 12 Kasım: --arac/--dal verilmezse MEVCUT birimin değerini koru. Aksi hâlde
+# bakım için tekrar çalıştırmak DSH'yi sessizce Hermes'e döndürüyordu.
+BIRIM_YOLU="$HOME/.config/systemd/user/yourkiosk-nobetci.service"
+if [ "$ARAC_VERILDI" -eq 0 ] && [ -f "$BIRIM_YOLU" ]; then
+  MEVCUT_ARAC="$(sed -n 's/^Environment=NOBETCI_ARAC=//p' "$BIRIM_YOLU" | head -1)"
+  [ -n "$MEVCUT_ARAC" ] && ARAC="$MEVCUT_ARAC"
+fi
+if [ "$DAL_VERILDI" -eq 0 ] && [ -f "$BIRIM_YOLU" ]; then
+  MEVCUT_DAL="$(sed -n 's/.*--dal \([^ ]*\).*/\1/p' "$BIRIM_YOLU" | head -1)"
+  [ -n "$MEVCUT_DAL" ] && DAL="$MEVCUT_DAL"
+fi
 # 27 Ekim: dal adı git komutuna VE birim metnine yazılıyor → aynı kapıdan geçer.
 dal_gecerli() {
   local d="$1"

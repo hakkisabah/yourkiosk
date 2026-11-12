@@ -1869,7 +1869,8 @@ def main() -> int:
         veri = json.loads(durum_yolu.read_text(encoding="utf-8"))
         print(f"nöbetçi durumu · {secim.rol} · {durum_yolu}")
         print(f"  kod            : {kod_sha(secim.depo)}"
-              f" ({'makine kopyası' if kopya_mi(secim.depo) else 'insan deposu'}) · dal {dal}")
+              f" ({'makine kopyası' if kopya_mi(secim.depo) else 'insan deposu'})"
+              f" · arac={NOBETCI_ARAC} · dal {dal}")
         for alan, deger in veri.items():
             if alan == "etag":
                 print(f"  etag önbelleği : {len(deger)} adres")
@@ -1923,7 +1924,7 @@ def main() -> int:
 
     gh = Github(token, depo_adi, durum_yolu, gunluk_yolu)
     gunluk(gunluk_yolu, f"nöbetçi başladı · rol={secim.rol} · aralık={secim.aralik}s · depo={depo_adi}"
-                        f" · kod={kod_sha(secim.depo)}"
+                        f" · arac={NOBETCI_ARAC} · dal={dal} · kod={kod_sha(secim.depo)}"
                         f" ({'makine kopyası' if kopya_mi(secim.depo) else 'insan deposu'})")
 
     if secim.bir_kez:

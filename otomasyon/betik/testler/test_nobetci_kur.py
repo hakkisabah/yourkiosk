@@ -550,5 +550,23 @@ class DshRunnerPidTesti(unittest.TestCase):
             self.assertIn("--die-with-parent", args)
 
 
+class BirimKorumaTesti(unittest.TestCase):
+    def test_arac_ve_dal_mevcut_birimden_korunur(self):
+        kur = BETIK.parents[1] / "otomasyon" / "nobetci-kur.sh"
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
+            home = Path(d) / "home"
+            birim = home / ".config" / "systemd" / "user" / "yourkiosk-nobetci.service"
+            birim.parent.mkdir(parents=True)
+            birim.write_text(
+                "[Service]" + chr(10) + "Environment=NOBETCI_ARAC=dsh" + chr(10) +
+                "ExecStart=/usr/bin/python3 /x/nobetci.py --rol i5 "
+                "--dal duzeltme/nobetci-dal-ve-gorunur-hata --arac dsh" + chr(10),
+                encoding="utf-8")
+            s = subprocess.run(["bash", str(kur), "i5", "--kuru"], capture_output=True, text=True,
+                               timeout=60, env={**os.environ, "HOME": str(home)})
+            self.assertEqual(s.returncode, 0, s.stderr)
+            self.assertIn("--arac dsh", s.stdout)
+            self.assertIn("--dal duzeltme/nobetci-dal-ve-gorunur-hata", s.stdout)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
