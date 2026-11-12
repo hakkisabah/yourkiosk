@@ -105,6 +105,24 @@ class KapsamTesti(unittest.TestCase):
         self.assertTrue(any("satir" in h for h in s.hatalar), s.hatalar)
         self.assertTrue(any("kabul" in h for h in s.hatalar), s.hatalar)
 
+    def test_i3_kabul_bos_dogrulama_reddedilir(self):
+        k = kopya(makine="i3", karar="kabul", denetlenen=ALANLAR,
+                  i5_dogrulama=[], eksikler=[])
+        self.assertFalse(dogrula(k, "i3").gecti)
+
+    def test_i3_kabul_eksik_kanit_reddedilir(self):
+        k = kopya(makine="i3", karar="kabul", denetlenen=ALANLAR, eksikler=[],
+                  i5_dogrulama=[{"bulgu": "x", "durum": "eksik_kanit",
+                                 "kanit": "yeterli kanit metni"}])
+        self.assertFalse(dogrula(k, "i3").gecti)
+
+    def test_i3_kabul_dogrulamayla_gecer(self):
+        k = kopya(makine="i3", karar="kabul", denetlenen=ALANLAR, eksikler=[],
+                  i5_dogrulama=[{"bulgu": "x", "durum": "dogrulandi",
+                                 "kanit": "yeterli kanit metni"}])
+        s = dogrula(k, "i3")
+        self.assertTrue(s.gecti, s.rapor())
+
 class TutarlilikTesti(unittest.TestCase):
     def test_yuksek_bulgu_ile_onay_verilemez(self):
         k = copy.deepcopy(DOGRU_I5)

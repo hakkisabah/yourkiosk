@@ -52,6 +52,24 @@ class AgirKomutTesti(unittest.TestCase):
                               capture_output=True, text=True, timeout=120, env=ortam)
 
     # ── plan (kuru) ─────────────────────────────────────────────────────────────────────────────
+    def test_salt_okunur_home_tmpdir_e_duser(self):
+        mem = sahte_meminfo(self.dizin.name, toplam_mb=8000, bos_mb=4000)
+        ro_home = Path(self.dizin.name) / "ro-home"
+        (ro_home / ".local").mkdir(parents=True)
+        (ro_home / ".local").chmod(0o500)
+        ro_home.chmod(0o500)
+        tmp = Path(self.dizin.name) / "tmp"
+        tmp.mkdir()
+        try:
+            s = self.kos("--max-mb", "256", "--", "/bin/true",
+                         meminfo=mem, ek_ortam={"HOME": str(ro_home), "TMPDIR": str(tmp)})
+        finally:
+            (ro_home / ".local").chmod(0o700)
+            ro_home.chmod(0o700)
+        self.assertEqual(s.returncode, 0, s.stderr)
+        hedef = tmp / f"yourkiosk-agir-komut-{os.getuid()}"
+        self.assertTrue((hedef / "agir-komut.log").exists())
+
     def test_kuru_plan_tavan_ve_v8_heap_yazar(self):
         """4 GB makinede 2 GB boş: cgroup tavanı = boş-400 = 1600 MB, V8 tavanı = %60 = 960 MB."""
         mem = sahte_meminfo(self.dizin.name, toplam_mb=3886, bos_mb=2000)

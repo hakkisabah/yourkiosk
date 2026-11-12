@@ -1029,6 +1029,16 @@ def main() -> int:
         return 2
 
     makine = str(karar.get("makine", "i5")).lower()
+    if str(karar.get("karar") or "").strip().lower() == "kabul" and makine == "i3":
+        dogrulama = karar.get("i5_dogrulama") or []
+        if not isinstance(dogrulama, list) or not dogrulama:
+            print("[yaz] KABUL REDDEDİLDİ — i5_dogrulama boş olamaz", file=sys.stderr)
+            return 2
+        if any(isinstance(d, dict) and str(d.get("durum") or "") == "eksik_kanit"
+               for d in dogrulama):
+            print("[yaz] KABUL REDDEDİLDİ — eksik_kanit kaydı varken birleştirilemez",
+                  file=sys.stderr)
+            return 2
     baglam, onay_etiketi, sorun_etiketi = MAKINE_AYARI.get(makine, MAKINE_AYARI["i5"])
 
     # ---- MAKİNE KİMLİĞİ (26 Ekim i5 bulgusu) ------------------------------------------------

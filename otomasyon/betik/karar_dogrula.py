@@ -353,6 +353,12 @@ def dogrula_karar(karar: dict, makine: str | None = None, *, token: str | None =
                 sonuc.hatalar.append(f"i5_dogrulama #{i}: durum dogrulandi|yanlis|eksik_kanit olmalı")
             if len(str(d.get("kanit") or "").strip()) < 10:
                 sonuc.hatalar.append(f"i5_dogrulama #{i}: 'kanit' çok kısa")
+        if karar_metni == "kabul":
+            if not dogrulama:
+                sonuc.hatalar.append("kabul kararında i5_dogrulama boş olamaz")
+            if any(isinstance(d, dict) and str(d.get("durum") or "") == "eksik_kanit"
+                   for d in dogrulama):
+                sonuc.hatalar.append("kabul kararında 'eksik_kanit' kaydı olamaz")
 
     # kapsam (denetlenen)
     ham_alanlar = karar.get("denetlenen") or []

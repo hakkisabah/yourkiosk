@@ -119,7 +119,20 @@ NODE_HEAP_MB="$(sinirla $(( MAX_MB * 60 / 100 )) 384 2048)"
 # `exec 9>` sembolik bağ denetimi yapmıyordu → başka bir yerel kullanıcı /tmp'de aynı ada sembolik
 # bağ koyup yazma hedefini yönlendirebiliyordu. Kilit artık kullanıcının 0700 durum dizininde
 # tutulur (dizin başkası tarafından yazılamaz) ve dosya sembolik bağsa açıkça reddedilir.
-GUNLUK_DIZIN="$HOME/.local/state/yourkiosk-otomasyon"
+# Kilit/günlük için YAZILABİLİR dizin: normalde $HOME; DSH inceleme sandbox'ında
+# ev salt-okunur gölgedir → $TMPDIR altına düşer (11 Kasım i5 bulgusu).
+GUNLUK_DIZIN=""
+for aday in "$HOME/.local/state/yourkiosk-otomasyon" "${TMPDIR:-/tmp}/yourkiosk-agir-komut-$(id -u)"; do
+  [ -L "$aday" ] && continue
+  mkdir -p -m 0700 "$aday" 2>/dev/null || continue
+  [ -d "$aday" ] && [ -w "$aday" ] || continue
+  GUNLUK_DIZIN="$aday"
+  break
+done
+if [ -z "$GUNLUK_DIZIN" ]; then
+  echo "✗ yazılabilir kilit/günlük dizini bulunamadı" >&2
+  exit 2
+fi
 GUNLUK="$GUNLUK_DIZIN/agir-komut.log"
 KILIT="$GUNLUK_DIZIN/yourkiosk-agir-komut.lock"
 
