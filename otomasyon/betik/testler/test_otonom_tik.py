@@ -235,6 +235,24 @@ class CommitDenetleTesti(unittest.TestCase):
         neden = otonom_tik.commit_denetle(self.bas, gd, (0, 0, "yanlis"))
         self.assertIn("inode", neden)
 
+    def test_yeniden_adlandirma_yasak_yolu_kacirmaz(self):
+        hedef = self.depo / "otomasyon" / "betik" / "otonom_tik.py"
+        hedef.parent.mkdir(parents=True, exist_ok=True)
+        hedef.write_text("x", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "ekle")
+        bas2 = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("mv", "otomasyon/betik/otonom_tik.py", "foo.py")
+        self.git("commit", "-qm", "rename")
+        self.assertIn("yasak yol", otonom_tik.commit_denetle(bas2))
+
+    def test_calisma_agacini_temizler(self):
+        (self.depo / "ilk.txt").write_text("degisti", encoding="utf-8")
+        (self.depo / "artik.txt").write_text("x", encoding="utf-8")
+        otonom_tik.calisma_agacini_temizle("HEAD")
+        self.assertEqual(self.git("status", "--porcelain").stdout.strip(), "")
+        self.assertEqual((self.depo / "ilk.txt").read_text(encoding="utf-8"), "x" + chr(10))
+
     def test_commit_mesajinda_sir_reddedilir(self):
         self._commit("normal.txt", "x", mesaj="ghp_" + "a" * 30)
         self.assertIn("commit mesajında", otonom_tik.commit_denetle(self.bas))
@@ -535,6 +553,23 @@ class KurulumTesti(unittest.TestCase):
                                 f"--aralik={deger}", "--kuru"],
                                capture_output=True, text=True, timeout=60)
             self.assertEqual(s.returncode, 2, deger)
+
+
+class SurumTesti(unittest.TestCase):
+    def test_tirnakli_ve_tirnaksiz_surum(self):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
+            t = Path(d)
+            (t / "otomasyon" / "betik").mkdir(parents=True)
+            eski = otonom_tik.KOK
+            otonom_tik.KOK = t
+            try:
+                for metin, beklenen in (('INCELEME_SURUMU = "3"', 3),
+                                        ("INCELEME_SURUMU = 4", 4)):
+                    (t / "otomasyon" / "betik" / "nobetci.py").write_text(
+                        metin, encoding="utf-8")
+                    self.assertEqual(otonom_tik.denetim_surumu(), beklenen)
+            finally:
+                otonom_tik.KOK = eski
 
 
 if __name__ == "__main__":

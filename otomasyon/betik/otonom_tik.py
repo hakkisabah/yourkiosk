@@ -221,7 +221,7 @@ def denetim_surumu() -> int:
     # İnceleme sözleşme sürümü — tek kaynak nobetci.py (INCELEME_SURUMU).
     try:
         metin = (KOK / "otomasyon" / "betik" / "nobetci.py").read_text(encoding="utf-8")
-        eslesme = re.search(r"^INCELEME_SURUMU\\s*=\\s*(\\d+)", metin, re.M)
+        eslesme = re.search(r"""^INCELEME_SURUMU\s*=\s*["']?(\d+)""", metin, re.M)
         if eslesme:
             return int(eslesme.group(1))
     except OSError:
@@ -302,6 +302,14 @@ def klon_hazirla() -> None:
         raise TikHatasi(f"fetch başarısız: {s.stderr.strip()[:300]}")
 
 
+def calisma_agacini_temizle(ref: str) -> None:
+    """Kirli/untracked/ignored artıkları temizle (önceki tur veya timeout)."""
+    s = git("reset", "--hard", ref)
+    if s.returncode != 0:
+        raise TikHatasi(f"reset --hard başarısız: {s.stderr.strip()[:200]}")
+    git("clean", "-fdx", "--quiet")
+
+
 def pr_dali_hazirla(pr: dict) -> tuple[str, str, str]:
     no = int(pr["number"])
     head = pr.get("head") or {}
@@ -317,10 +325,11 @@ def pr_dali_hazirla(pr: dict) -> tuple[str, str, str]:
     s = git("fetch", "--quiet", "origin", f"+refs/pull/{no}/head:refs/remotes/origin/pr/{no}")
     if s.returncode != 0:
         raise TikHatasi(f"PR ref fetch başarısız (#{no}): {s.stderr.strip()[:200]}")
-    s = git("checkout", "-B", f"otonom/pr-{no}", f"refs/remotes/origin/pr/{no}")
+    ref = f"refs/remotes/origin/pr/{no}"
+    s = git("checkout", "-f", "-B", f"otonom/pr-{no}", ref)
     if s.returncode != 0:
         raise TikHatasi(f"PR dalı checkout başarısız: {s.stderr.strip()[:200]}")
-    git("clean", "-fd", "--quiet")
+    calisma_agacini_temizle(ref)
     bas = git("rev-parse", "HEAD").stdout.strip()
     git_dir = Path(git("rev-parse", "--absolute-git-dir").stdout.strip())
     try:
@@ -538,7 +547,8 @@ def commit_denetle(bas_sha: str, git_dir: Path | None = None, git_meta=None) -> 
         return "yeni commit yok"
     if g("rev-list", "--merges", f"{bas_sha}..HEAD").stdout.strip():
         return "merge commit var (tek doğrusal geçmiş kuralı)"
-    dosyalar = [s for s in g("diff", "--name-only", "-z", f"{bas_sha}..HEAD").stdout.split(chr(0)) if s]
+    dosyalar = [s for s in g("diff", "--no-renames", "--name-only", "-z",
+                            f"{bas_sha}..HEAD").stdout.split(chr(0)) if s]
     if len(dosyalar) > AZAMI_DOSYA:
         return f"çok fazla dosya değişti ({len(dosyalar)} > {AZAMI_DOSYA})"
     for yol in dosyalar:
