@@ -182,6 +182,18 @@ def cikti_ver(paket: dict, cikti: str) -> None:
         print(metin)
 
 
+def yedek_durum_dizini() -> Path:
+    """Read-only evde kullanılacak yedek durum dizini (uid eki + symlink reddi)."""
+    aday = Path(os.environ.get("TMPDIR", "/tmp")) / f"topla-{os.getuid()}"
+    if aday.is_symlink():
+        raise SystemExit("[topla] HATA: yedek durum dizini sembolik bağ")
+    aday.mkdir(parents=True, exist_ok=True, mode=0o700)
+    bilgi = aday.stat()
+    if bilgi.st_uid != os.getuid() or (bilgi.st_mode & 0o777) != 0o700:
+        raise SystemExit("[topla] HATA: yedek durum dizini sahibi/izni güvenli değil")
+    return aday
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="i5/i3 için bağlam paketi")
     ap.add_argument("--depo", default="", help="git deposu (boşsa: KIOSK_YOLU → ~/calisma_konumun/yourkiosk → ~/yourkiosk)")
@@ -241,9 +253,8 @@ def main() -> int:
         durum.mkdir(parents=True, exist_ok=True)
     except OSError:
         # DSH review ajanı read-only çalışır; varsayılan durum dizini yazılamaz.
-        durum = Path("/tmp/topla")
-        durum.mkdir(parents=True, exist_ok=True)
-        print("[topla] uyarı: durum dizini yazılamadı → /tmp/topla", file=sys.stderr)
+        durum = yedek_durum_dizini()
+        print(f"[topla] uyarı: durum dizini yazılamadı → {durum}", file=sys.stderr)
 
     # ---- YALNIZ PR PAKETİ (i5/i3 PR BAŞLIĞINI inceler, main ucunu değil)
     if a.pr:
