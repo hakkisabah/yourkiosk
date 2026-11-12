@@ -354,9 +354,9 @@ def paket_yaz(pr: dict, bas_sha: str, base_ref: str, token: str,
     yorum_listesi = yorumlar(token, no)
     i5y = son_kapi_yorumu(yorum_listesi, "i5")[-20000:]
     i3y = son_kapi_yorumu(yorum_listesi, "i3")[-12000:]
-    diff = git("diff", f"origin/{base_ref}...HEAD").stdout
-    kesildi = len(diff) > AZAMI_DIFF_BAYT
-    diff = diff[:AZAMI_DIFF_BAYT]
+    diff_bayt = git_sinirli("diff", f"origin/{base_ref}...HEAD", sinir=AZAMI_DIFF_BAYT)
+    kesildi = len(diff_bayt) > AZAMI_DIFF_BAYT
+    diff = diff_bayt[:AZAMI_DIFF_BAYT].decode("utf-8", "replace")
     dosyalar = git("diff", "--name-status", f"origin/{base_ref}...HEAD").stdout[:20000]
     baslik = str(pr.get("title") or "")[:300]
     i5_durum = (durumlar_.get(DENETIM_I5) or {}).get("state", "(yok)")
@@ -513,6 +513,30 @@ def _sir_tara(diff: str) -> str:
     return ""
 
 
+def git_sinirli(*arg: str, sinir: int, depo: Path | None = None,
+                git_dir: Path | None = None) -> bytes:
+    """Git çıktısını `sinir` bayttan fazla belleğe almadan oku."""
+    temel = ["git"]
+    if git_dir is not None:
+        temel += ["--git-dir", str(git_dir), "--work-tree", str(depo or KLON)]
+    else:
+        temel += ["-C", str(depo or KLON)]
+    temel += ["--no-replace-objects", "-c", "core.hooksPath=/dev/null",
+              "-c", "core.fsmonitor=false", *arg]
+    surec = subprocess.Popen(temel, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        veri = surec.stdout.read(sinir + 1) if surec.stdout is not None else b""
+    finally:
+        if len(veri) > sinir:
+            surec.kill()
+        try:
+            surec.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            surec.kill()
+            surec.wait()
+    return veri
+
+
 def commit_denetle(bas_sha: str, git_dir: Path | None = None, git_meta=None) -> str:
     """Ajanın bıraktığı commit'leri denetle; sorun varsa boş olmayan neden döndür."""
     if git_dir is not None:
@@ -571,10 +595,31 @@ def commit_denetle(bas_sha: str, git_dir: Path | None = None, git_meta=None) -> 
     if grafts.is_file() and grafts.read_text(encoding="utf-8", errors="replace").strip():
         return "git grafts var (geçmiş gizleme)"
 
-    diff = g("-c", "core.attributesfile=/dev/null", "diff", "--text", "--no-ext-diff",
-             f"{bas_sha}..HEAD").stdout
-    if len(diff.encode("utf-8")) > AZAMI_DIFF_BAYT:
+    for c in g("rev-list", "--reverse", f"{bas_sha}..HEAD").stdout.split():
+        yollar = g("diff-tree", "--no-commit-id", "--no-renames", "--name-only",
+                   "-r", "-z", c).stdout.split(chr(0))
+        for yol in yollar:
+            if not yol:
+                continue
+            if Path(yol).name == ".gitattributes":
+                return f"gitattributes değişti: {yol} ({c[:7]})"
+            if any(yol.startswith(y) for y in YASAK_YOLLAR):
+                return f"yasak yol değişti: {yol} ({c[:7]})"
+        yama_bayt = git_sinirli("diff-tree", "--no-commit-id", "--no-renames", "-p",
+                                "--text", "--no-ext-diff", c, sinir=AZAMI_DIFF_BAYT,
+                                git_dir=git_dir)
+        if len(yama_bayt) > AZAMI_DIFF_BAYT:
+            return f"commit {c[:7]} diff çok büyük (> {AZAMI_DIFF_BAYT} bayt)"
+        sir_c = _sir_tara(yama_bayt.decode("utf-8", "replace"))
+        if sir_c:
+            return f"commit {c[:7]}: {sir_c}"
+
+    diff_bayt = git_sinirli("-c", "core.attributesfile=/dev/null", "diff", "--text",
+                            "--no-ext-diff", f"{bas_sha}..HEAD", sinir=AZAMI_DIFF_BAYT,
+                            git_dir=git_dir)
+    if len(diff_bayt) > AZAMI_DIFF_BAYT:
         return f"diff çok büyük (> {AZAMI_DIFF_BAYT} bayt)"
+    diff = diff_bayt.decode("utf-8", "replace")
     sir = _sir_tara(diff)
     if sir:
         return sir

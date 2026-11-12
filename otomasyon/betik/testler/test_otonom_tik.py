@@ -253,6 +253,18 @@ class CommitDenetleTesti(unittest.TestCase):
         self.assertEqual(self.git("status", "--porcelain").stdout.strip(), "")
         self.assertEqual((self.depo / "ilk.txt").read_text(encoding="utf-8"), "x" + chr(10))
 
+    def test_ara_committeki_sir_yakalanir(self):
+        self._commit("sir.txt", "ghp_" + "a" * 30)
+        self.git("rm", "-q", "sir.txt")
+        self.git("commit", "-qm", "sirri sil")
+        self.assertIn("sır benzeri", otonom_tik.commit_denetle(self.bas))
+
+    def test_buyuk_diff_reddedilir(self):
+        self._commit("buyuk.txt", "x" * 500)
+        with mock.patch.object(otonom_tik, "AZAMI_DIFF_BAYT", 100):
+            neden = otonom_tik.commit_denetle(self.bas)
+        self.assertIn("çok büyük", neden)
+
     def test_commit_mesajinda_sir_reddedilir(self):
         self._commit("normal.txt", "x", mesaj="ghp_" + "a" * 30)
         self.assertIn("commit mesajında", otonom_tik.commit_denetle(self.bas))
