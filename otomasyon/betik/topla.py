@@ -76,7 +76,7 @@ def git(depo: Path, *arg: str, kisa: bool = False, sessiz: bool = False) -> str:
 
 
 def depo_bul(verilen: str) -> Path:
-    """Depo yolunu bul: --depo → KIOSK_YOLU → ~/calisma_konumun/yourkiosk → ~/yourkiosk → cwd.
+    """Depo yolunu bul: --depo → KIOSK_YOLU → cwd → ~/calisma_konumun/yourkiosk → ~/yourkiosk.
 
     Yanlış yolda sessizce "0 commit / 0 dosya" demek yerine açık hata verir (KURULUM.md'de
     anlatılan "bulunamadı ama sonuçlar sıfır" durumunun nedeni buydu).
@@ -91,7 +91,8 @@ def depo_bul(verilen: str) -> Path:
         adaylar.append(aday)
     if os.environ.get("KIOSK_YOLU"):
         adaylar.append(Path(os.environ["KIOSK_YOLU"]).expanduser())
-    adaylar += [Path.home() / "calisma_konumun" / "yourkiosk", Path.home() / "projeler" / "yourkiosk", Path.home() / "yourkiosk", Path.cwd()]
+    adaylar += [Path.cwd(), Path.home() / "calisma_konumun" / "yourkiosk",
+                Path.home() / "projeler" / "yourkiosk", Path.home() / "yourkiosk"]
     for aday in adaylar:
         if (aday / ".git").exists() or (aday / ".git").is_file():
             return aday
@@ -181,6 +182,18 @@ def cikti_ver(paket: dict, cikti: str) -> None:
         print(metin)
 
 
+def yedek_durum_dizini() -> Path:
+    """Read-only evde kullanılacak yedek durum dizini (uid eki + symlink reddi)."""
+    aday = Path(os.environ.get("TMPDIR", "/tmp")) / f"topla-{os.getuid()}"
+    if aday.is_symlink():
+        raise SystemExit("[topla] HATA: yedek durum dizini sembolik bağ")
+    aday.mkdir(parents=True, exist_ok=True, mode=0o700)
+    bilgi = aday.stat()
+    if bilgi.st_uid != os.getuid() or (bilgi.st_mode & 0o777) != 0o700:
+        raise SystemExit("[topla] HATA: yedek durum dizini sahibi/izni güvenli değil")
+    return aday
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="i5/i3 için bağlam paketi")
     ap.add_argument("--depo", default="", help="git deposu (boşsa: KIOSK_YOLU → ~/calisma_konumun/yourkiosk → ~/yourkiosk)")
@@ -236,7 +249,12 @@ def main() -> int:
         print("\n".join(sorted(set(satirlar))))
         return 0
 
-    durum.mkdir(parents=True, exist_ok=True)
+    try:
+        durum.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # DSH review ajanı read-only çalışır; varsayılan durum dizini yazılamaz.
+        durum = yedek_durum_dizini()
+        print(f"[topla] uyarı: durum dizini yazılamadı → {durum}", file=sys.stderr)
 
     # ---- YALNIZ PR PAKETİ (i5/i3 PR BAŞLIĞINI inceler, main ucunu değil)
     if a.pr:
