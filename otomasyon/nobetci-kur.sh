@@ -70,12 +70,14 @@ klon_gecerli() {
   [ -n "$k" ] && [ "${#k}" -le 256 ] || return 1
   case "$k" in /*) ;; *) return 1 ;; esac
   case "$k" in *[[:cntrl:]]*) return 1 ;; esac
+  # systemd specifier / boşluk / kabuk metası birime yazılmaz (11 Kasım i5 bulgusu).
+  case "$k" in *[!A-Za-z0-9._/-]*) return 1 ;; esac
   case "/$k/" in */../*) return 1 ;; esac
   return 0
 }
 if [ -n "${KLON:-}" ] && ! klon_gecerli "$KLON"; then
   echo "✗ geçersiz --klon değeri: '$KLON'" >&2
-  echo "  Mutlak yol olmalı; kontrol karakteri/satır sonu ve '..' içeremez (1-256 karakter)." >&2
+  echo "  Mutlak yol olmalı; boşluk, %, kontrol karakteri, kabuk metası ve '..' içeremez (1-256 karakter)." >&2
   exit 2
 fi
 # DSH checkout'u birim METNİNE yazılır: mutlak, boşluksuz, kabuk metasız yol olmalı.

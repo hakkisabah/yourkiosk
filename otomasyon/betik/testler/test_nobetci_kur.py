@@ -508,5 +508,47 @@ class ZamanAsimiTekKaynakTesti(unittest.TestCase):
         self.assertGreaterEqual(varsayilan, mod.TUR_TAVANINDAN_TUREYEN_S)
 
 
+class KurulumArgTesti(unittest.TestCase):
+    def test_klon_bosluk_ve_specifier_reddedilir(self):
+        kur = BETIK.parents[1] / "otomasyon" / "nobetci-kur.sh"
+        for deger in ("/tmp/a b", "/tmp/%h"):
+            with self.subTest(deger=deger):
+                s = subprocess.run(["bash", str(kur), "--kuru", "--klon", deger],
+                                   capture_output=True, text=True, timeout=60)
+                self.assertEqual(s.returncode, 2, s.stderr)
+
+
+class DshRunnerPidTesti(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("bwrap"), "bwrap yok")
+    def test_eksik_pid_proc_die_eklenir(self):
+        runner = BETIK.parents[1] / "otomasyon" / "dsh-bwrap-kiosk"
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
+            t = Path(d)
+            home = t / "home"
+            home.mkdir()
+            depo = home / "repo"
+            depo.mkdir(parents=True)
+            subprocess.run(["git", "-C", str(depo), "init", "-q"], check=True)
+            karar = home / ".local" / "state" / "yourkiosk-otomasyon" / "karar"
+            karar.mkdir(parents=True)
+            (home / ".local" / "state" / "yourkiosk-otomasyon" / "depo-yolu").write_text(str(depo))
+            sahte = t / "bin"
+            sahte.mkdir()
+            kayit = t / "args.txt"
+            bwrap = sahte / "bwrap"
+            bwrap.write_text("#!/bin/sh" + chr(10) + 'printf "%s" "$@" > ' + str(kayit) + chr(10),
+                             encoding="utf-8")
+            bwrap.chmod(0o755)
+            env = {"PATH": str(sahte) + ":/usr/bin:/bin", "HOME": str(home),
+                   "KARAR_DIR": str(karar), "DSH_SHADOW_DIR": str(t)}
+            s = subprocess.run([str(runner), "--ro-bind", "/", "/", "--dev", "/dev", "--"],
+                               env=env, cwd=str(home), capture_output=True, text=True, timeout=30)
+            self.assertEqual(s.returncode, 0, s.stderr)
+            args = kayit.read_text(encoding="utf-8")
+            self.assertIn("--unshare-pid", args)
+            self.assertIn("--proc", args)
+            self.assertIn("--die-with-parent", args)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

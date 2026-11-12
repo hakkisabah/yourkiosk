@@ -124,8 +124,15 @@ NODE_HEAP_MB="$(sinirla $(( MAX_MB * 60 / 100 )) 384 2048)"
 GUNLUK_DIZIN=""
 for aday in "$HOME/.local/state/yourkiosk-otomasyon" "${TMPDIR:-/tmp}/yourkiosk-agir-komut-$(id -u)"; do
   [ -L "$aday" ] && continue
-  mkdir -p -m 0700 "$aday" 2>/dev/null || continue
-  [ -d "$aday" ] && [ -w "$aday" ] || continue
+  if [ -e "$aday" ]; then
+    [ -d "$aday" ] || continue
+    # Önceden kurulmuş dizin bizim uid'imize ait ve 0700 olmalı (11 Kasım i5).
+    [ "$(stat -c %u "$aday" 2>/dev/null)" = "$(id -u)" ] || continue
+    [ "$(stat -c %a "$aday" 2>/dev/null)" = "700" ] || continue
+  else
+    mkdir -p -m 0700 "$aday" 2>/dev/null || continue
+  fi
+  [ -w "$aday" ] || continue
   GUNLUK_DIZIN="$aday"
   break
 done
@@ -135,6 +142,10 @@ if [ -z "$GUNLUK_DIZIN" ]; then
 fi
 GUNLUK="$GUNLUK_DIZIN/agir-komut.log"
 KILIT="$GUNLUK_DIZIN/yourkiosk-agir-komut.lock"
+if [ -L "$GUNLUK" ]; then
+  echo "✗ günlük dosyası sembolik bağ — reddedildi ($GUNLUK)" >&2
+  exit 2
+fi
 
 # ── SIR MASKELEME (28 Ekim i5 bulgusu, düşük) ────────────────────────────────────────────────────
 # Komutun TAM argv'si günlüğe düz yazılıyordu. argv'de token/parola geçen her çağrı (ör.

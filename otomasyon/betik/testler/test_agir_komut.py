@@ -70,6 +70,25 @@ class AgirKomutTesti(unittest.TestCase):
         hedef = tmp / f"yourkiosk-agir-komut-{os.getuid()}"
         self.assertTrue((hedef / "agir-komut.log").exists())
 
+    def test_onceden_kurulmus_dizin_yanlis_izin_reddedilir(self):
+        mem = sahte_meminfo(self.dizin.name, toplam_mb=8000, bos_mb=4000)
+        ro_home = Path(self.dizin.name) / "ro-home"
+        (ro_home / ".local").mkdir(parents=True)
+        (ro_home / ".local").chmod(0o500)
+        ro_home.chmod(0o500)
+        tmp = Path(self.dizin.name) / "tmp"
+        tmp.mkdir()
+        hedef = tmp / f"yourkiosk-agir-komut-{os.getuid()}"
+        hedef.mkdir()
+        hedef.chmod(0o777)
+        try:
+            s = self.kos("--max-mb", "256", "--", "/bin/true",
+                         meminfo=mem, ek_ortam={"HOME": str(ro_home), "TMPDIR": str(tmp)})
+        finally:
+            (ro_home / ".local").chmod(0o700)
+            ro_home.chmod(0o700)
+        self.assertEqual(s.returncode, 2, s.stderr)
+
     def test_kuru_plan_tavan_ve_v8_heap_yazar(self):
         """4 GB makinede 2 GB boş: cgroup tavanı = boş-400 = 1600 MB, V8 tavanı = %60 = 960 MB."""
         mem = sahte_meminfo(self.dizin.name, toplam_mb=3886, bos_mb=2000)
@@ -259,6 +278,7 @@ class AgirKomutTesti(unittest.TestCase):
         hedef.write_text("KORU\n", encoding="utf-8")
         durum = self.home / ".local" / "state" / "yourkiosk-otomasyon"
         durum.mkdir(parents=True)
+        durum.chmod(0o700)
         (durum / "yourkiosk-agir-komut.lock").symlink_to(hedef)
         mem = sahte_meminfo(self.dizin.name, toplam_mb=3886, bos_mb=2000)
         s = self.kos("--", "/bin/true", meminfo=mem)
