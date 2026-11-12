@@ -557,16 +557,20 @@ class BirimKorumaTesti(unittest.TestCase):
             home = Path(d) / "home"
             birim = home / ".config" / "systemd" / "user" / "yourkiosk-nobetci.service"
             birim.parent.mkdir(parents=True)
+            depo = str(BETIK.parents[1])
             birim.write_text(
                 "[Service]" + chr(10) + "Environment=NOBETCI_ARAC=dsh" + chr(10) +
-                "ExecStart=/usr/bin/python3 /x/nobetci.py --rol i5 "
-                "--dal duzeltme/nobetci-dal-ve-gorunur-hata --arac dsh" + chr(10),
+                "ExecStart=/usr/bin/python3 /x/nobetci.py --rol i5 --depo " + depo +
+                " --dal duzeltme/nobetci-dal-ve-gorunur-hata --arac dsh --zaman-asimi 7200"
+                + chr(10),
                 encoding="utf-8")
             s = subprocess.run(["bash", str(kur), "i5", "--kuru"], capture_output=True, text=True,
                                timeout=60, env={**os.environ, "HOME": str(home)})
             self.assertEqual(s.returncode, 0, s.stderr)
             self.assertIn("--arac dsh", s.stdout)
             self.assertIn("--dal duzeltme/nobetci-dal-ve-gorunur-hata", s.stdout)
+            self.assertIn("--depo " + depo, s.stdout)
+            self.assertIn("--zaman-asimi 7200", s.stdout)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

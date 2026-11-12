@@ -26,6 +26,8 @@ ARAC_VERILDI=0
 DSH_CHECKOUT="${DSH_CHECKOUT:-$HOME/deepseek-harness}"
 DSH_PERMISSION_MODE="${DSH_PERMISSION_MODE:-read-only}"
 KLON="${NOBETCI_KOD_DEPO:-}"
+KLON_VERILDI=0
+[ -n "${NOBETCI_KOD_DEPO:-}" ] && KLON_VERILDI=1
 DAL="${NOBETCI_DAL:-main}"
 DAL_VERILDI=0
 [ -n "${NOBETCI_DAL:-}" ] && DAL_VERILDI=1
@@ -39,7 +41,7 @@ for a in "$@"; do
     --kaldir) KIP="kaldir" ;;
     --kuru) KIP="kuru" ;;
     --bakim) KIP="bakim" ;;
-    --klon=*) KLON="${a#--klon=}" ;;
+    --klon=*) KLON="${a#--klon=}"; KLON_VERILDI=1 ;;
     --profil=*) PROFIL="${a#--profil=}" ;;
     --arac=*) ARAC="${a#--arac=}"; ARAC_VERILDI=1 ;;
     --dal=*) DAL="${a#--dal=}"; DAL_VERILDI=1 ;;
@@ -49,7 +51,7 @@ done
 for ((i = 1; i <= $#; i++)); do
   if [ "${!i}" = "--profil" ]; then j=$((i + 1)); PROFIL="${!j:-}"; fi
   if [ "${!i}" = "--arac" ]; then j=$((i + 1)); ARAC="${!j:-}"; ARAC_VERILDI=1; fi
-  if [ "${!i}" = "--klon" ]; then j=$((i + 1)); KLON="${!j:-}"; fi
+  if [ "${!i}" = "--klon" ]; then j=$((i + 1)); KLON="${!j:-}"; KLON_VERILDI=1; fi
   if [ "${!i}" = "--dal" ]; then j=$((i + 1)); DAL="${!j:-}"; DAL_VERILDI=1; fi
 done
 # 12 Kasım: --arac/--dal verilmezse MEVCUT birimin değerini koru. Aksi hâlde
@@ -58,6 +60,10 @@ BIRIM_YOLU="$HOME/.config/systemd/user/yourkiosk-nobetci.service"
 if [ "$ARAC_VERILDI" -eq 0 ] && [ -f "$BIRIM_YOLU" ]; then
   MEVCUT_ARAC="$(sed -n 's/^Environment=NOBETCI_ARAC=//p' "$BIRIM_YOLU" | head -1)"
   [ -n "$MEVCUT_ARAC" ] && ARAC="$MEVCUT_ARAC"
+fi
+if [ "$KLON_VERILDI" -eq 0 ] && [ -f "$BIRIM_YOLU" ]; then
+  MEVCUT_KLON="$(sed -n 's/.*--depo \([^ ]*\).*/\1/p' "$BIRIM_YOLU" | head -1)"
+  [ -n "$MEVCUT_KLON" ] && KLON="$MEVCUT_KLON"
 fi
 if [ "$DAL_VERILDI" -eq 0 ] && [ -f "$BIRIM_YOLU" ]; then
   MEVCUT_DAL="$(sed -n 's/.*--dal \([^ ]*\).*/\1/p' "$BIRIM_YOLU" | head -1)"
@@ -132,6 +138,18 @@ fi
 # süresini 3 kat küçük varsayıyor → #90 oturumu 31. dakikada öldürüldü, PR'a hiçbir karar
 # yazılmadı. Varsayılan 3600 sn (60 dk); NOBETCI_ZAMAN_ASIMI ile değiştirilebilir.
 ZAMAN_ASIMI="${NOBETCI_ZAMAN_ASIMI:-3600}"
+ZAMAN_VERILDI=0
+[ -n "${NOBETCI_ZAMAN_ASIMI:-}" ] && ZAMAN_VERILDI=1
+for ((i = 1; i <= $#; i++)); do
+  if [ "${!i}" = "--zaman-asimi" ]; then j=$((i + 1)); ZAMAN_ASIMI="${!j:-}"; ZAMAN_VERILDI=1; fi
+done
+for a in "$@"; do
+  case "$a" in --zaman-asimi=*) ZAMAN_ASIMI="${a#*=}"; ZAMAN_VERILDI=1 ;; esac
+done
+if [ "$ZAMAN_VERILDI" -eq 0 ] && [ -f "$BIRIM_YOLU" ]; then
+  MEVCUT_ZAMAN="$(sed -n 's/.*--zaman-asimi \([0-9][0-9]*\).*/\1/p' "$BIRIM_YOLU" | head -1)"
+  [ -n "$MEVCUT_ZAMAN" ] && ZAMAN_ASIMI="$MEVCUT_ZAMAN"
+fi
 case "$ZAMAN_ASIMI" in
   ''|*[!0-9]*) echo "✗ geçersiz NOBETCI_ZAMAN_ASIMI: '$ZAMAN_ASIMI' (sayı olmalı)" >&2; exit 2 ;;
 esac
