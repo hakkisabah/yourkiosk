@@ -310,6 +310,21 @@ class DshOturumTesti(unittest.TestCase):
         self.assertLess(kalan, 3)
 
 
+class DurumAyrintiliTesti(unittest.TestCase):
+    def test_ayni_contextte_en_yeni_kayit(self):
+        class Gh:
+            depo = "x"
+
+            def al(self, yol):
+                return 200, {"statuses": [
+                    {"context": "guvenlik/inceleme", "state": "success", "description": "[v2] yeni"},
+                    {"context": "guvenlik/inceleme", "state": "failure", "description": "[v1] eski"},
+                ]}
+
+        d = nobetci.durum_ayrintili(Gh(), "a" * 40)
+        self.assertEqual(d["guvenlik/inceleme"]["state"], "success")
+        self.assertEqual(d["guvenlik/inceleme"]["description"], "[v2] yeni")
+
 class KararYayinTesti(unittest.TestCase):
     """DSH kararı sandbox dışında yayınlanmalı; i3 kabulü çift onayla birleştirmeli."""
 

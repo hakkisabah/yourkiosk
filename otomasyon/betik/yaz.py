@@ -425,8 +425,18 @@ def birlestir(depo: str, token: str, pr_no: int, sha: str, kuru: bool, cift_onay
             return False, f"birleştirilemez durum: {pr.get('mergeable_state')} (çakışma/eksik kontrol olabilir)"
 
     kod, durum = istek(f"/repos/{depo}/commits/{sha}/status", token)
-    kontroller = {s["context"]: s["state"] for s in (durum or {}).get("statuses", [])} if isinstance(durum, dict) else {}
-    aciklamalar = {s["context"]: s.get("description") for s in (durum or {}).get("statuses", [])} if isinstance(durum, dict) else {}
+    # GitHub statuses listesi EN YENİDEN ESKİYE gelir; aynı context için ilk
+    # (en yeni) kayıt geçerlidir (11 Kasım i5 bulgusu: dict comprehension en
+    # eskiyi tutup yeni failure'ı eski success ile gölgeliyordu).
+    kontroller: dict[str, str] = {}
+    aciklamalar: dict[str, str] = {}
+    if isinstance(durum, dict):
+        for s in durum.get("statuses", []):
+            ctx = s.get("context")
+            if not ctx or ctx in kontroller:
+                continue
+            kontroller[ctx] = s.get("state")
+            aciklamalar[ctx] = s.get("description")
     kotu = [ad for ad, hal in kontroller.items() if hal in ("failure", "pending", "error")]
     if kotu:
         return False, f"başarısız/bekleyen kontroller: {', '.join(kotu)}"

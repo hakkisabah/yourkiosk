@@ -468,6 +468,13 @@ class AnahtarUretimHatasiTesti(unittest.TestCase):
         self.assertIn("DOKUNMA=1", env_dosya.read_text(encoding="utf-8"))
 
 
+class ApiDokumanTesti(unittest.TestCase):
+    def test_sudo_ile_calismaz(self):
+        kok = BETIK.parents[2]
+        metin = (kok / "docs" / "API-SUNUCU.md").read_text(encoding="utf-8")
+        self.assertNotIn("sudo ./otomasyon/betik/api-sunucu-sertlestir.sh", metin)
+        self.assertIn("./otomasyon/betik/api-sunucu-sertlestir.sh --kontrol", metin)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

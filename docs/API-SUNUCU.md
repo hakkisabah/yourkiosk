@@ -57,8 +57,8 @@ görürse `0.0.0.0` satırı ✗ değil **✓ "LAN'a açık (operatör onaylı)"
 Geri alma (`--dinle 172.17.0.1` / `127.0.0.1`) kaydı **siler** → karar görünür ve geri alınabilir.
 
 ```bash
-sudo ./otomasyon/betik/api-sunucu-sertlestir.sh --dinle 0.0.0.0 --kabul-et-lan      # onay kaydını /etc'ye yazar (sudo şart)
-sudo ./otomasyon/betik/api-sunucu-sertlestir.sh --kontrol                           # ✓ LAN'a açık (operatör onaylı)
+./otomasyon/betik/api-sunucu-sertlestir.sh --dinle 0.0.0.0 --kabul-et-lan        # anahtar $HOME altına yazılır; /etc onayını betik kendi içinde sudo ile yazar
+./otomasyon/betik/api-sunucu-sertlestir.sh --kontrol                             # ✓ LAN'a açık (operatör onaylı)
 ```
 
 > `0.0.0.0`'da uç **ağdan erişilebilir** ve terminal yetkilidir: erişim yalnız `API_SERVER_KEY`

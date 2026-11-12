@@ -418,12 +418,20 @@ def durum_ayrintili(gh: Github, sha: str) -> dict[str, dict]:
         return {}
     if not isinstance(govde, dict):
         return {}
-    return {s.get("context", "?"): {"state": s.get("state", "?"),
-                                    "description": s.get("description") or "",
-                                    # created_at: "sorun" kararının kaç saattir açık olduğunu
-                                    # ölçmek için (düzeltme bekleyen PR sessizce yaşlanmasın).
-                                    "created_at": s.get("created_at") or ""}
-            for s in govde.get("statuses", [])}
+    # GitHub statuses listesi EN YENİDEN ESKİYE gelir; aynı context için ilk
+    # (en yeni) kayıt geçerlidir (11 Kasım i5 bulgusu: eski failure yeni
+    # success'i gölgeleyip aynı sha'yı sonsuz yeniden incelemeye sokuyordu).
+    sonuc: dict[str, dict] = {}
+    for s in govde.get("statuses", []):
+        ctx = s.get("context") or "?"
+        if ctx in sonuc:
+            continue
+        sonuc[ctx] = {"state": s.get("state", "?"),
+                      "description": s.get("description") or "",
+                      # created_at: "sorun" kararının kaç saattir açık olduğunu
+                      # ölçmek için (düzeltme bekleyen PR sessizce yaşlanmasın).
+                      "created_at": s.get("created_at") or ""}
+    return sonuc
 
 
 #: İNCELEME SÖZLEŞME SÜRÜMÜ — bir karar, (PR head sha + sürüm) ÇİFTİNE bağlıdır.
