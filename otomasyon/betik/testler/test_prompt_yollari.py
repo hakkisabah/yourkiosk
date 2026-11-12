@@ -100,5 +100,13 @@ class SudoYasagiTesti(unittest.TestCase):
                             f"{ad}: kural akıştan SONRA geliyor (geç kalır)")
 
 
+class DshKararKanaliTesti(unittest.TestCase):
+    def test_i5_ve_i3_dsh_stdout_kanali(self):
+        for ad in ("i5-guvenlik.md", "i3-karar.md"):
+            metin = (PROMPT / ad).read_text(encoding="utf-8")
+            self.assertIn("KARAR_JSON_BEGIN", metin)
+            self.assertIn("dosya oluşturma", metin)
+            self.assertNotIn("dosyaya yaz", metin.lower())
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

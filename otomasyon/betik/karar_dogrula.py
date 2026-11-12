@@ -311,6 +311,49 @@ def dogrula_karar(karar: dict, makine: str | None = None, *, token: str | None =
             elif any(y in kabul.casefold() for y in YER_TUTUCU):
                 sonuc.hatalar.append(f"bulgu #{i}: 'kabul' şablon metni")
 
+    # i3 kararları: `eksikler` yeni bulgulardır; `bulgular` gibi doğrulanır ve
+    # dolu eksiklerle `kabul` verilemez (11 Kasım i5 bulgusu).
+    if makine == "i3":
+        eksikler = karar.get("eksikler")
+        if eksikler is None:
+            eksikler = []
+        if not isinstance(eksikler, list):
+            sonuc.hatalar.append("eksikler bir liste olmalı (yoksa [])")
+            eksikler = []
+        for i, e in enumerate(eksikler, 1):
+            if not isinstance(e, dict):
+                sonuc.hatalar.append(f"eksik #{i} nesne değil")
+                continue
+            if not dosya_normal(e.get("dosya", "")):
+                sonuc.hatalar.append(f"eksik #{i}: 'dosya' boş")
+            if satir_no(e.get("satir")) <= 0:
+                sonuc.hatalar.append(f"eksik #{i}: 'satir' zorunlu (dosya:satır)")
+            e_onem = ONEM_ES.get(str(e.get("onem") or "").lower(), str(e.get("onem") or "").lower())
+            if e_onem not in ONEMLER:
+                sonuc.hatalar.append(f"eksik #{i}: onem {sorted(ONEMLER)} olmalı (gelen: {e.get('onem')!r})")
+            if len(str(e.get("aciklama") or "").strip()) < 15:
+                sonuc.hatalar.append(f"eksik #{i}: 'aciklama' çok kısa (<15)")
+            if len(str(e.get("kabul") or e.get("kapanis") or "").strip()) < 15:
+                sonuc.hatalar.append(f"eksik #{i}: 'kabul' (kapanış ölçütü) zorunlu ve ≥15")
+        if eksikler and karar_metni == "kabul":
+            sonuc.hatalar.append("eksikler boş değilken 'kabul' verilemez — önce düzeltme")
+        dogrulama = karar.get("i5_dogrulama")
+        if dogrulama is None:
+            dogrulama = []
+        if not isinstance(dogrulama, list):
+            sonuc.hatalar.append("i5_dogrulama bir liste olmalı")
+            dogrulama = []
+        for i, d in enumerate(dogrulama, 1):
+            if not isinstance(d, dict):
+                sonuc.hatalar.append(f"i5_dogrulama #{i} nesne değil")
+                continue
+            if not str(d.get("bulgu") or "").strip():
+                sonuc.hatalar.append(f"i5_dogrulama #{i}: 'bulgu' boş")
+            if str(d.get("durum") or "") not in {"dogrulandi", "yanlis", "eksik_kanit"}:
+                sonuc.hatalar.append(f"i5_dogrulama #{i}: durum dogrulandi|yanlis|eksik_kanit olmalı")
+            if len(str(d.get("kanit") or "").strip()) < 10:
+                sonuc.hatalar.append(f"i5_dogrulama #{i}: 'kanit' çok kısa")
+
     # kapsam (denetlenen)
     ham_alanlar = karar.get("denetlenen") or []
     if not isinstance(ham_alanlar, list):

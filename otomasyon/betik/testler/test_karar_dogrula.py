@@ -87,6 +87,24 @@ class KapsamTesti(unittest.TestCase):
         self.assertFalse(dogrula(k, "i3").gecti)
 
 
+    def test_i3_kabul_dolu_eksiklerle_reddedilir(self):
+        k = kopya(makine="i3", karar="kabul", denetlenen=ALANLAR[:8],
+                  eksikler=[{"dosya": "a.py", "satir": 1, "onem": "orta",
+                             "aciklama": "Bu eksik yeterince uzun bir aciklama.",
+                             "kabul": "Bu eksik icin yeterince uzun kapanis olcutu."}],
+                  i5_dogrulama=[])
+        self.assertFalse(dogrula(k, "i3").gecti)
+
+    def test_i3_eksik_kabul_ve_satir_ister(self):
+        k = kopya(makine="i3", karar="duzeltme", denetlenen=ALANLAR,
+                  eksikler=[{"dosya": "a.py", "onem": "orta",
+                             "aciklama": "Bu eksik yeterince uzun bir aciklama."}],
+                  i5_dogrulama=[])
+        s = dogrula(k, "i3")
+        self.assertFalse(s.gecti)
+        self.assertTrue(any("satir" in h for h in s.hatalar), s.hatalar)
+        self.assertTrue(any("kabul" in h for h in s.hatalar), s.hatalar)
+
 class TutarlilikTesti(unittest.TestCase):
     def test_yuksek_bulgu_ile_onay_verilemez(self):
         k = copy.deepcopy(DOGRU_I5)

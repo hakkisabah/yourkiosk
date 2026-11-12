@@ -7,7 +7,7 @@
 > **DSH headless ise:** `yaz.py` ÇALIŞTIRMA. Kararı **son mesajında**
 > `KARAR_JSON_BEGIN <NO>` ve `KARAR_JSON_END <NO>` satırları arasına JSON olarak yaz
 > (blok içine kod çiti koyma);
-> dosyaya YAZMA (`$KARAR_DIR` artık kullanılmıyor). Kapıyı ve GitHub yazımını nöbetçi
+> dosya oluşturma (`$KARAR_DIR` artık kullanılmıyor). Kapıyı ve GitHub yazımını nöbetçi
 > oturum dışında yapar. Karar yalnız son yanıtın stdout'undan okunur; PR testlerinin
 > yazdığı dosyalar yok sayılır.
 > DSH review profilinde `read`, `grep`, `glob`, `web_fetch`, `subagent` **kapalıdır**; tüm
@@ -95,11 +95,11 @@ Depo kuralları: `kiosk/GUVENLIK.md`, `kiosk/KOMUTLAR.md`, `docs/AWS-KURULUM.md`
    `onem: "dusuk"` ve `not: "doğrulanmalı: <neyi doğrulayamadığın>"` yaz. (Kapı, özet/notta
    "emin değilim / doğrulanmalı / karar veremedim" görürse `onay` kararını reddeder.)
 
-5. Kararı **her oturumda YENİ bir dosyaya** yaz (`${KARAR_DIR:-/tmp}/karar-<NO>.json` YENİDEN KULLANMA):
-
-```bash
-rm -f ${KARAR_DIR:-/tmp}/karar-<NO>.json            # eski oturumdan kalan dosya yazmayı kilitler
-```
+5. Kararı yaz:
+   - **DSH headless:** dosya oluşturma; son mesajında `KARAR_JSON_BEGIN <NO>` ile
+     `KARAR_JSON_END <NO>` arasına JSON bloğu koy (blok içine kod çiti koyma).
+   - **Hermes:** her oturumda YENİ dosyaya `${KARAR_DIR:-/tmp}/karar-<NO>.json`; önce
+     `rm -f ${KARAR_DIR:-/tmp}/karar-<NO>.json` çalıştır.
 
 > **Neden:** Hermes `write_file` (DSH `write`) daha önce görmediği/yarım okuduğu bir dosyanın üzerine yazmayı
 > reddeder ("exists but this task has not seen its full current content"). 28 Ekim'de #90

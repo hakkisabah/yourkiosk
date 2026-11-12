@@ -7,7 +7,7 @@
 > **DSH headless ise:** `yaz.py` ÇALIŞTIRMA. Kararı **son mesajında**
 > `KARAR_JSON_BEGIN <NO>` ve `KARAR_JSON_END <NO>` satırları arasına JSON olarak yaz
 > (blok içine kod çiti koyma);
-> dosyaya YAZMA (`$KARAR_DIR` artık kullanılmıyor). Kapıyı ve GitHub yazımını nöbetçi
+> dosya oluşturma (`$KARAR_DIR` artık kullanılmıyor). Kapıyı ve GitHub yazımını nöbetçi
 > oturum dışında yapar. Karar yalnız son yanıtın stdout'undan okunur; PR testlerinin
 > yazdığı dosyalar yok sayılır.
 > DSH review profilinde `read`, `grep`, `glob`, `web_fetch`, `subagent` **kapalıdır**; tüm
@@ -55,7 +55,12 @@ ve i5'e geri gönderirsin.
 
 3. Her bulgu için sonuç yaz: `dogrulandi` · `yanlis` · `eksik_kanit`.
 
-4. Karar dosyası (`${KARAR_DIR:-/tmp}/karar-<NO>.json`):
+4. Kararı yaz:
+   - **DSH headless:** dosya oluşturma; son mesajında `KARAR_JSON_BEGIN <NO>` ile
+     `KARAR_JSON_END <NO>` arasına JSON bloğu koy (blok içine kod çiti koyma).
+   - **Hermes:** `${KARAR_DIR:-/tmp}/karar-<NO>.json` dosyasına yaz.
+
+Örnek JSON:
 
 ```json
 {"makine":"i3","pr":16,"sha":"<head_sha>","nonce":"<istemdeki KARAR NONCE>",

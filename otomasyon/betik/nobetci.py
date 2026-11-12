@@ -765,7 +765,7 @@ def gorev_metni(rol: str, depo: Path, is_listesi: list[dict], nonce: str = "") -
                          "`read`/`grep`/`glob`/`web_fetch`/`subagent` KAPALI; her şeyi `bash` ile yap "
                          "(`cat`, `sed`, `grep`, `python3`). Kararı SON MESAJINDA "
                          "`KARAR_JSON_BEGIN <NO>` ve `KARAR_JSON_END <NO>` satırları arasına JSON "
-                         "olarak yaz (blok içine kod çiti koyma); dosyaya YAZMA "
+                         "olarak yaz (blok içine kod çiti koyma); dosya oluşturma "
                          "(`yaz.py` ÇALIŞTIRMA). Kapı ve GitHub yazımını nöbetçi oturum dışında yapar."]
     if nonce:
         satirlar += ["",

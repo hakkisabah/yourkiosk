@@ -1014,6 +1014,9 @@ def main() -> int:
     if not isinstance(karar, dict) or not karar.get("karar"):
         print("karar dosyasında 'karar' alanı yok", file=sys.stderr)
         return 2
+    if str(karar.get("karar") or "").strip().lower() == "kabul" and (karar.get("eksikler") or []):
+        print("[yaz] KABUL REDDEDİLDİ — 'eksikler' boş değil; önce düzeltme", file=sys.stderr)
+        return 2
 
     makine = str(karar.get("makine", "i5")).lower()
     baglam, onay_etiketi, sorun_etiketi = MAKINE_AYARI.get(makine, MAKINE_AYARI["i5"])
