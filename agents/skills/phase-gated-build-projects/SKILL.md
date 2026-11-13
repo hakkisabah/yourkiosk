@@ -2,10 +2,10 @@
 name: phase-gated-build-projects
 description: Use when a build runs in approved phases with gates.
 version: 1.1.0
-author: Hermes Agent
+author: agents
 license: MIT
 metadata:
-  hermes:
+  agents:
     tags: [process, planning, phases, approval-gate, reporting]
     related_skills: [mcp-server-and-plugin-surfaces, requesting-code-review]
 ---

@@ -50,11 +50,11 @@ needs `Contents: RW`, which a reviewer must not have.
   first run dies in the parser. Ship a `--example` flag that writes a valid template and
   fills the SHA from the repo, and make the consumer report `satır/kolon` plus a pointer
   to that flag on a parse error.
-- When a reviewer runs as a Hermes cron job, use the scheduler's own `monitor`
+- When a reviewer runs as a DSH cron job, use the scheduler's own `monitor`
   gate (a script whose deterministic stdout is compared tick-to-tick) instead of a
   hand-rolled last-sha file: identical output skips the agent run inside the
   scheduler, so idle ticks cost zero tokens without any extra bookkeeping. See
-  `hermes-agent` → `references/background-systems.md`.
+  `dsh-agent` → `references/background-systems.md`.
 
 ## Bootstrap the remote machine with ONE command, not a numbered doc
 
@@ -65,7 +65,7 @@ prints what it did:
 1. run an **environment check** first (never a bare failure later): python version, `git`, `curl`,
    repo clone + `git fetch`, token file exists / mode 0600 / repo `200` / PR-read / label-read,
    state dir writable, scheduler CLI on PATH;
-2. write the wrapper scripts into the scheduler's scripts dir (`~/.hermes/scripts/`) with the repo
+2. write the wrapper scripts into the scheduler's scripts dir (`~/.dsh/scripts/`) with the repo
    path **absolute** inside them — never rely on the cron cwd (`--depo "$DEPO"`), cron jobs run
    with a different working directory than the shell that created them;
 3. **verify the monitor script actually emits the deterministic line** before trusting it (a
@@ -98,7 +98,7 @@ Pitfalls:
   hardest kind of incident to reconstruct.
 - **Empty monitor output is normal for the arbiter** when no PR carries the problem label; treat it
   as "nothing to decide", not as a failure. Only the primary reviewer's empty output is suspicious.
-- Test the bootstrap in a sandbox (`HOME=/tmp/x`) and with a **fake `hermes`** shim on `PATH`; that
+- Test the bootstrap in a sandbox (`HOME=/tmp/x`) and with a **fake `dsh`** shim on `PATH`; that
   proves the wiring without creating real jobs in the user's scheduler. Say so plainly when you have
   not run it against the real scheduler.
 - The role's prompt file must be read from disk (`"$(cat …)"`), never printed inline in the usage
@@ -135,7 +135,7 @@ recent fenced-JSON verdict found in PR comments, and one verdict line.
   forever. Report per-context counts and the most recent verdict timestamp instead of a boolean.
 - Extract verdicts by parsing ```json blocks and keeping objects with a `machine` field, so a
   human-formatted comment cannot be mistaken for a verdict.
-- Include the two or three fix-it commands in the output (`hermes cron list`, bootstrap,
+- Include the two or three fix-it commands in the output (`dsh cron list`, bootstrap,
   environment check). The user pastes this output when stuck; make it self-explanatory.
 
 ## What to review: the PR head, never the default-branch head
@@ -237,7 +237,7 @@ prompt is embedded at creation time. Recreate (or edit) the job, or the machine 
 with the previous policy. Give the installer an explicit refresh flag (`kur.sh i5 --cron
 --refresh-job`) that removes and re-creates the job; without the flag it must **print a warning
 that the old policy is still running**, not just "job exists, skipped". Finding the id is the
-fiddly part — in `hermes cron list` the `Name:` line sits on the line *after* the id, so match the
+fiddly part — in `dsh cron list` the `Name:` line sits on the line *after* the id, so match the
 name and take the id from the preceding line:
 `grep -B1 "Name:.*$NAME" | grep -oE '^[[:space:]]*[0-9a-f]{12}'`.
 

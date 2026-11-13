@@ -2,10 +2,10 @@
 name: aws-cli-provisioning
 description: Use when provisioning AWS S3/IAM/Cognito from the CLI.
 version: 1.0.0
-author: Hermes Agent
+author: agents
 license: MIT
 metadata:
-  hermes:
+  agents:
     tags: [aws, s3, iam, cognito, cli, cost, least-privilege]
     category: software-development
     related_skills: [cognito-social-login, spa-api-auth-wiring, aws-cdk-git-deploy-pipeline]
@@ -30,7 +30,7 @@ refuses to save** and **cost/security settings applied after the data is already
 
 - **Never root.** A dedicated IAM user (`<app>-setup`) whose policy you write, restricted to
   `<app>-*` resource patterns. The user creates policy + user + access key in the console and puts
-  the key in `~/.config/hermes-secrets/<app>.credentials` (0600) — never in chat, never in the repo.
+  the key in `~/.config/dsh-secrets/<app>.credentials` (0600) — never in chat, never in the repo.
 - Say what the **runtime** uses instead (Cognito Identity Pool temporary credentials, or presigned
   URLs). A permanent key must not end up in the browser bundle.
 - Announce the endgame up front: **the setup key gets deactivated and deleted** when provisioning
@@ -48,7 +48,7 @@ refuses to save** and **cost/security settings applied after the data is already
   diagnose it as broken because `aws s3 ls` fails**. Probe with a call the key is supposed to be able
   to make (`sts get-caller-identity` for liveness, `s3api head-object` / a real `s3 cp` for scope).
 - **A doc that names a credentials file is a pointer, not a guarantee.** If `docs/AWS-*.md` says to
-  export `~/.config/hermes-secrets/<app>.credentials` and that file now holds a dead key, the operator
+  export `~/.config/dsh-secrets/<app>.credentials` and that file now holds a dead key, the operator
   follows the doc into `InvalidClientTokenId`. When you find the live key under a different name,
   update the doc in the same change — a correct command with a stale path fails identically to a
   wrong command.
@@ -70,7 +70,7 @@ export PATH="$HOME/.local/bin:$PATH"; aws --version
 Then pin the identity once per session and confirm it before any write:
 
 ```bash
-export AWS_SHARED_CREDENTIALS_FILE="$HOME/.config/hermes-secrets/<app>.credentials"
+export AWS_SHARED_CREDENTIALS_FILE="$HOME/.config/dsh-secrets/<app>.credentials"
 export AWS_DEFAULT_REGION=<region>
 aws sts get-caller-identity        # account + user ARN; refuse to continue on failure
 ```
@@ -227,7 +227,7 @@ callable over plain HTTPS (no signing, no SDK):
   provider). Store it in its own credentials file and select per operation:
 
   ```bash
-  export AWS_SHARED_CREDENTIALS_FILE="$HOME/.config/hermes-secrets/<app>-publish.credentials"
+  export AWS_SHARED_CREDENTIALS_FILE="$HOME/.config/dsh-secrets/<app>-publish.credentials"
   ./<app>/infra/deploy.sh        # build + sync + invalidate, same script the setup run used
   ```
 

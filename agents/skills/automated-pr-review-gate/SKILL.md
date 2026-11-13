@@ -2,17 +2,15 @@
 name: automated-pr-review-gate
 description: "Use when a PR review gate stalls, loops, or serves old code."
 version: 1.0.0
-author: Hermes Agent
+author: agents
 license: MIT
 platforms: [linux, macos]
 metadata:
-  hermes:
+  agents:
     tags: [code-review, automation, github, gates, multi-agent]
     related_skills: [github, requesting-code-review, test-driven-development]
 ---
 
-> **DSH uyarlama notu:** Bu skill Hermes'ten taşındı; `hermes` CLI'si ve eski
-> araç adları DSH'de birebir yok. Yüklemeden önce `DSH-UYARI.md` dosyasını oku.
 
 # Otomatik PR inceleme kapısı (i5 inceleme + i3 karar)
 
@@ -217,9 +215,9 @@ paylaşırsa aynı CPU'yu, `max_concurrent_runs`'ı, model kotasını ve günlü
 Belirtisi: birkaç PR tek oturuma verildiğinde oturum zaman aşımıyla ölür, status yazılmaz, PR
 "beklemede"ye düşer. Ayrım üç parçalıdır ve **üçü de** gerekir:
 
-1. Nöbetçi kendi ayrı oturumunda çağrılır: DSH'de `dsh headless`, Hermes'te
-   `hermes -p <profil> chat --query-file … --oneshot` (`nobetci.py --arac dsh` / `NOBETCI_ARAC`;
-   Hermes'te `--profil` / `NOBETCI_PROFIL`). Hermes profili kullanılıyorsa API sunucusu **kapalı**
+1. Nöbetçi kendi ayrı oturumunda çağrılır: DSH'de `dsh headless`, DSH'te
+   `dsh -p <profil> chat --query-file … --oneshot` (`nobetci.py --arac dsh` / `NOBETCI_ARAC`;
+   DSH'te `--profil` / `NOBETCI_PROFIL`). DSH profili kullanılıyorsa API sunucusu **kapalı**
    olsun (`-p <profil> config set platforms.api_server.enabled false`); DSH'de ayrı profil yoktur.
 2. systemd unit'ine düşük öncelik: `Nice=10`, `CPUWeight=50`.
 3. Kurulum betiği profilin **var olduğunu doğrulasın** ve yoksa kurulumu reddetsin (çıkış ≠ 0);
@@ -399,7 +397,7 @@ kilitle (sahte/stub kurulum betiğiyle, gerçek systemd'ye dokunmadan): klondaki
    **Üçüncü ve en kesin kaynak: ajanın KENDİ oturum kaydı.** Log `oturum açılıyor` + `oturum bitti
    (çıkış 0)` diyor ama hiç karar yoksa arıza otomasyonun mantığında değil **ajanın niyetindedir**;
    tahmin etme, o oturumun mesajlarını oku. DSH oturumları
-   `~/.dsh/sessions/*/session-*/session.v4.jsonl.zstd`; Hermes oturumları `~/.hermes/state.db`
+   `~/.dsh/sessions/*/session-*/session.v4.jsonl.zstd`; DSH oturumları `~/.dsh/state.db`
    (`sqlite3`) altındadır:
 
 ```bash
@@ -407,8 +405,8 @@ kilitle (sahte/stub kurulum betiğiyle, gerçek systemd'ye dokunmadan): klondaki
 SON=$(ls -t "$HOME"/.dsh/sessions/*/session-*/session.v4.jsonl.zstd | head -1)
 zstdcat "$SON" | tail -20
 
-# Hermes: son nöbetçi oturumları
-sqlite3 "file:$HOME/.hermes/state.db?mode=ro" \
+# DSH: son nöbetçi oturumları
+sqlite3 "file:$HOME/.dsh/state.db?mode=ro" \
   "select id,started_at,end_reason,message_count from sessions where source='nobetci' order by started_at desc limit 3"
 ```
 
@@ -851,7 +849,7 @@ kopya yeter), sonra koş; rapor ederken hangi testlerin ortam yüzünden koşmad
   kayboluyor" sorusunu cevapla.
 - **Yol izin denetimi MUTLAK yolun parçalarına değil, servis köküne GÖRELİ parçalara bakar.**
   `any(p.startswith(".") for p in gerçek.parts)` yazan bir sunucu, depo/kök dizini nokta içeren bir
-  yolun altındaysa (`~/.hermes/…`, `/home/x/.cache/…`) sunulabilecek HER dosyayı 403 ile reddeder —
+  yolun altındaysa (`~/.dsh/…`, `/home/x/.cache/…`) sunulabilecek HER dosyayı 403 ile reddeder —
   üstelik testler kendi geçici dizininde koştuğu için bu ancak sahte kökü depo dışında kurunca
   görülür. Önce izinli kökü bul (`relative_to(kök)`), gizli-parça denetimini o göreli parçalarda
   yap. Sahte fixture dizinini nokta içermeyen bir üst dizinde aç; testin gerçek hatayı değil ortamı

@@ -2,10 +2,10 @@
 name: browser-kiosk-display-mode
 description: Use when building or debugging a Chromium kiosk web display.
 version: 1.0.0
-author: Hermes Agent (hakki)
+author: agents
 license: MIT
 metadata:
-  hermes:
+  agents:
     tags: [chromium, kiosk, vue, vite, cache-storage, remote-diagnosis, parity]
     related_skills: [pyqt6-kiosk-hardening, ts-monorepo-build-gotchas, systematic-debugging]
 ---

@@ -2,11 +2,11 @@
 name: edge-device-remote-config
 description: "Use when devices pull config from a remote store."
 version: 1.0.0
-author: Hermes Agent
+author: agents
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  agents:
     tags: [config, offline, caching, kiosk, fleet, s3, cdn, reliability]
     category: software-development
     related_skills: [browser-kiosk-display-mode, pyqt6-kiosk-hardening, aws-cli-provisioning]

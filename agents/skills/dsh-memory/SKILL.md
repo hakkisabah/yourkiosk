@@ -6,7 +6,7 @@ whenToUse: "Uzun proje işine başlarken, kullanıcı tercihi öğrenince veya k
 
 # DSH hafızası
 
-DSH'de Hermes'teki otomatik `memory` aracı yok; bu skill dosya tabanlı hafızayı kullanır.
+DSH'de DSH'teki otomatik `memory` aracı yok; bu skill dosya tabanlı hafızayı kullanır.
 Hafıza **makineye özeldir**, repoya girmez; proje kuralları repo `AGENTS.md`'de kalır.
 
 ## Dosyalar

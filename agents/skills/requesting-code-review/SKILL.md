@@ -2,17 +2,15 @@
 name: requesting-code-review
 description: "Pre-commit review: security scan, quality gates, auto-fix."
 version: 2.1.0
-author: Hermes Agent (adapted from obra/superpowers + MorAlekss)
+author: agents
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  agents:
     tags: [code-review, security, verification, quality, pre-commit, auto-fix]
     related_skills: [subagent-driven-development, test-driven-development, github]
 ---
 
-> **DSH uyarlama notu:** Bu skill Hermes'ten taşındı; `hermes` CLI'si ve eski
-> araç adları DSH'de birebir yok. Yüklemeden önce `DSH-UYARI.md` dosyasını oku.
 
 # Pre-Commit Code Verification
 

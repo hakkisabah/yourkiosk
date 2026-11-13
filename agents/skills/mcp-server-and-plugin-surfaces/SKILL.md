@@ -2,10 +2,10 @@
 name: mcp-server-and-plugin-surfaces
 description: Use when exposing a local engine to MCP or plugin hosts.
 version: 1.0.0
-author: Hermes Agent
+author: agents
 license: MIT
 metadata:
-  hermes:
+  agents:
     tags: [mcp, plugin, service, socket, integration]
     related_skills: [hybrid-retrieval-reranking, mmap-score-index, open-webui]
 ---

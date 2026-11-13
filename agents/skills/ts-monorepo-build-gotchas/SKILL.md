@@ -2,11 +2,11 @@
 name: ts-monorepo-build-gotchas
 description: "Use when a TS monorepo build or test fails oddly."
 version: 1.0.0
-author: Hermes Agent
+author: agents
 license: MIT
 platforms: [linux, macos]
 metadata:
-  hermes:
+  agents:
     tags: [typescript, vite, vitest, jsdom, aws-cdk, lambda, monorepo, build, troubleshooting]
 ---
 

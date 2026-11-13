@@ -2,11 +2,11 @@
 name: heavy-workload-memory-guard
 description: "Use when a build/agent process OOMs on a small host."
 version: 1.0.0
-author: Hermes Agent
+author: agents
 license: MIT
 platforms: [linux]
 metadata:
-  hermes:
+  agents:
     tags: [memory, oom, systemd, cgroup, node, v8, vitest, vue-tsc, ci, small-host]
 ---
 

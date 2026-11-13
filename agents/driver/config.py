@@ -24,7 +24,12 @@ def _genislet(deger: str, instance: str) -> str:
         ad = m.group(1)
         if ad == "instance":
             return instance
-        return os.environ.get(ad, "")
+        varsayilan = {
+            "XDG_STATE_HOME": str(Path.home() / ".local" / "state"),
+            "XDG_DATA_HOME": str(Path.home() / ".local" / "share"),
+            "XDG_CONFIG_HOME": str(Path.home() / ".config"),
+        }
+        return os.environ.get(ad, varsayilan.get(ad, ""))
     return DEGISKEN.sub(yer, deger)
 
 

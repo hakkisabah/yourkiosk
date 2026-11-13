@@ -2,17 +2,15 @@
 name: blocked-page-recovery
 description: "Use when a fetch fails: 403/429, paywall, WAF, bot wall."
 version: 1.0.0
-author: Hermes Agent
+author: agents
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  agents:
     tags: [Research, Archives, Wayback, Paywall, WAF, Fallback]
     related_skills: [grounded-citations]
 ---
 
-> **DSH uyarlama notu:** Bu skill Hermes'ten taşındı; `hermes` CLI'si ve eski
-> araç adları DSH'de birebir yok. Yüklemeden önce `DSH-UYARI.md` dosyasını oku.
 
 # Blocked-Page Recovery
 

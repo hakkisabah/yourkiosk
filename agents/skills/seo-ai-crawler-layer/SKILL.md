@@ -2,10 +2,10 @@
 name: seo-ai-crawler-layer
 description: Use when making SPA pages crawlable for search and AI.
 version: 1.0.0
-author: Hermes Agent
+author: agents
 license: MIT
 metadata:
-  hermes:
+  agents:
     tags: [seo, adsense, robots, sitemap, llms-txt, cloudfront]
     related_skills: [cognito-social-login]
 ---

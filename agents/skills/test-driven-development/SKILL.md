@@ -2,17 +2,15 @@
 name: test-driven-development
 description: "TDD: enforce RED-GREEN-REFACTOR, tests before code."
 version: 1.1.0
-author: Hermes Agent (adapted from obra/superpowers)
+author: agents
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  agents:
     tags: [testing, tdd, development, quality, red-green-refactor]
     related_skills: [systematic-debugging, subagent-driven-development]
 ---
 
-> **DSH uyarlama notu:** Bu skill Hermes'ten taşındı; `hermes` CLI'si ve eski
-> araç adları DSH'de birebir yok. Yüklemeden önce `DSH-UYARI.md` dosyasını oku.
 
 # Test-Driven Development (TDD)
 
@@ -302,7 +300,7 @@ Can't check all boxes? You skipped TDD. Start over.
 | Must mock everything | Code too coupled. Use dependency injection. |
 | Test setup huge | Extract helpers. Still complex? Simplify the design. |
 
-## Hermes Agent Integration
+## DSH Agent Integration
 
 ### Running Tests
 

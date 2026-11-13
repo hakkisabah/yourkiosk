@@ -2,11 +2,11 @@
 name: spa-api-auth-wiring
 description: "Use when wiring SPA route auth, admin roles, or API CORS."
 version: 1.0.0
-author: Hermes Agent
+author: agents
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  agents:
     tags: [auth, authorization, cors, routing, spa, api-gateway, cognito, rbac, security]
 ---
 

@@ -2,10 +2,10 @@
 name: encrypted-state-backup
 description: "Use when backing up or syncing tool state as an encrypted archive."
 version: 1.1.0
-author: Hermes Agent
+author: agents
 license: MIT
 metadata:
-  hermes:
+  agents:
     tags: [backup, encryption, state, local-first, aes-gcm, scrypt]
     related_skills: [mmap-score-index, local-vector-index-mmap]
 ---

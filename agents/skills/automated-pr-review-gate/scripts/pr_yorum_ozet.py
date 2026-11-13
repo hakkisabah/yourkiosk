@@ -5,7 +5,7 @@ Kullanım:
     python3 pr_yorum_ozet.py 90 86 84           # her PR için SON karar yorumu + tazelik
     python3 pr_yorum_ozet.py --hepsi 90         # tüm karar turları (tarihçe)
     python3 pr_yorum_ozet.py --durum 90 86      # yalnız status context'leri + head sha
-    DEPO=hakkisabah/yourkiosk TOKEN=~/.config/hermes-secrets/github-yourkiosk.token \\
+    DEPO=hakkisabah/yourkiosk TOKEN=~/.config/dsh-secrets/github-yourkiosk.token \\
         python3 pr_yorum_ozet.py 83
 
 Neden: "PR neden birleşmiyor" sorusunun cevabı yorumlarda ve commit status'lerinde. Elle
@@ -55,7 +55,7 @@ def main() -> int:
     ap.add_argument("prlar", nargs="+", type=int)
     ap.add_argument("--depo", default=os.environ.get("DEPO", "hakkisabah/yourkiosk"))
     ap.add_argument("--token-dosya",
-                    default=os.environ.get("TOKEN", "~/.config/hermes-secrets/github-yourkiosk.token"))
+                    default=os.environ.get("TOKEN", "~/.config/dsh-secrets/github-yourkiosk.token"))
     ap.add_argument("--durum", action="store_true", help="yorum yerine commit status'lerini yaz")
     ap.add_argument("--hepsi", action="store_true",
                     help="yalnız son karar turu değil, TÜM karar yorumları")

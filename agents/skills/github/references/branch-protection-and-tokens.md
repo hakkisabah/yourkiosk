@@ -28,9 +28,9 @@ Never paste a token into chat, a commit, a log, or a command line that gets
 logged. Have the user write it into a 0600 file and hand over only the path:
 
 ```bash
-mkdir -p ~/.config/hermes-secrets && chmod 700 ~/.config/hermes-secrets
-read -rsp "token: " T && printf '%s\n' "$T" > ~/.config/hermes-secrets/github-OWNER-REPO.token && unset T
-chmod 600 ~/.config/hermes-secrets/github-OWNER-REPO.token
+mkdir -p ~/.config/dsh-secrets && chmod 700 ~/.config/dsh-secrets
+read -rsp "token: " T && printf '%s\n' "$T" > ~/.config/dsh-secrets/github-OWNER-REPO.token && unset T
+chmod 600 ~/.config/dsh-secrets/github-OWNER-REPO.token
 ```
 
 In code, read it with `Path(...).read_text().strip()` and pass it into headers;

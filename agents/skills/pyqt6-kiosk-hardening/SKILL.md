@@ -2,10 +2,10 @@
 name: pyqt6-kiosk-hardening
 description: Use when hardening or testing PyQt6 kiosk apps.
 version: 1.0.0
-author: Hermes Agent (hakki)
+author: agents
 license: MIT
 metadata:
-  hermes:
+  agents:
     tags: [pyqt6, qt6, kiosk, security, headless-testing]
     related_skills: [python-debugpy, requesting-code-review]
 ---

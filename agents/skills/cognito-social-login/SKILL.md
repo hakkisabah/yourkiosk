@@ -2,10 +2,10 @@
 name: cognito-social-login
 description: Use when wiring Cognito login or social sign-in.
 version: 1.0.0
-author: Hermes Agent
+author: agents
 license: MIT
 metadata:
-  hermes:
+  agents:
     tags: [aws, cognito, authentication, oauth, cdk]
     related_skills: [ts-monorepo-build-gotchas]
 ---

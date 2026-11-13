@@ -2,10 +2,10 @@
 name: aws-cdk-git-deploy-pipeline
 description: Use when wiring git-to-AWS auto-deploy for a CDK app.
 version: 1.0.0
-author: Hermes Agent
+author: agents
 license: MIT
 metadata:
-  hermes:
+  agents:
     tags: [aws, cdk, cicd, github-actions, security, oidc]
     related_skills: [github, ts-monorepo-build-gotchas]
 ---

@@ -9,7 +9,7 @@ belge sayıları koddan yeniden türetilir.
 `gh` her makinede kurulu olmayabilir — REST yeterli ve token zaten sır dizininde:
 
 ```bash
-T=$(cat ~/.config/hermes-secrets/github-yourkiosk.token)
+T=$(cat ~/.config/dsh-secrets/github-yourkiosk.token)
 curl -s -H "Authorization: Bearer $T" \
   "https://api.github.com/repos/<sahip>/<depo>/pulls?state=open&per_page=50" \
   | python3 -c "import json,sys;[print(p['number'],p['head']['sha'][:8],p['head']['ref'],p['mergeable_state'],'|',p['title'][:60]) for p in json.load(sys.stdin)]"
