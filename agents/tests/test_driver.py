@@ -192,6 +192,21 @@ class WorkerTesti(unittest.TestCase):
         self.assertTrue(d.startswith("agents/yourkiosk-"))
         self.assertNotIn(" ", d)
 
+class KararAyiklaTesti(unittest.TestCase):
+    def test_gecerli_blok(self):
+        metin = ("KARAR_JSON_BEGIN abc123" + chr(10) +
+                 '{"pr": 1, "sha": "x", "karar": "onay"}' + chr(10) +
+                 "KARAR_JSON_END abc123")
+        self.assertEqual(worker.karar_ayikla(metin, "abc123")["karar"], "onay")
+
+    def test_nonce_uyusmazsa_none(self):
+        metin = ("KARAR_JSON_BEGIN abc" + chr(10) + "{}" + chr(10) + "KARAR_JSON_END abc")
+        self.assertIsNone(worker.karar_ayikla(metin, "baska"))
+
+    def test_bozuk_json_none(self):
+        metin = ("KARAR_JSON_BEGIN n" + chr(10) + "{bozuk" + chr(10) + "KARAR_JSON_END n")
+        self.assertIsNone(worker.karar_ayikla(metin, "n"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
