@@ -9,9 +9,9 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import config, systemd
+from . import config, roles, systemd, worker
 from .github import Github, GithubHatasi
-from .roles import beklenen_rol
+from .roles import KARAR_BEKLE, beklenen_rol
 from .state import Durum
 
 
@@ -71,7 +71,8 @@ def install(cfg_yolu: str | None, kuru: bool) -> int:
             cfg["instance"], a["role"],
             f"{sys.executable} -m agents.driver.cli run --role {a['role']}",
             Path(cfg["state_dir"]),
-            {"AGENTS_CONFIG": str(cfg_yolu or ""), "PYTHONPATH": str(kok)},
+            {"AGENTS_CONFIG": str(Path(cfg_yolu).resolve()) if cfg_yolu else str(config.yapilandirma_yolu()),
+             "PYTHONPATH": str(kok)},
         )
         if kuru:
             print(f"--- {ad} ---")
@@ -84,16 +85,37 @@ def install(cfg_yolu: str | None, kuru: bool) -> int:
     return 0
 
 
-def run(cfg_yolu: str | None, rol: str, kuru: bool) -> int:
+def run(cfg_yolu: str | None, rol: str, kuru: bool, gorev: str | None = None) -> int:
     cfg = config.yukle(Path(cfg_yolu) if cfg_yolu else None)
     a = _ajan(cfg, rol)
     with Durum(Path(cfg["state_dir"]), a["name"]) as d:
         veri = d.oku()
         durum = veri.get("durum") or beklenen_rol(rol)
         if kuru:
-            print(json.dumps({"ajan": a["name"], "rol": rol, "durum": durum}, ensure_ascii=False))
+            print(json.dumps({"ajan": a["name"], "rol": rol, "durum": durum,
+                              "gorev": gorev}, ensure_ascii=False))
             return 0
-        # Ağ/ajan çağrısı sonraki katmanda; şimdilik durumu kalıcılaştır.
+        if rol == "developer" and gorev:
+            sonuc = worker.gorev_baslat(cfg, a, gorev)
+            d.yaz({"durum": KARAR_BEKLE, "rol": rol, "pr": sonuc["pr"],
+                   "sha": sonuc["sha"], "dal": sonuc["dal"]})
+            print(f"{a['name']}: PR #{sonuc['pr']} açıldı ({sonuc['sha'][:10]})")
+            return 0
+        if rol in {"reviewer", "decision"}:
+            g = Github(cfg["repo"], a["token_file"])
+            prlar = g.acik_prlar()
+            durumlar = {int(p["number"]): g.durumlar(str(p["head"]["sha"])) for p in prlar}
+            hedef = (roles.inceleme_plani(prlar, durumlar) if rol == "reviewer"
+                     else roles.karar_plani(prlar, durumlar))
+            if not hedef:
+                print(f"{a['name']}: iş yok")
+                return 0
+            pr = hedef[0]
+            sonuc = (worker.incele(cfg, a, pr) if rol == "reviewer"
+                     else worker.karar_ver(cfg, a, pr))
+            d.yaz({"durum": durum, "rol": rol, "sonuc": sonuc})
+            print(f"{a['name']}: #{pr['number']} {sonuc}")
+            return 0
         d.yaz({"durum": durum, "rol": rol})
         print(f"{a['name']}: {durum}")
     return 0
@@ -108,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         sp.add_argument("--kuru", action="store_true")
     r = alt.add_parser("run")
     r.add_argument("--role", required=True)
+    r.add_argument("--gorev")
     r.add_argument("--kuru", action="store_true")
     s = p.parse_args(argv)
     if s.komut == "doctor":
@@ -120,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         print("uninstall: birimleri silmek için install --kuru çıktısındaki adları kullanın")
         return 0
     if s.komut == "run":
-        return run(s.config, s.role, s.kuru)
+        return run(s.config, s.role, s.kuru, getattr(s, "gorev", None))
     return 2
 
 

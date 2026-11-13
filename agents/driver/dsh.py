@@ -18,9 +18,13 @@ def dsh_checkout() -> Path:
     return Path(os.environ.get("DSH_CHECKOUT", str(Path.home() / "deepseek-harness")))
 
 
-def komut(profil: str) -> list[str]:
-    return ["node", str(dsh_checkout() / "apps" / "cli" / "lib" / "bin.js"),
-            "--profile", profil, "-"]
+def komut(profil: str, izin: str | None = None) -> list[str]:
+    k = ["node", str(dsh_checkout() / "apps" / "cli" / "lib" / "bin.js"),
+         "--profile", profil]
+    if izin:
+        k += ["--permission-mode", izin]
+    k += ["--approval-policy", "never"]
+    return k + ["-"]
 
 
 def _oku(boru, kutu, ad, pid):
@@ -47,12 +51,22 @@ def _oku(boru, kutu, ad, pid):
     kutu[ad] = "".join(parcalar)
 
 
-def calistir(prompt: str, profil: str, cwd: Path) -> tuple[int, str]:
-    if not Path(komut(profil)[1]).is_file():
-        raise DshHatasi(f"DSH bulunamadı: {komut(profil)[1]}")
-    s = subprocess.Popen(komut(profil), cwd=str(cwd), stdin=subprocess.PIPE,
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         text=True, start_new_session=True)
+def calistir(prompt: str, profil: str, cwd: Path, izin: str | None = None,
+             dsh_home: str | None = None) -> tuple[int, str]:
+    if not Path(komut(profil, izin)[1]).is_file():
+        raise DshHatasi(f"DSH bulunamadı: {komut(profil, izin)[1]}")
+    ortam = dict(os.environ)
+    if dsh_home:
+        ortam["DSH_HOME"] = str(dsh_home)
+        env_yolu = Path(dsh_home) / ".env"
+        if env_yolu.is_file():
+            for satir in env_yolu.read_text(encoding="utf-8").splitlines():
+                if "=" in satir and not satir.strip().startswith("#"):
+                    k, v = satir.split("=", 1)
+                    ortam.setdefault(k.strip(), v.strip())
+    s = subprocess.Popen(komut(profil, izin), cwd=str(cwd), env=ortam,
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True, start_new_session=True)
     kutu: dict[str, str] = {}
     t1 = threading.Thread(target=_oku, args=(s.stdout, kutu, "out", s.pid), daemon=True)
     t2 = threading.Thread(target=_oku, args=(s.stderr, kutu, "err", s.pid), daemon=True)

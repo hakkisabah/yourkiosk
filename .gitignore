@@ -62,3 +62,5 @@ karar-ornek.json
 karar.json
 otomasyon-paket.json
 komut-gonderilecek.json
+.agents-test/
+agents/config/agents-test.toml

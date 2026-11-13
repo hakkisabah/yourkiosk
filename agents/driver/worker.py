@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -36,10 +37,13 @@ def _token(ajan: dict) -> str:
 
 
 def _git_env(token: str) -> dict:
+    kimlik = base64.b64encode(f"x-access-token:{token}".encode()).decode()
     return {**os.environ,
-            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_COUNT": "2",
             "GIT_CONFIG_KEY_0": "http.extraheader",
-            "GIT_CONFIG_VALUE_0": f"Authorization: Bearer {token}",
+            "GIT_CONFIG_VALUE_0": f"Authorization: Basic {kimlik}",
+            "GIT_CONFIG_KEY_1": "credential.helper",
+            "GIT_CONFIG_VALUE_1": "",
             "GIT_TERMINAL_PROMPT": "0"}
 
 
@@ -66,6 +70,10 @@ def klon_hazirla(cfg: dict, ajan: dict) -> Path:
     return wd
 
 
+def _izin(cfg: dict, ajan: dict) -> str:
+    return str(ajan.get("permission") or ("workspace-write" if ajan["role"] == "developer" else "read-only"))
+
+
 def _rol_metni(rol: str) -> str:
     return (Path(__file__).resolve().parents[1] / "roles" / f"{rol}.md").read_text(encoding="utf-8")
 
@@ -78,7 +86,7 @@ def gorev_baslat(cfg: dict, ajan: dict, gorev: str) -> dict:
     once = _git(wd, "rev-parse", "HEAD", token=token).strip()
     prompt = chr(10).join([_rol_metni(ajan["role"]), "", "## Görev", gorev, "",
                            "Değişiklikleri commit et. Push/merge YOK; sürücü yapacak."])
-    kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), wd)
+    kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), wd, _izin(cfg, ajan), cfg.get("dsh_home"))
     if kod != 0:
         raise IsciHatasi(f"DSH çıkış {kod}: {cikti[-500:]}")
     if _git(wd, "status", "--porcelain", token=token).strip():
@@ -127,7 +135,7 @@ def incele(cfg: dict, ajan: dict, pr: dict) -> dict:
         '"karar":"onay|sorun","onem":"dusuk|orta|yuksek","ozet":"...","bulgular":[],"denetlenen":[]}',
         f"KARAR_JSON_END {nonce}",
     ])
-    kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), wd)
+    kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), wd, _izin(cfg, ajan), cfg.get("dsh_home"))
     karar = karar_ayikla(cikti, nonce) if kod == 0 else None
     if not karar or str(karar.get("sha")) != sha or str(karar.get("pr")) != str(no):
         g = github.Github(cfg["repo"], ajan["token_file"])
