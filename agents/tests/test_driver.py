@@ -126,6 +126,15 @@ class DshTesti(unittest.TestCase):
         self.assertIn("bin.js", k[1])
         self.assertEqual(k[-1], "-")
 
+class SandboxTesti(unittest.TestCase):
+    def test_izolasyon_bayraklari(self):
+        import sandbox
+        a = sandbox.bwrap_argumanlari(Path("/tmp/repo"), "read-only", Path("/tmp/home"))
+        for bayrak in ("--unshare-net", "--unshare-pid", "--die-with-parent", "--proc"):
+            self.assertIn(bayrak, a)
+        self.assertIn("--ro-bind", a)
+        self.assertEqual(a[-1], "--")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
