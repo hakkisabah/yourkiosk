@@ -86,7 +86,7 @@ def gorev_baslat(cfg: dict, ajan: dict, gorev: str) -> dict:
     once = _git(wd, "rev-parse", "HEAD", token=token).strip()
     prompt = chr(10).join([_rol_metni(ajan["role"]), "", "## Görev", gorev, "",
                            "Değişiklikleri commit et. Push/merge YOK; sürücü yapacak."])
-    kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), wd, _izin(cfg, ajan), cfg.get("dsh_home"))
+    kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), wd, _izin(cfg, ajan), cfg.get("dsh_home"), cfg.get("dsh_patch"))
     if kod != 0:
         raise IsciHatasi(f"DSH çıkış {kod}: {cikti[-500:]}")
     if _git(wd, "status", "--porcelain", token=token).strip():
@@ -135,7 +135,7 @@ def incele(cfg: dict, ajan: dict, pr: dict) -> dict:
         '"karar":"onay|sorun","onem":"dusuk|orta|yuksek","ozet":"...","bulgular":[],"denetlenen":[]}',
         f"KARAR_JSON_END {nonce}",
     ])
-    kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), wd, _izin(cfg, ajan), cfg.get("dsh_home"))
+    kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), wd, _izin(cfg, ajan), cfg.get("dsh_home"), cfg.get("dsh_patch"))
     karar = karar_ayikla(cikti, nonce) if kod == 0 else None
     if not karar or str(karar.get("sha")) != sha or str(karar.get("pr")) != str(no):
         g = github.Github(cfg["repo"], ajan["token_file"])

@@ -18,9 +18,11 @@ def dsh_checkout() -> Path:
     return Path(os.environ.get("DSH_CHECKOUT", str(Path.home() / "deepseek-harness")))
 
 
-def komut(profil: str, izin: str | None = None) -> list[str]:
+def komut(profil: str, izin: str | None = None, patch: str | None = None) -> list[str]:
     k = ["node", str(dsh_checkout() / "apps" / "cli" / "lib" / "bin.js"),
          "--profile", profil]
+    if patch:
+        k += ["--patch", str(patch)]
     if izin:
         k += ["--permission-mode", izin]
     k += ["--approval-policy", "never"]
@@ -52,9 +54,9 @@ def _oku(boru, kutu, ad, pid):
 
 
 def calistir(prompt: str, profil: str, cwd: Path, izin: str | None = None,
-             dsh_home: str | None = None) -> tuple[int, str]:
-    if not Path(komut(profil, izin)[1]).is_file():
-        raise DshHatasi(f"DSH bulunamadı: {komut(profil, izin)[1]}")
+             dsh_home: str | None = None, patch: str | None = None) -> tuple[int, str]:
+    if not Path(komut(profil, izin, patch)[1]).is_file():
+        raise DshHatasi(f"DSH bulunamadı: {komut(profil, izin, patch)[1]}")
     ortam = dict(os.environ)
     if dsh_home:
         ortam["DSH_HOME"] = str(dsh_home)
@@ -64,7 +66,7 @@ def calistir(prompt: str, profil: str, cwd: Path, izin: str | None = None,
                 if "=" in satir and not satir.strip().startswith("#"):
                     k, v = satir.split("=", 1)
                     ortam.setdefault(k.strip(), v.strip())
-    s = subprocess.Popen(komut(profil, izin), cwd=str(cwd), env=ortam,
+    s = subprocess.Popen(komut(profil, izin, patch), cwd=str(cwd), env=ortam,
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE, text=True, start_new_session=True)
     kutu: dict[str, str] = {}
