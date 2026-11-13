@@ -30,7 +30,7 @@ def doctor(cfg_yolu: str | None) -> int:
         print(f"✗ config: {h}")
         return 2
     print(f"✓ config: {cfg['instance']} · {cfg['repo']}")
-    for arac in ("gh", "node", "git"):
+    for arac in ("node", "git"):
         if shutil.which(arac) is None:
             print(f"✗ araç yok: {arac}")
             sorun += 1

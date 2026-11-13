@@ -11,6 +11,7 @@ from unittest import mock
 
 KOK = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(KOK / "driver"))
+sys.path.insert(0, str(KOK / "install"))
 
 import config  # noqa: E402
 import state  # noqa: E402
@@ -70,6 +71,60 @@ class SystemdTesti(unittest.TestCase):
         self.assertNotIn("/home/", metin)
         self.assertEqual(systemd.birim_adi("deneme", "developer"),
                          "agents@deneme-developer.service")
+
+class WizardTesti(unittest.TestCase):
+    def test_n1_tek_gelistirici(self):
+        import wizard
+        v = wizard.uret("d", "s/p", 1, ["yerel"], Path("/tmp/t"))
+        self.assertEqual([a["role"] for a in v["agents"]], ["developer"])
+
+    def test_n3_roller(self):
+        import wizard
+        v = wizard.uret("d", "s/p", 3, ["a", "b", "c"], Path("/tmp/t"))
+        self.assertEqual([a["role"] for a in v["agents"]],
+                         ["developer", "reviewer", "decision"])
+        self.assertIn('instance = "d"', wizard.toml(v))
+
+    def test_n4_iki_reviewer(self):
+        import wizard
+        v = wizard.uret("d", "s/p", 4, [], Path("/tmp/t"))
+        self.assertEqual([a["role"] for a in v["agents"]],
+                         ["developer", "reviewer", "reviewer", "decision"])
+
+
+class DshTesti(unittest.TestCase):
+    def test_komut_bin_js(self):
+        import dsh
+        k = dsh.komut("profil")
+        self.assertIn("bin.js", k[1])
+        self.assertEqual(k[-1], "-")
+
+class WizardTesti(unittest.TestCase):
+    def test_n1_tek_gelistirici(self):
+        import wizard
+        v = wizard.uret("d", "s/p", 1, ["yerel"], Path("/tmp/t"))
+        self.assertEqual([a["role"] for a in v["agents"]], ["developer"])
+
+    def test_n3_roller(self):
+        import wizard
+        v = wizard.uret("d", "s/p", 3, ["a", "b", "c"], Path("/tmp/t"))
+        self.assertEqual([a["role"] for a in v["agents"]],
+                         ["developer", "reviewer", "decision"])
+        self.assertIn('instance = "d"', wizard.toml(v))
+
+    def test_n4_iki_reviewer(self):
+        import wizard
+        v = wizard.uret("d", "s/p", 4, [], Path("/tmp/t"))
+        self.assertEqual([a["role"] for a in v["agents"]],
+                         ["developer", "reviewer", "reviewer", "decision"])
+
+
+class DshTesti(unittest.TestCase):
+    def test_komut_bin_js(self):
+        import dsh
+        k = dsh.komut("profil")
+        self.assertIn("bin.js", k[1])
+        self.assertEqual(k[-1], "-")
 
 
 if __name__ == "__main__":
