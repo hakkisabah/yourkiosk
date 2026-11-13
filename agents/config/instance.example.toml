@@ -1,0 +1,32 @@
+# Örnek instance (TOML; Python 3.11+ stdlib)
+instance = "ornek"
+repo = "sahip/proje"
+base_branch = "main"
+dsh_profile = "agents-dev"
+
+workdir = "${XDG_STATE_HOME}/agents/${instance}/work"
+state_dir = "${XDG_STATE_HOME}/agents/${instance}"
+skills_root = "${XDG_DATA_HOME}/agents/${instance}/skills"
+
+[systemd]
+restart = "on-failure"
+restart_sec = 5
+start_limit_interval_sec = 0
+
+[[agents]]
+name = "gelistirici"
+role = "developer"
+machine = "yerel"
+token_file = "${XDG_CONFIG_HOME}/agents/${instance}/gelistirici.token"
+
+[[agents]]
+name = "inceleme"
+role = "reviewer"
+machine = "i5"
+token_file = "${XDG_CONFIG_HOME}/agents/${instance}/inceleme.token"
+
+[[agents]]
+name = "karar"
+role = "decision"
+machine = "i3"
+token_file = "${XDG_CONFIG_HOME}/agents/${instance}/karar.token"

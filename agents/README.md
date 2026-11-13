@@ -15,12 +15,12 @@ Bizim kurulum: **N=3** (aceri5 geliştirici, i5 reviewer, i3 karar).
 ## Kurulum
 
 ```bash
-agents/install/install.sh --config ~/.config/agents/<instance>.yml
-agents doctor --config ~/.config/agents/<instance>.yml
+agents/install/install.sh --config ~/.config/agents/<instance>.toml
+agents doctor --config ~/.config/agents/<instance>.toml
 agents install --role developer --machine aceri5
 ```
 
-Ayrıntı: `install/`, `config/instance.example.yml`.
+Ayrıntı: `install/`, `config/instance.example.toml`.
 
 ## Yapı
 
