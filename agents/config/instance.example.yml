@@ -1,0 +1,32 @@
+# Örnek instance. Kopyalayıp kendi adınızı verin.
+# Sabit /home/... yolu YOK; tüm yollar env veya XDG'den türetilir.
+instance: ornek
+repo: sahip/proje
+base_branch: main
+dsh_profile: agents-dev
+
+# Ajanlar; 1..N
+agents:
+  - name: gelistirici
+    role: developer
+    machine: yerel
+    token_file: ${XDG_CONFIG_HOME}/agents/${instance}/gelistirici.token
+  - name: inceleme
+    role: reviewer
+    machine: i5
+    token_file: ${XDG_CONFIG_HOME}/agents/${instance}/inceleme.token
+  - name: karar
+    role: decision
+    machine: i3
+    token_file: ${XDG_CONFIG_HOME}/agents/${instance}/karar.token
+
+# Yollar (boşsa XDG varsayılanı)
+workdir: ${XDG_STATE_HOME}/agents/${instance}/work
+state_dir: ${XDG_STATE_HOME}/agents/${instance}
+skills_root: ${XDG_DATA_HOME}/agents/${instance}/skills
+
+# systemd dayanıklılığı (kota değil)
+systemd:
+  restart: on-failure
+  restart_sec: 5
+  start_limit_interval_sec: 0
