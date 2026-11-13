@@ -12,10 +12,12 @@ from unittest import mock
 KOK = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(KOK / "driver"))
 sys.path.insert(0, str(KOK / "install"))
+sys.path.insert(0, str(KOK.parents[1]))
 
 import config  # noqa: E402
 import state  # noqa: E402
 import systemd  # noqa: E402
+from agents.driver import worker  # noqa: E402
 
 
 class ConfigTesti(unittest.TestCase):
@@ -179,6 +181,16 @@ class GithubTesti(unittest.TestCase):
         with mock.patch.object(g, "_istek", return_value=veri):
             d = g.durumlar("abc")
         self.assertEqual(d["guvenlik/inceleme"], "failure")
+
+class WorkerTesti(unittest.TestCase):
+    def test_slug(self):
+        self.assertEqual(worker.slug("Merhaba Dünya!"), "merhaba-d-nya")
+        self.assertEqual(worker.slug("   "), "gorev")
+
+    def test_dal_adi(self):
+        d = worker.dal_adi("yourkiosk", "Kapı düzeltmesi")
+        self.assertTrue(d.startswith("agents/yourkiosk-"))
+        self.assertNotIn(" ", d)
 
 
 if __name__ == "__main__":
