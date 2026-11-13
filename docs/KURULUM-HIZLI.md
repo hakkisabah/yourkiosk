@@ -142,7 +142,6 @@ Sonra kiosk'u yeniden başlat → `tools/tarayici_kiosk.py --tani` çıktısınd
 kiosk/tools/test.sh tests -q          # kiosk testleri
 (cd panel && npm test)                # panel testleri
 (cd web && npm test)                  # web testleri
-./otomasyon/durum                     # i5/i3 otomasyon panosu
 ```
 
 ---
