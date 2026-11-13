@@ -135,6 +135,51 @@ class SandboxTesti(unittest.TestCase):
         self.assertIn("--ro-bind", a)
         self.assertEqual(a[-1], "--")
 
+class RolPlanTesti(unittest.TestCase):
+    def test_gecisler(self):
+        import roles
+        self.assertEqual(roles.gecis(roles.GELISTIR, "push"), roles.KARAR_BEKLE)
+        self.assertEqual(roles.gecis(roles.KARAR_BEKLE, "ret"), roles.GELISTIR)
+        self.assertEqual(roles.gecis(roles.KARAR_BEKLE, "merge"), roles.GELISTIR)
+
+    def test_gelistirici_ret_duzeltir(self):
+        import roles
+        pr = {"number": 1, "merged_at": None}
+        eylem, _ = roles.gelistirici_plani(roles.GELISTIR, pr, {roles.INCELEME: "failure"}, False)
+        self.assertEqual(eylem, "duzelt")
+
+    def test_gelistirici_merge_bitti(self):
+        import roles
+        pr = {"number": 1, "merged_at": "2026-01-01"}
+        eylem, _ = roles.gelistirici_plani(roles.KARAR_BEKLE, pr, {roles.INCELEME: "success"}, False)
+        self.assertEqual(eylem, "bitti")
+
+    def test_inceleme_yeni_head(self):
+        import roles
+        pr = {"number": 5}
+        self.assertEqual(len(roles.inceleme_plani([pr], {})), 1)
+        self.assertEqual(len(roles.inceleme_plani([pr], {5: {roles.INCELEME: "success"}})), 0)
+
+    def test_karar_iki_onay(self):
+        import roles
+        pr = {"number": 5}
+        d = {5: {roles.INCELEME: "success"}}
+        self.assertEqual(len(roles.karar_plani([pr], d)), 1)
+        d[5][roles.KARAR] = "success"
+        self.assertEqual(len(roles.karar_plani([pr], d)), 0)
+
+class GithubTesti(unittest.TestCase):
+    def test_status_en_yeni(self):
+        import github
+        g = github.Github("s/p", "/tmp/yok")
+        veri = {"statuses": [
+            {"context": "guvenlik/inceleme", "state": "failure"},
+            {"context": "guvenlik/inceleme", "state": "success"},
+        ]}
+        with mock.patch.object(g, "_istek", return_value=veri):
+            d = g.durumlar("abc")
+        self.assertEqual(d["guvenlik/inceleme"], "failure")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
