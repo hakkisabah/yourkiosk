@@ -12,6 +12,7 @@ yeni=()
 ayrac=0
 for a in "$@"; do
   if [ "$a" = "--" ] && [ "$ayrac" -eq 0 ]; then
+    yeni+=(--ro-bind / / --dev /dev)
     yeni+=(--bind "$SHADOW" "$HOME_REAL")
     yeni+=(--bind "$REPO" "$REPO")
     yeni+=(--bind "$REPO/.git" "$REPO/.git")
