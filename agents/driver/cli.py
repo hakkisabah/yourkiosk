@@ -100,9 +100,10 @@ def run(cfg_yolu: str | None, rol: str, kuru: bool, gorev: str | None = None) ->
             return 0
         if rol == "developer" and gorev:
             sonuc = worker.gorev_baslat(cfg, a, gorev)
-            d.yaz({"durum": KARAR_BEKLE, "rol": rol, "pr": sonuc["pr"],
-                   "sha": sonuc["sha"], "dal": sonuc["dal"]})
-            print(f"{a['name']}: PR #{sonuc['pr']} açıldı ({sonuc['sha'][:10]})")
+            d.yaz({"durum": "BIRLESTI" if sonuc.get("merged") else KARAR_BEKLE,
+                   "rol": rol, "pr": sonuc["pr"], "sha": sonuc["sha"], "dal": sonuc["dal"]})
+            ek = " · birleştirildi" if sonuc.get("merged") else ""
+            print(f"{a['name']}: PR #{sonuc['pr']} açıldı ({sonuc['sha'][:10]}){ek}")
             return 0
         if rol in {"reviewer", "decision"}:
             g = Github(cfg["repo"], a["token_file"])

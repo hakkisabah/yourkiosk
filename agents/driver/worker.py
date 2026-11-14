@@ -103,7 +103,11 @@ def gorev_baslat(cfg: dict, ajan: dict, gorev: str) -> dict:
     _git(wd, "push", "-u", "origin", dal, token=token)
     g = github.Github(cfg["repo"], ajan["token_file"])
     pr = g.pr_olustur(f"agents: {gorev[:60]}", gorev, cfg["base_branch"], dal)
-    return {"pr": pr.get("number"), "sha": son, "dal": dal, "workdir": str(wd)}
+    sonuc = {"pr": pr.get("number"), "sha": son, "dal": dal, "workdir": str(wd)}
+    if len(cfg["agents"]) == 1:
+        g.birlestir(int(pr["number"]), son)
+        sonuc["merged"] = True
+    return sonuc
 
 
 def karar_ayikla(metin: str, nonce: str) -> dict | None:
