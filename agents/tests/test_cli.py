@@ -47,7 +47,7 @@ token_file = "{tok}"
                     self.assertEqual(cli.doctor(str(cfg)), 0, out.getvalue())
                     self.assertEqual(cli.install(str(cfg), kuru=True), 0)
                 metin = out.getvalue()
-            self.assertIn("Restart=on-failure", metin)
+            self.assertIn("Restart=always", metin)
             self.assertIn("StartLimitIntervalSec=0", metin)
             self.assertIn("OnFailure=agents-notify@test.service", metin)
 

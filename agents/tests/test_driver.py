@@ -67,7 +67,7 @@ class SystemdTesti(unittest.TestCase):
     def test_dayaniklilik_ve_sabit_yol_yok(self):
         metin = systemd.servis_metni("deneme", "developer", "/usr/bin/agents run",
                                      Path("/tmp/x"), {"A": "b"})
-        self.assertIn("Restart=on-failure", metin)
+        self.assertIn("Restart=always", metin)
         self.assertIn("StartLimitIntervalSec=0", metin)
         self.assertIn("OnFailure=agents-notify@deneme.service", metin)
         self.assertNotIn("/home/", metin)

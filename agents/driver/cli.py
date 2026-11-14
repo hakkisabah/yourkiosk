@@ -82,6 +82,9 @@ def install(cfg_yolu: str | None, kuru: bool) -> int:
             (sysd / ad).write_text(metin, encoding="utf-8")
             (sysd / ad).chmod(0o644)
             print(f"yazıldı: {sysd / ad}")
+    if not kuru:
+        (sysd / "agents-notify@.service").write_text(systemd.notify_metni(), encoding="utf-8")
+        print(f"yazıldı: {sysd / 'agents-notify@.service'}")
     return 0
 
 

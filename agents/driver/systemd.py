@@ -21,7 +21,7 @@ def servis_metni(instance: str, rol: str, exec_start: str, state_dir: Path,
         "Type=simple",
         f"WorkingDirectory={Path(state_dir)}",
         f"ExecStart={exec_start}",
-        "Restart=on-failure",
+        "Restart=always",
         "RestartSec=5",
         "StartLimitIntervalSec=0",
         "KillMode=control-group",
@@ -31,6 +31,13 @@ def servis_metni(instance: str, rol: str, exec_start: str, state_dir: Path,
         satirlar.append(f"Environment={k}={v}")
     satirlar += ["", "[Install]", "WantedBy=default.target", ""]
     return "\n".join(satirlar)
+
+
+def notify_metni() -> str:
+    return chr(10).join([
+        "[Unit]", "Description=agents failure notify", "",
+        "[Service]", "Type=oneshot",
+        "ExecStart=/bin/echo agents %i failed", ""])
 
 
 def birim_yolu(instance: str, rol: str, systemd_dir: Path) -> Path:
