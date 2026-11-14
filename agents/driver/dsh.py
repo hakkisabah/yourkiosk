@@ -54,10 +54,13 @@ def _oku(boru, kutu, ad, pid):
 
 
 def calistir(prompt: str, profil: str, cwd: Path, izin: str | None = None,
-             dsh_home: str | None = None, patch: str | None = None) -> tuple[int, str]:
+             dsh_home: str | None = None, patch: str | None = None,
+             repo: Path | None = None) -> tuple[int, str]:
     if not Path(komut(profil, izin, patch)[1]).is_file():
         raise DshHatasi(f"DSH bulunamadı: {komut(profil, izin, patch)[1]}")
     ortam = dict(os.environ)
+    if repo is not None:
+        ortam["AGENTS_REPO"] = str(repo)
     if dsh_home:
         ortam["DSH_HOME"] = str(dsh_home)
         env_yolu = Path(dsh_home) / ".env"

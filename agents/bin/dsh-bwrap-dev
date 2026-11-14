@@ -1,0 +1,36 @@
+#!/bin/bash
+# Generic DSH bwrap runner — repo rw, gölge HOME, ağ/PID kapalı.
+set -u
+[ -n "${AGENTS_REPO:-}" ] || { echo "dsh-bwrap-dev: AGENTS_REPO yok" >&2; exit 2; }
+REPO="$(realpath -e "$AGENTS_REPO" 2>/dev/null)" || { echo "dsh-bwrap-dev: repo yok" >&2; exit 2; }
+[ -d "$REPO/.git" ] || { echo "dsh-bwrap-dev: git deposu değil" >&2; exit 2; }
+HOME_REAL="$(realpath -e "$HOME" 2>/dev/null)" || { echo "dsh-bwrap-dev: HOME yok" >&2; exit 2; }
+SHADOW="$(mktemp -d "${TMPDIR:-/tmp}/dsh-dev.XXXXXX")" || { echo "dsh-bwrap-dev: gölge ev" >&2; exit 2; }
+trap 'rm -rf "$SHADOW"' EXIT
+
+yeni=()
+ayrac=0
+for a in "$@"; do
+  if [ "$a" = "--" ] && [ "$ayrac" -eq 0 ]; then
+    yeni+=(--bind "$SHADOW" "$HOME_REAL")
+    yeni+=(--bind "$REPO" "$REPO")
+    yeni+=(--bind "$REPO/.git" "$REPO/.git")
+    [ -d "$REPO/.git/hooks" ] && yeni+=(--ro-bind "$REPO/.git/hooks" "$REPO/.git/hooks")
+    [ -f "$REPO/.git/config" ] && yeni+=(--ro-bind "$REPO/.git/config" "$REPO/.git/config")
+    yeni+=(--tmpfs /tmp --tmpfs /run --unshare-net --unshare-pid --proc /proc --die-with-parent)
+    yeni+=(--clearenv)
+    yeni+=(--setenv HOME "$HOME_REAL" --setenv PATH "/usr/local/bin:/usr/bin:/bin")
+    yeni+=(--setenv LANG "C.UTF-8" --setenv TERM "dumb" --setenv TMPDIR "/tmp")
+    yeni+=(--setenv AGENTS_REPO "$REPO")
+    yeni+=(--setenv GIT_CONFIG_GLOBAL "/dev/null" --setenv GIT_CONFIG_NOSYSTEM "1")
+    yeni+=(--setenv GIT_TERMINAL_PROMPT "0")
+    yeni+=(--setenv GIT_AUTHOR_NAME "agents" --setenv GIT_AUTHOR_EMAIL "agents@localhost")
+    yeni+=(--setenv GIT_COMMITTER_NAME "agents" --setenv GIT_COMMITTER_EMAIL "agents@localhost")
+    yeni+=(--)
+    ayrac=1
+  else
+    yeni+=("$a")
+  fi
+done
+[ "$ayrac" -eq 1 ] || { echo "dsh-bwrap-dev: eksik --" >&2; exit 2; }
+exec bwrap "${yeni[@]}"
