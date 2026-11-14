@@ -92,12 +92,13 @@ def gorev_baslat(cfg: dict, ajan: dict, gorev: str) -> dict:
     kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), wd, _izin(cfg, ajan), cfg.get("dsh_home"), cfg.get("dsh_patch"), wd)
     if kod != 0:
         raise IsciHatasi(f"DSH çıkış {kod}: {cikti[-500:]}")
+    (Path(cfg["state_dir"]) / "dsh-son.log").write_text(cikti, encoding="utf-8")
     if _git(wd, "status", "--porcelain", token=token).strip():
         _git(wd, "add", "-A", token=token)
         _git(wd, "commit", "-m", f"agents: {gorev[:70]}", token=token)
     son = _git(wd, "rev-parse", "HEAD", token=token).strip()
     if son == once:
-        raise IsciHatasi("DSH değişiklik üretmedi")
+        raise IsciHatasi("DSH değişiklik üretmedi: " + cikti[-400:])
     _git(wd, "push", "-u", "origin", dal, token=token)
     g = github.Github(cfg["repo"], ajan["token_file"])
     pr = g.pr_olustur(f"agents: {gorev[:60]}", gorev, cfg["base_branch"], dal)
