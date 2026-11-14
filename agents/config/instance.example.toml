@@ -2,31 +2,31 @@
 instance = "ornek"
 repo = "sahip/proje"
 base_branch = "main"
-dsh_profile = "agents-dev"
+dsh_profile = "headless"
+# dsh_home = "${XDG_STATE_HOME}/agents/${instance}/dsh-home"
+# dsh_patch = "${XDG_STATE_HOME}/agents/${instance}/overlay.yml"
 
-workdir = "${XDG_STATE_HOME}/agents/${instance}/work"
 state_dir = "${XDG_STATE_HOME}/agents/${instance}"
+workdir = "${XDG_STATE_HOME}/agents/${instance}/work"
 skills_root = "${XDG_DATA_HOME}/agents/${instance}/skills"
-
-[systemd]
-restart = "on-failure"
-restart_sec = 5
-start_limit_interval_sec = 0
 
 [[agents]]
 name = "gelistirici"
 role = "developer"
 machine = "yerel"
 token_file = "${XDG_CONFIG_HOME}/agents/${instance}/gelistirici.token"
+permission = "workspace-write"
 
 [[agents]]
 name = "inceleme"
 role = "reviewer"
 machine = "i5"
 token_file = "${XDG_CONFIG_HOME}/agents/${instance}/inceleme.token"
+permission = "read-only"
 
 [[agents]]
 name = "karar"
 role = "decision"
 machine = "i3"
 token_file = "${XDG_CONFIG_HOME}/agents/${instance}/karar.token"
+permission = "read-only"

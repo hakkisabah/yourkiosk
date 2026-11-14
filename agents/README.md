@@ -1,43 +1,53 @@
 # agents — DSH çoklu ajan sistemi
 
 Projeden bağımsız, N ajanlı geliştirme sistemi. DSH (deepseek-harness) üzerinde çalışır.
-Hermes veya eski `otomasyon/` kodu **kullanılmaz**; yalnız dersler `playbooks/` altındadır.
 
-## N seçimi
+## Hızlı başlangıç (3 ajan)
 
-- **1 ajan:** geliştirici + test + kendi PR'ını squash merge. İnsan beklemez.
-  Dal koruması review istiyorsa bu mod uyumsuzdur; N>=2 kullan.
-- **N>=2:** geliştirici, reviewer(lar), karar. Roller ayrı makinelerde olabilir.
-  Karar, gerekli onaylar gelmeden merge etmez.
+1. Config oluştur (`agents/config/instance.example.toml` örnek):
+   - `instance`, `repo`, `base_branch`
+   - `dsh_profile` (ör. `headless`)
+   - Her ajan için `token_file` (0600, repo dışı)
+2. Doctor:
+   ```bash
+   ./agents/bin/agents --config agents/config/<instance>.toml doctor
+   ```
+3. Tek tur denemeleri:
+   ```bash
+   ./agents/bin/agents --config ... run --role developer --gorev "küçük bir görev"
+   ./agents/bin/agents --config ... run --role reviewer
+   ./agents/bin/agents --config ... run --role decision
+   ```
+4. systemd (gerçek kurulum; kullanıcı çalıştırır):
+   ```bash
+   ./agents/bin/agents --config ... install
+   systemctl --user daemon-reload
+   systemctl --user enable --now \
+     agents@<instance>-developer.service \
+     agents@<instance>-reviewer.service \
+     agents@<instance>-decision.service
+   ```
 
-Bizim kurulum: **N=3** (aceri5 geliştirici, i5 reviewer, i3 karar).
+## 1 ajan modu
 
-## Kurulum
+Config'te tek `[[agents]]` (developer). Ajan görevi yapar, PR açar ve **kendi PR'ını
+squash-merge** eder; insan beklemez. Dal koruması review istiyorsa bu mod uyumsuzdur.
 
-```bash
-agents/install/install.sh --config ~/.config/agents/<instance>.toml
-agents doctor --config ~/.config/agents/<instance>.toml
-agents install --role developer --machine aceri5
-```
+## Roller
 
-Ayrıntı: `install/`, `config/instance.example.toml`.
+| Rol | Yapar | Bekleme |
+|---|---|---|
+| developer | görev/ret → DSH → commit → push → PR | karar gelene kadar systemd servisi |
+| reviewer | yeni head → diff → `KARAR_JSON` + nonce → status | yeni head |
+| decision | çift onay → sha doğrula → squash merge | onaylar |
 
-## Yapı
+## Yol politikası
 
-| Dizin | İçerik |
-|---|---|
-| `config/` | örnek instance; sabit yol yok |
-| `driver/` | DSH sürücüsü, durum makinesi, GitHub, systemd |
-| `roles/` | geliştirici / reviewer / karar talimatları |
-| `memory/` | kısa kullanıcı ve kalıcı dersler |
-| `skills/` | INDEX + SKILL.md (gövde tembel yüklenir) |
-| `playbooks/` | eski sistemden çıkarılan tasarım dersleri |
-| `security/` | tehdit modeli, sandbox, token kapsamları |
-| `install/` | kurulum ve systemd şablonları |
+- Kodda sabit `/home`, `yourkiosk`, `otonom` yok; config/XDG.
+- `AGENTS_CONFIG`, `AGENTS_STATE`, `AGENTS_SKILLS` ile override.
+- Systemd birimleri `agents@<instance>-<role>.service` (kurulumda üretilir).
 
-## İlkeler
+## Güvenlik
 
-1. Yapay kota/süre sınırı yok; dayanıklılık systemd `Restart=on-failure` ile.
-2. Sabit yol adı yok; her şey instance/config/XDG.
-3. Skill'ler hafızaya gömülmez; yalnız INDEX görünür, gövde `skill` çağrısında.
-4. Karar: stdout + nonce + zorunlu sha; fail-closed.
+Bkz. `security/`. Özet: token makine/rol başına ayrı; reviewer/decision fail-closed;
+karar stdout + nonce + zorunlu sha; sır repo dışı.
