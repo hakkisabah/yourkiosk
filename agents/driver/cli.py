@@ -48,6 +48,12 @@ def doctor(cfg_yolu: str | None) -> int:
             if mod != 0o600:
                 print(f"✗ token izni {mod:o} (0600 olmalı): {t}")
                 sorun += 1
+    if cfg.get("dsh_patch") and not Path(cfg["dsh_patch"]).is_file():
+        print(f"✗ dsh_patch yok: {cfg['dsh_patch']}")
+        sorun += 1
+    if cfg.get("dsh_home") and not Path(cfg["dsh_home"]).is_dir():
+        print(f"✗ dsh_home yok: {cfg['dsh_home']}")
+        sorun += 1
     Path(cfg["state_dir"]).mkdir(parents=True, exist_ok=True)
     print(f"✓ durum: {cfg['state_dir']}")
     return 1 if sorun else 0
@@ -58,6 +64,24 @@ def status(cfg_yolu: str | None) -> int:
     for a in cfg["agents"]:
         with Durum(Path(cfg["state_dir"]), a["name"]) as d:
             print(f"{a['name']:15s} {a['role']:10s} {json.dumps(d.oku(), ensure_ascii=False)}")
+    return 0
+
+
+def uninstall(cfg_yolu: str | None) -> int:
+    cfg = config.yukle(Path(cfg_yolu) if cfg_yolu else None)
+    sysd = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "systemd" / "user"
+    for a in cfg["agents"]:
+        ad = systemd.birim_adi(cfg["instance"], a["role"])
+        try:
+            (sysd / ad).unlink()
+            print(f"silindi: {sysd / ad}")
+        except FileNotFoundError:
+            pass
+    try:
+        (sysd / "agents-notify@.service").unlink()
+    except FileNotFoundError:
+        pass
+    print("systemctl --user daemon-reload çalıştırın")
     return 0
 
 
@@ -144,8 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     if s.komut == "install":
         return install(s.config, s.kuru)
     if s.komut == "uninstall":
-        print("uninstall: birimleri silmek için install --kuru çıktısındaki adları kullanın")
-        return 0
+        return uninstall(s.config)
     if s.komut == "run":
         return run(s.config, s.role, s.kuru, getattr(s, "gorev", None))
     return 2
