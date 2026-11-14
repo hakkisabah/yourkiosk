@@ -95,7 +95,8 @@ def gorev_baslat(cfg: dict, ajan: dict, gorev: str) -> dict:
     (Path(cfg["state_dir"]) / "dsh-son.log").write_text(cikti, encoding="utf-8")
     if _git(wd, "status", "--porcelain", token=token).strip():
         _git(wd, "add", "-A", token=token)
-        _git(wd, "commit", "-m", f"agents: {gorev[:70]}", token=token)
+        _git(wd, "-c", "user.name=agents", "-c", "user.email=agents@localhost",
+             "commit", "-m", f"agents: {gorev[:70]}", token=token)
     son = _git(wd, "rev-parse", "HEAD", token=token).strip()
     if son == once:
         raise IsciHatasi("DSH değişiklik üretmedi: " + cikti[-400:])
