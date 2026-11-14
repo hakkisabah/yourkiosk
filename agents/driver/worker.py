@@ -71,6 +71,8 @@ def klon_hazirla(cfg: dict, ajan: dict) -> Path:
 
 
 def _izin(cfg: dict, ajan: dict) -> str:
+    if cfg.get("sandbox") == "yok":
+        return ""
     return str(ajan.get("permission") or ("workspace-write" if ajan["role"] == "developer" else "read-only"))
 
 
@@ -85,7 +87,8 @@ def gorev_baslat(cfg: dict, ajan: dict, gorev: str) -> dict:
     _git(wd, "checkout", "-B", dal, token=token)
     once = _git(wd, "rev-parse", "HEAD", token=token).strip()
     prompt = chr(10).join([_rol_metni(ajan["role"]), "", "## Görev", gorev, "",
-                           "Değişiklikleri commit et. Push/merge YOK; sürücü yapacak."])
+                           "Yalnız dosyaları düzenle. Commit/push YOK; sürücü yapacak.",
+                           "Dosyayı write aracıyla MUTLAKA oluştur; yalnız metin yanıtı verme."])
     kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), wd, _izin(cfg, ajan), cfg.get("dsh_home"), cfg.get("dsh_patch"), wd)
     if kod != 0:
         raise IsciHatasi(f"DSH çıkış {kod}: {cikti[-500:]}")

@@ -22,7 +22,7 @@ def komut(profil: str, izin: str | None = None, patch: str | None = None) -> lis
     k = ["node", str(dsh_checkout() / "apps" / "cli" / "lib" / "bin.js"),
          "--profile", profil]
     if patch:
-        k += ["--patch", str(patch)]
+        k += ["--patch", str(Path(patch).resolve())]
     if izin:
         k += ["--permission-mode", izin]
     k += ["--approval-policy", "never"]
