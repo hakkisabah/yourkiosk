@@ -56,6 +56,9 @@ class Github:
             cikti[ctx] = str(s.get("state") or "")
         return cikti
 
+    def pr_dosyalari(self, no: int) -> list[dict]:
+        return self._istek("GET", f"/repos/{self.repo}/pulls/{no}/files")
+
     def acik_prlar(self) -> list[dict]:
         return self._istek("GET", f"/repos/{self.repo}/pulls?state=open&per_page=50")
 

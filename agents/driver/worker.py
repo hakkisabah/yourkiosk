@@ -120,34 +120,37 @@ def karar_ayikla(metin: str, nonce: str) -> dict | None:
 
 
 def incele(cfg: dict, ajan: dict, pr: dict) -> dict:
-    wd = klon_hazirla(cfg, ajan)
-    token = _token(ajan)
+    g = github.Github(cfg["repo"], ajan["token_file"])
     no = int(pr["number"])
     sha = str(pr["head"]["sha"])
-    _git(wd, "fetch", "origin", f"pull/{no}/head", token=token)
-    _git(wd, "checkout", "--detach", "FETCH_HEAD", token=token)
+    dosyalar = g.pr_dosyalari(no)
+    parcalar = []
+    for d in dosyalar[:20]:
+        yama = str(d.get("patch") or "")
+        parcalar.append("### " + str(d.get("filename")) + chr(10) + yama[:4000])
+    diff = chr(10).join(parcalar)[:30000]
     nonce = secrets.token_hex(16)
     prompt = chr(10).join([
         _rol_metni("reviewer"),
         "",
         f"## PR #{no} · {sha[:12]}",
-        f"base: {pr['base']['ref']}",
-        "Diff'i incele; testleri/gerekçeyi doğrula.",
+        "Değişiklik:",
+        diff,
         "",
-        f"Kararını SADECE şu blokta yaz (nonce aynen):",
+        "Kararını SADECE şu blokta yaz (nonce aynen):",
         f"KARAR_JSON_BEGIN {nonce}",
         '{"makine":"reviewer","pr":' + str(no) + ',"sha":"' + sha + '",'
         '"karar":"onay|sorun","onem":"dusuk|orta|yuksek","ozet":"...","bulgular":[],"denetlenen":[]}',
         f"KARAR_JSON_END {nonce}",
     ])
-    kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), wd, _izin(cfg, ajan), cfg.get("dsh_home"), cfg.get("dsh_patch"), wd)
+    kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), Path(cfg["workdir"]),
+                              _izin(cfg, ajan), cfg.get("dsh_home"), cfg.get("dsh_patch"),
+                              Path(cfg["workdir"]))
     karar = karar_ayikla(cikti, nonce) if kod == 0 else None
     if not karar or str(karar.get("sha")) != sha or str(karar.get("pr")) != str(no):
-        g = github.Github(cfg["repo"], ajan["token_file"])
         g.durum_yaz(sha, roles.INCELEME, "failure", "karar bloğu yok/geçersiz")
         return {"durum": "failure", "neden": "karar bloğu yok/geçersiz"}
     onay = karar.get("karar") == "onay"
-    g = github.Github(cfg["repo"], ajan["token_file"])
     g.durum_yaz(sha, roles.INCELEME, "success" if onay else "failure",
                 f"{karar.get('karar')} · {karar.get('ozet', '')}")
     return {"durum": "success" if onay else "failure", "karar": karar}
