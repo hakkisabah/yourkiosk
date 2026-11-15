@@ -70,7 +70,11 @@ def status(cfg_yolu: str | None) -> int:
 def uninstall(cfg_yolu: str | None) -> int:
     cfg = config.yukle(Path(cfg_yolu) if cfg_yolu else None)
     sysd = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "systemd" / "user"
-    for a in cfg["agents"]:
+    secili = [a for a in cfg["agents"] if rol is None or a["role"] == rol]
+    if rol is not None and not secili:
+        print(f"✗ rol yok: {rol}")
+        return 2
+    for a in secili:
         ad = systemd.birim_adi(cfg["instance"], a["role"])
         try:
             (sysd / ad).unlink()
@@ -85,10 +89,14 @@ def uninstall(cfg_yolu: str | None) -> int:
     return 0
 
 
-def install(cfg_yolu: str | None, kuru: bool) -> int:
+def install(cfg_yolu: str | None, kuru: bool, rol: str | None = None) -> int:
     cfg = config.yukle(Path(cfg_yolu) if cfg_yolu else None)
     sysd = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "systemd" / "user"
-    for a in cfg["agents"]:
+    secili = [a for a in cfg["agents"] if rol is None or a["role"] == rol]
+    if rol is not None and not secili:
+        print(f"✗ rol yok: {rol}")
+        return 2
+    for a in secili:
         ad = systemd.birim_adi(cfg["instance"], a["role"])
         kok = Path(__file__).resolve().parents[2]
         metin = systemd.servis_metni(
@@ -180,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     for ad in ("doctor", "status", "install", "uninstall"):
         sp = alt.add_parser(ad)
         sp.add_argument("--kuru", action="store_true")
+    alt.choices["install"].add_argument("--role")
     r = alt.add_parser("run")
     r.add_argument("--role", required=True)
     r.add_argument("--gorev")
@@ -190,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     if s.komut == "status":
         return status(s.config)
     if s.komut == "install":
-        return install(s.config, s.kuru)
+        return install(s.config, s.kuru, getattr(s, "role", None))
     if s.komut == "uninstall":
         return uninstall(s.config)
     if s.komut == "run":
