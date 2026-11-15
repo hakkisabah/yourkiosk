@@ -122,11 +122,24 @@ def run(cfg_yolu: str | None, rol: str, kuru: bool, gorev: str | None = None) ->
             print(json.dumps({"ajan": a["name"], "rol": rol, "durum": durum,
                               "gorev": gorev}, ensure_ascii=False))
             return 0
-        if rol == "developer" and gorev:
+        if rol == "developer":
+            gorev_no = None
+            if not gorev:
+                is_ = worker.gorev_al(cfg, a)
+                if not is_:
+                    print(f"{a['name']}: iş yok")
+                    return 0
+                gorev_no = is_["no"]
+                gorev = f"#{gorev_no} {is_['baslik']}" + (chr(10) + is_["govde"] if is_["govde"] else "")
             sonuc = worker.gorev_baslat(cfg, a, gorev)
             d.yaz({"durum": "BIRLESTI" if sonuc.get("merged") else KARAR_BEKLE,
                    "rol": rol, "pr": sonuc["pr"], "sha": sonuc["sha"], "dal": sonuc["dal"]})
             ek = " · birleştirildi" if sonuc.get("merged") else ""
+            if gorev_no:
+                g2 = Github(cfg["repo"], a["token_file"])
+                g2.yorum_yaz(gorev_no, f"PR #{sonuc['pr']} açıldı: {sonuc['sha'][:10]}{ek}")
+                if sonuc.get("merged"):
+                    g2.issue_kapat(gorev_no)
             print(f"{a['name']}: PR #{sonuc['pr']} açıldı ({sonuc['sha'][:10]}){ek}")
             return 0
         if rol in {"reviewer", "decision"}:

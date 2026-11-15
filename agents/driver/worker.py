@@ -80,6 +80,17 @@ def _rol_metni(rol: str) -> str:
     return (Path(__file__).resolve().parents[1] / "roles" / f"{rol}.md").read_text(encoding="utf-8")
 
 
+def gorev_al(cfg: dict, ajan: dict) -> dict | None:
+    g = github.Github(cfg["repo"], ajan["token_file"])
+    etiket = cfg.get("gorev_etiketi", "agents/gorev")
+    for i in g.gorevler(etiket):
+        if i.get("pull_request"):
+            continue
+        return {"no": int(i["number"]), "baslik": i.get("title") or "",
+                "govde": i.get("body") or ""}
+    return None
+
+
 def gorev_baslat(cfg: dict, ajan: dict, gorev: str) -> dict:
     wd = klon_hazirla(cfg, ajan)
     token = _token(ajan)

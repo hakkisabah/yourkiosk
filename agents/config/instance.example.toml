@@ -3,6 +3,7 @@ instance = "ornek"
 repo = "sahip/proje"
 base_branch = "main"
 dsh_profile = "headless"
+gorev_etiketi = "agents/gorev"
 # dsh_home = "${XDG_STATE_HOME}/agents/${instance}/dsh-home"
 # dsh_patch = "${XDG_STATE_HOME}/agents/${instance}/overlay.yml"
 

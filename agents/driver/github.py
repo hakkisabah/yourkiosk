@@ -59,6 +59,15 @@ class Github:
     def pr_dosyalari(self, no: int) -> list[dict]:
         return self._istek("GET", f"/repos/{self.repo}/pulls/{no}/files")
 
+    def gorevler(self, etiket: str) -> list[dict]:
+        return self._istek("GET", f"/repos/{self.repo}/issues?state=open&labels={etiket}&per_page=20")
+
+    def yorum_yaz(self, no: int, govde: str) -> dict:
+        return self._istek("POST", f"/repos/{self.repo}/issues/{no}/comments", {"body": govde})
+
+    def issue_kapat(self, no: int) -> dict:
+        return self._istek("PATCH", f"/repos/{self.repo}/issues/{no}", {"state": "closed"})
+
     def acik_prlar(self) -> list[dict]:
         return self._istek("GET", f"/repos/{self.repo}/pulls?state=open&per_page=50")
 
