@@ -88,6 +88,10 @@ def gorev_al(cfg: dict, ajan: dict) -> dict | None:
             continue
         return {"no": int(i["number"]), "baslik": i.get("title") or "",
                 "govde": i.get("body") or ""}
+    yerel = Path(cfg["state_dir"]) / "gorevler"
+    for p in sorted(yerel.glob("*.md")):
+        return {"no": None, "baslik": p.stem, "govde": p.read_text(encoding="utf-8"),
+                "dosya": str(p)}
     return None
 
 

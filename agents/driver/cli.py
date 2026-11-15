@@ -124,14 +124,25 @@ def run(cfg_yolu: str | None, rol: str, kuru: bool, gorev: str | None = None) ->
             return 0
         if rol == "developer":
             gorev_no = None
+            is_ = {}
             if not gorev:
                 is_ = worker.gorev_al(cfg, a)
                 if not is_:
                     print(f"{a['name']}: iş yok")
                     return 0
                 gorev_no = is_["no"]
-                gorev = f"#{gorev_no} {is_['baslik']}" + (chr(10) + is_["govde"] if is_["govde"] else "")
+                if gorev_no:
+                    gorev = f"#{gorev_no} {is_['baslik']}"
+                else:
+                    gorev = is_["baslik"]
+                if is_.get("govde"):
+                    gorev += chr(10) + is_["govde"]
             sonuc = worker.gorev_baslat(cfg, a, gorev)
+            if is_.get("dosya") and sonuc.get("merged"):
+                try:
+                    Path(is_["dosya"]).unlink()
+                except OSError:
+                    pass
             d.yaz({"durum": "BIRLESTI" if sonuc.get("merged") else KARAR_BEKLE,
                    "rol": rol, "pr": sonuc["pr"], "sha": sonuc["sha"], "dal": sonuc["dal"]})
             ek = " · birleştirildi" if sonuc.get("merged") else ""
