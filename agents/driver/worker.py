@@ -165,7 +165,10 @@ def incele(cfg: dict, ajan: dict, pr: dict) -> dict:
     kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), Path(cfg["workdir"]),
                               _izin(cfg, ajan), cfg.get("dsh_home"), cfg.get("dsh_patch"),
                               Path(cfg["workdir"]))
-    karar = karar_ayikla(cikti, nonce) if kod == 0 else None
+    (Path(cfg["state_dir"]) / "dsh-reviewer.log").write_text(cikti, encoding="utf-8")
+    if kod != 0 or "SERVER:" in cikti or "Model şu anda dolu" in cikti:
+        raise IsciHatasi(f"DSH geçici hata (yeniden denenecek): {cikti[-200:]}")
+    karar = karar_ayikla(cikti, nonce)
     if not karar or str(karar.get("sha")) != sha or str(karar.get("pr")) != str(no):
         g.durum_yaz(sha, roles.INCELEME, "failure", "karar bloğu yok/geçersiz")
         return {"durum": "failure", "neden": "karar bloğu yok/geçersiz"}

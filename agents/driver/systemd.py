@@ -10,7 +10,7 @@ def birim_adi(instance: str, rol: str) -> str:
 
 
 def servis_metni(instance: str, rol: str, exec_start: str, state_dir: Path,
-                 env: dict[str, str] | None = None) -> str:
+                 env: dict[str, str] | None = None, restart_sec: int = 30) -> str:
     satirlar = [
         "[Unit]",
         f"Description=agents {instance} {rol}",
@@ -22,7 +22,7 @@ def servis_metni(instance: str, rol: str, exec_start: str, state_dir: Path,
         f"WorkingDirectory={Path(state_dir)}",
         f"ExecStart={exec_start}",
         "Restart=always",
-        "RestartSec=5",
+        f"RestartSec={restart_sec}",
         "StartLimitIntervalSec=0",
         "KillMode=control-group",
         "NoNewPrivileges=true",

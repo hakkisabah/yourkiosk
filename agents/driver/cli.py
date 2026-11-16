@@ -105,6 +105,7 @@ def install(cfg_yolu: str | None, kuru: bool, rol: str | None = None) -> int:
             Path(cfg["state_dir"]),
             {"AGENTS_CONFIG": str(Path(cfg_yolu).resolve()) if cfg_yolu else str(config.yapilandirma_yolu()),
              "PYTHONPATH": str(kok)},
+            int(cfg.get("systemd", {}).get("restart_sec", 30)),
         )
         if kuru:
             print(f"--- {ad} ---")
