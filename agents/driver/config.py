@@ -72,9 +72,15 @@ def yukle(yol: Path | None = None) -> dict:
         a["token_file"] = _genislet(str(a["token_file"]), instance)
     xdg_state = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
     xdg_data = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
-    veri["state_dir"] = _genislet(str(veri.get("state_dir") or xdg_state / "agents" / instance), instance)
-    veri["workdir"] = _genislet(str(veri.get("workdir") or Path(veri["state_dir"]) / "work"), instance)
-    veri["skills_root"] = _genislet(str(veri.get("skills_root") or xdg_data / "agents" / instance / "skills"), instance)
+    for anahtar, varsayilan in (
+        ("state_dir", xdg_state / "agents" / instance),
+        ("workdir", Path(str(veri.get("state_dir") or xdg_state / "agents" / instance)) / "work"),
+        ("skills_root", xdg_data / "agents" / instance / "skills"),
+    ):
+        veri[anahtar] = _genislet(str(veri.get(anahtar) or varsayilan), instance)
+    for anahtar in ("dsh_home", "dsh_patch", "gorev_klasoru"):
+        if veri.get(anahtar):
+            veri[anahtar] = _genislet(str(veri[anahtar]), instance)
     return veri
 
 
