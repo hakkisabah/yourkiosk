@@ -161,7 +161,7 @@ def run(cfg_yolu: str | None, rol: str, kuru: bool, gorev: str | None = None) ->
                 if sonuc.get("merged"):
                     g2.issue_kapat(gorev_no)
             print(f"{a['name']}: PR #{sonuc['pr']} açıldı ({sonuc['sha'][:10]}){ek}")
-            return 0
+            return 1
         if rol in {"reviewer", "decision"}:
             g = Github(cfg["repo"], a["token_file"])
             prlar = g.acik_prlar()
@@ -176,7 +176,7 @@ def run(cfg_yolu: str | None, rol: str, kuru: bool, gorev: str | None = None) ->
                      else worker.karar_ver(cfg, a, pr))
             d.yaz({"durum": durum, "rol": rol, "sonuc": sonuc})
             print(f"{a['name']}: #{pr['number']} {sonuc}")
-            return 0
+            return 1
         d.yaz({"durum": durum, "rol": rol})
         print(f"{a['name']}: {durum}")
     return 0
@@ -193,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
     r = alt.add_parser("run")
     r.add_argument("--role", required=True)
     r.add_argument("--gorev")
+    r.add_argument("--tek-tur", action="store_true")
     r.add_argument("--kuru", action="store_true")
     s = p.parse_args(argv)
     if s.komut == "doctor":
@@ -204,7 +205,13 @@ def main(argv: list[str] | None = None) -> int:
     if s.komut == "uninstall":
         return uninstall(s.config)
     if s.komut == "run":
-        return run(s.config, s.role, s.kuru, getattr(s, "gorev", None))
+        gorev = getattr(s, "gorev", None)
+        if gorev or getattr(s, "tek_tur", False):
+            run(s.config, s.role, s.kuru, gorev)
+            return 0
+        while True:
+            if not run(s.config, s.role, s.kuru, None):
+                time.sleep(30)
     return 2
 
 
