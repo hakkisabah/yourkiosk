@@ -132,6 +132,20 @@ def run(cfg_yolu: str | None, rol: str, kuru: bool, gorev: str | None = None) ->
                               "gorev": gorev}, ensure_ascii=False))
             return 0
         if rol == "developer":
+            onceki = d.oku()
+            if onceki.get("pr") and not onceki.get("merged"):
+                g0 = Github(cfg["repo"], a["token_file"])
+                p0 = g0.pr(int(onceki["pr"]))
+                if p0.get("merged"):
+                    if onceki.get("dosya"):
+                        try:
+                            Path(onceki["dosya"]).unlink()
+                        except OSError:
+                            pass
+                    d.yaz({"durum": "GELISTIR", "rol": rol})
+                else:
+                    print(f"{a['name']}: PR #{onceki['pr']} karar bekliyor")
+                    return 0
             gorev_no = None
             is_ = {}
             if not gorev:
@@ -153,7 +167,8 @@ def run(cfg_yolu: str | None, rol: str, kuru: bool, gorev: str | None = None) ->
                 except OSError:
                     pass
             d.yaz({"durum": "BIRLESTI" if sonuc.get("merged") else KARAR_BEKLE,
-                   "rol": rol, "pr": sonuc["pr"], "sha": sonuc["sha"], "dal": sonuc["dal"]})
+                   "rol": rol, "pr": sonuc["pr"], "sha": sonuc["sha"], "dal": sonuc["dal"],
+                   "dosya": is_.get("dosya")})
             ek = " · birleştirildi" if sonuc.get("merged") else ""
             if gorev_no:
                 g2 = Github(cfg["repo"], a["token_file"])
