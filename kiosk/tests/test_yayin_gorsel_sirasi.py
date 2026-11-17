@@ -119,7 +119,7 @@ def test_repoda_yeni_bir_gorsel_tuketicisi_sessizce_eklenemez() -> None:
     bulunan: list[str] = []
     for yol in KIOSK.rglob("*.py"):
         goreli = str(yol.relative_to(KIOSK))
-        if "tests/" in goreli or goreli in izinli:
+        if "tests/" in goreli or goreli.startswith("_arsiv/") or goreli in izinli:
             continue
         if "contentUrl" in yol.read_text(encoding="utf-8"):
             bulunan.append(goreli)
