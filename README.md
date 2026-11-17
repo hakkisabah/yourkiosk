@@ -92,8 +92,6 @@ yourkiosk/
 | [`panel/MAALIYET.md`](panel/MAALIYET.md) | Veri/görsel maliyet kıyasları, Lambda+Lightsail senaryoları |
 | [`web/CALISTIRMA.md`](web/CALISTIRMA.md) | Tarayıcı modunda adım adım çalıştırma + sorun giderme |
 | [`GITHUB-YUKLEME.md`](GITHUB-YUKLEME.md) | Bu depoyu GitHub'a güvenli yükleme rehberi |
-| [`GITHUB-TOKEN.md`](GITHUB-TOKEN.md) | GitHub token'ı oluşturma/verme + branch protection adımları |
-| [`SIRADAKI-ISLER.md`](SIRADAKI-ISLER.md) | Bekleyen işler ve kabul ölçütleri |
 
 ## Katkı ve sorun bildirimi
 
