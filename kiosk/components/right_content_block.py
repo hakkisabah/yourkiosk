@@ -67,8 +67,13 @@ def create_right_content_block(nobet_widget, parent):
     layout.addStretch(1)
 
     # 3. ALT PANEL (Logo ve Saat)
+    # Sabit 640 px, viewport'a sığmıyordu (1080p'de 45+480+3+640=1168 > 955):
+    # alt panel taşıyor, ekranın altında şerit/kalıntı bırakıyordu. Kalan yüksekliği kullan.
+    tasarim_alt = int(640 * app_instance.scale)
+    alt_yukseklik = min(tasarim_alt, max(0, h - int(45 * app_instance.scale)
+                                         - int(480 * app_instance.scale) - int(3 * app_instance.scale)))
     bottom_widget = QWidget()
-    bottom_widget.setFixedHeight(int(640 * app_instance.scale))
+    bottom_widget.setFixedHeight(alt_yukseklik)
     bottom_layout = QHBoxLayout(bottom_widget)
     bottom_layout.setContentsMargins(0, 0, 0, 0)
     bottom_layout.setSpacing(0)
