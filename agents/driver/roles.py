@@ -57,12 +57,14 @@ def inceleme_plani(acik_prlar: list[dict], durumlar: dict[int, dict[str, str]]) 
     return hedef
 
 
-def karar_plani(acik_prlar: list[dict], durumlar: dict[int, dict[str, str]]) -> list[dict]:
+def karar_plani(acik_prlar: list[dict], durumlar: dict[int, dict[str, str]],
+                inceleme_gerekli: bool = True) -> list[dict]:
     """İki onayı tamam ve kararı olmayan PR'lar."""
     hedef = []
     for pr in acik_prlar:
         no = int(pr.get("number") or 0)
         d = durumlar.get(no, {})
-        if d.get(INCELEME) == "success" and d.get(KARAR) not in {"success", "failure"}:
+        inceleme_ok = (d.get(INCELEME) == "success") if inceleme_gerekli else True
+        if inceleme_ok and d.get(KARAR) not in {"success", "failure"}:
             hedef.append(pr)
     return hedef

@@ -187,7 +187,8 @@ def karar_ver(cfg: dict, ajan: dict, pr: dict) -> dict:
     no = int(pr["number"])
     sha = str(pr["head"]["sha"])
     d = g.durumlar(sha)
-    if d.get(roles.INCELEME) != "success":
+    inceleme_gerekli = any(x["role"] == "reviewer" for x in cfg["agents"])
+    if inceleme_gerekli and d.get(roles.INCELEME) != "success":
         return {"durum": "bekle", "neden": "inceleme onayı yok"}
     try:
         g.birlestir(no, sha)

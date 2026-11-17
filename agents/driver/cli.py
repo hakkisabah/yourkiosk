@@ -228,7 +228,8 @@ def run(cfg_yolu: str | None, rol: str, kuru: bool, gorev: str | None = None) ->
             prlar = g.acik_prlar()
             durumlar = {int(p["number"]): g.durumlar(str(p["head"]["sha"])) for p in prlar}
             hedef = (roles.inceleme_plani(prlar, durumlar) if rol == "reviewer"
-                     else roles.karar_plani(prlar, durumlar))
+                     else roles.karar_plani(prlar, durumlar,
+                                            any(x["role"] == "reviewer" for x in cfg["agents"])))
             if not hedef:
                 print(f"{a['name']}: iş yok")
                 return 0
