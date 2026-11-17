@@ -48,6 +48,33 @@ const cihazGosterimi = computed(() => gosterilecekKayitlar(dosyalar.sistemVerisi
 /** Son uzaktan komut (`komut.json`) — panel yalnız gösterir, komut GÖNDERMEZ. */
 const komut = computed(() => komutOzeti(dosyalar.komut.veri, dosyalar.clientId, simdi.value))
 
+/** Yayın damgasının yaşı (gün) — S3'teki veri eskiyse panelde uyarı. */
+const veriYasiGun = computed<number | null>(() => {
+  const ham = (dosyalar.lastupdate.veri as Record<string, unknown> | null)?.lastupdate
+  const t = typeof ham === 'string' ? Date.parse(ham) : NaN
+  if (!Number.isFinite(t)) return null
+  return Math.max(0, (simdi.value.getTime() - t) / 86_400_000)
+})
+
+const komutSec = ref<HTMLInputElement | null>(null)
+const komutMesaj = ref('')
+
+async function komutYukle(olay: Event): Promise<void> {
+  const girdi = olay.target as HTMLInputElement
+  const dosya = girdi.files?.[0]
+  if (!dosya) return
+  try {
+    const belge = JSON.parse(await dosya.text()) as unknown
+    if (!belge || typeof belge !== 'object' || Array.isArray(belge)) throw new Error('JSON nesne değil')
+    const oldu = await dosyalar.kaydet('komut', DOSYALAR.komut, belge)
+    komutMesaj.value = oldu ? 'komut.json yazıldı (cihaz en geç 20 sn içinde alır)' : 'yazılamadı'
+  } catch (h) {
+    komutMesaj.value = 'geçersiz JSON: ' + (h as Error).message
+  } finally {
+    girdi.value = ''
+  }
+}
+
 const kapsamOzeti = computed(() =>
   kapsamSatirlari(dosyalar.kapsamBelgesi, {
     ilceId: String(konum.value.ilceId ?? ''),
@@ -152,6 +179,13 @@ const dosyaSatirlari = computed(() =>
             <div class="text-caption text-medium-emphasis mt-2">
               Aralık: {{ gunEtiketi(ozet.ilkGun) }} → {{ gunEtiketi(ozet.sonGun) }}
             </div>
+            <v-alert
+              v-if="veriYasiGun !== null && veriYasiGun > 2"
+              type="warning" variant="tonal" density="compact" class="mt-3"
+            >
+              Yayın verisi {{ Math.floor(veriYasiGun) }} gün eski; kovadaki
+              <code>lastSystemData.json</code> güncellenmeli.
+            </v-alert>
           </v-card-text>
         </v-card>
       </v-col>
@@ -163,6 +197,13 @@ const dosyaSatirlari = computed(() =>
             Panel komut <strong>göndermez</strong> (cihazın HMAC anahtarı istemcide tutulmaz). Gönderim
             <code>kiosk/tools/komut_gonder.py</code> ile yapılır; burada yalnız kovadaki son komut görünür.
           </v-card-subtitle>
+          <v-card-actions class="px-4 pt-0">
+            <v-btn size="small" variant="tonal" prepend-icon="mdi-upload" @click="komutSec?.click()">
+              İmzalı komut dosyası yükle
+            </v-btn>
+            <input ref="komutSec" type="file" accept="application/json,.json" hidden @change="komutYukle">
+            <span v-if="komutMesaj" class="text-caption ml-3">{{ komutMesaj }}</span>
+          </v-card-actions>
           <v-card-text>
             <v-alert v-if="!komut.varMi" type="info" variant="tonal" density="compact" class="mb-2">
               {{ komut.uyarilar[0] }}
