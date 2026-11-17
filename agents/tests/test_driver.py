@@ -77,22 +77,23 @@ class SystemdTesti(unittest.TestCase):
 class WizardTesti(unittest.TestCase):
     def test_n1_tek_gelistirici(self):
         import wizard
-        v = wizard.uret("d", "s/p", 1, ["yerel"], Path("/tmp/t"))
-        self.assertEqual([a["role"] for a in v["agents"]], ["developer"])
+        self.assertEqual(wizard.roller(1), ["developer"])
 
     def test_n3_roller(self):
         import wizard
-        v = wizard.uret("d", "s/p", 3, ["a", "b", "c"], Path("/tmp/t"))
-        self.assertEqual([a["role"] for a in v["agents"]],
-                         ["developer", "reviewer", "decision"])
-        self.assertIn('instance = "d"', wizard.toml(v))
+        self.assertEqual(wizard.roller(3), ["developer", "reviewer", "decision"])
 
     def test_n4_iki_reviewer(self):
         import wizard
-        v = wizard.uret("d", "s/p", 4, [], Path("/tmp/t"))
-        self.assertEqual([a["role"] for a in v["agents"]],
+        self.assertEqual(wizard.roller(4),
                          ["developer", "reviewer", "reviewer", "decision"])
 
+    def test_config_metni(self):
+        import wizard
+        metin = wizard.config_metni("d", "s/p", [{"ad": "dev", "rol": "developer",
+                                                  "makine": "m", "token": "t"}])
+        self.assertIn('instance = "d"', metin)
+        self.assertIn("token_file", metin)
 
 class DshTesti(unittest.TestCase):
     def test_komut_bin_js(self):
