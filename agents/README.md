@@ -2,6 +2,10 @@
 
 Projeden bağımsız, N ajanlı geliştirme sistemi. DSH (deepseek-harness) üzerinde çalışır.
 
+## Ön koşullar
+
+Temiz makinede `doctor` eksikleri söyler; bkz. `install/ON-KOSULLAR.md`.
+
 ## Sıfırdan kurulum
 
 ```bash

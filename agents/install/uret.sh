@@ -36,6 +36,7 @@ fi
   echo "gorev_etiketi = \"agents/gorev\""
   if [ "@ROL@" != "decision" ]; then
     echo "dsh_profile = \"headless\""
+    echo "dsh_checkout = \"$HOME/deepseek-harness\""
     echo "dsh_home = \"$HOME/.dsh\""
     echo "dsh_patch = \"$HOME/.dsh/agents-overlay-lite.yml\""
   fi

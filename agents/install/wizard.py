@@ -32,6 +32,7 @@ def config_metni(instance: str, repo: str, ajanlar: list[dict]) -> str:
         'base_branch = "main"',
         'gorev_etiketi = "agents/gorev"',
         'dsh_profile = "headless"',
+        f'dsh_checkout = "{H}/deepseek-harness"',
         f'dsh_home = "{H}/.dsh"',
         f'dsh_patch = "{H}/.dsh/agents-overlay-lite.yml"',
         f'state_dir = "{H}/.local/state/agents/{instance}"',

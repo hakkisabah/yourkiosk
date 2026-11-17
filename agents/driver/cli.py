@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -30,32 +31,77 @@ def doctor(cfg_yolu: str | None) -> int:
         print(f"✗ config: {h}")
         return 2
     print(f"✓ config: {cfg['instance']} · {cfg['repo']}")
-    for arac in ("node", "git"):
+
+    if sys.version_info < (3, 11):
+        print(f"✗ Python 3.11+ gerekli (mevcut {sys.version.split()[0]})")
+        sorun += 1
+    else:
+        print(f"✓ python: {sys.version.split()[0]}")
+
+    for arac in ("git", "node", "bwrap", "systemctl"):
         if shutil.which(arac) is None:
             print(f"✗ araç yok: {arac}")
             sorun += 1
-    dsh = Path(os.environ.get("DSH_CHECKOUT", str(Path.home() / "deepseek-harness")))
-    if not (dsh / "apps" / "cli" / "lib" / "bin.js").is_file():
-        print(f"✗ DSH checkout yok: {dsh}")
+        else:
+            print(f"✓ {arac}: {shutil.which(arac)}")
+
+    node = shutil.which("node")
+    if node:
+        try:
+            surum = subprocess.run([node, "--version"], capture_output=True, text=True, timeout=10).stdout.strip()
+            major = int(surum.lstrip("v").split(".")[0])
+            if major < 20:
+                print(f"✗ node sürümü çok eski: {surum} (>=20)")
+                sorun += 1
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+
+    dsh = Path(cfg.get("dsh_checkout") or os.environ.get("DSH_CHECKOUT")
+               or str(Path.home() / "deepseek-harness"))
+    if (dsh / "apps" / "cli" / "lib" / "bin.js").is_file():
+        print(f"✓ DSH: {dsh}")
+    else:
+        print(f"✗ DSH checkout yok: {dsh} (git clone + pnpm install gerekir)")
         sorun += 1
+
+    if cfg.get("dsh_home"):
+        dh = Path(cfg["dsh_home"])
+        if not dh.is_dir():
+            print(f"✗ dsh_home yok: {dh}")
+            sorun += 1
+        else:
+            env = dh / ".env"
+            anahtar = False
+            if env.is_file():
+                try:
+                    anahtar = any(s.startswith("DEEPSEEK_API_KEY=") and s.split("=", 1)[1].strip()
+                                  for s in env.read_text(encoding="utf-8").splitlines())
+                except OSError:
+                    anahtar = False
+            if not anahtar:
+                print(f"✗ {env} içinde geçerli DEEPSEEK_API_KEY yok")
+                sorun += 1
+            else:
+                print(f"✓ DEEPSEEK_API_KEY: {env}")
+    if cfg.get("dsh_patch"):
+        if Path(cfg["dsh_patch"]).is_file():
+            print(f"✓ dsh_patch: {cfg['dsh_patch']}")
+        else:
+            print(f"✗ dsh_patch yok: {cfg['dsh_patch']}")
+            sorun += 1
     for a in cfg["agents"]:
         t = Path(a["token_file"])
         if not t.is_file():
             print(f"✗ token yok: {t}")
             sorun += 1
+        elif (t.stat().st_mode & 0o777) != 0o600:
+            print(f"✗ token izni {(t.stat().st_mode & 0o777):o} (0600): {t}")
+            sorun += 1
         else:
-            mod = t.stat().st_mode & 0o777
-            if mod != 0o600:
-                print(f"✗ token izni {mod:o} (0600 olmalı): {t}")
-                sorun += 1
-    if cfg.get("dsh_patch") and not Path(cfg["dsh_patch"]).is_file():
-        print(f"✗ dsh_patch yok: {cfg['dsh_patch']}")
-        sorun += 1
-    if cfg.get("dsh_home") and not Path(cfg["dsh_home"]).is_dir():
-        print(f"✗ dsh_home yok: {cfg['dsh_home']}")
-        sorun += 1
+            print(f"✓ token: {t}")
     Path(cfg["state_dir"]).mkdir(parents=True, exist_ok=True)
     print(f"✓ durum: {cfg['state_dir']}")
+    print(f"= sonuç: {'HAZIR' if sorun == 0 else str(sorun) + ' eksik'}")
     return 1 if sorun else 0
 
 

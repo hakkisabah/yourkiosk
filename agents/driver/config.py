@@ -78,7 +78,7 @@ def yukle(yol: Path | None = None) -> dict:
         ("skills_root", xdg_data / "agents" / instance / "skills"),
     ):
         veri[anahtar] = _genislet(str(veri.get(anahtar) or varsayilan), instance)
-    for anahtar in ("dsh_home", "dsh_patch", "gorev_klasoru"):
+    for anahtar in ("dsh_home", "dsh_patch", "dsh_checkout", "gorev_klasoru"):
         if veri.get(anahtar):
             veri[anahtar] = _genislet(str(veri[anahtar]), instance)
     return veri
