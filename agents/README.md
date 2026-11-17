@@ -2,6 +2,14 @@
 
 Projeden bağımsız, N ajanlı geliştirme sistemi. DSH (deepseek-harness) üzerinde çalışır.
 
+## Sıfırdan kurulum
+
+```bash
+python3 agents/install/wizard.py
+```
+
+Sihirbaz instance/repo/N ajan bilgilerini sorar; config ve makine betiklerini üretir.
+
 ## Hızlı başlangıç (3 ajan)
 
 1. Config oluştur (`agents/config/instance.example.toml` örnek):

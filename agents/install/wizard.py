@@ -1,60 +1,87 @@
-"""Kurulum sihirbazı — 1..N ajan; sabit yol yok."""
+"""Etkileşimli kurulum sihirbazı — instance/repo/N ajan ve makine betikleri."""
 
 from __future__ import annotations
 
 import argparse
-import os
-import sys
+import socket
+import subprocess
 from pathlib import Path
 
+KOK = Path(__file__).resolve().parents[2]
+INSTALL = Path(__file__).resolve().parent
+H = chr(36) + "{HOME}"
 
-def uret(instance: str, repo: str, n: int, makineler: list[str],
-         token_dir: Path) -> dict:
+
+def sor(soru: str, varsayilan: str = "") -> str:
+    deger = input(f"{soru}" + (f" [{varsayilan}]" if varsayilan else "") + ": ").strip()
+    return deger or varsayilan
+
+
+def roller(n: int) -> list[str]:
     if n < 1:
         raise ValueError("en az 1 ajan")
-    roller = ["developer"] if n == 1 else ["developer"] + ["reviewer"] * (n - 2) + ["decision"]
-    ajanlar = []
-    for i, rol in enumerate(roller, 1):
-        ad = "gelistirici" if rol == "developer" else ("karar" if rol == "decision" else f"inceleme{i}")
-        ajanlar.append({
-            "name": ad, "role": rol,
-            "machine": makineler[i - 1] if i - 1 < len(makineler) else "yerel",
-            "token_file": str(token_dir / f"{ad}.token"),
-        })
-    return {"instance": instance, "repo": repo, "base_branch": "main",
-            "agents": ajanlar}
+    if n == 1:
+        return ["developer"]
+    return ["developer"] + ["reviewer"] * (n - 2) + ["decision"]
 
 
-def toml(veri: dict) -> str:
-    s = [f'instance = "{veri["instance"]}"', f'repo = "{veri["repo"]}"',
-         'base_branch = "main"', "",
-         'state_dir = "${XDG_STATE_HOME}/agents/${instance}"',
-         'workdir = "${XDG_STATE_HOME}/agents/${instance}/work"',
-         'skills_root = "${XDG_DATA_HOME}/agents/${instance}/skills"', ""]
-    for a in veri["agents"]:
-        s += ["[[agents]]", f'name = "{a["name"]}"', f'role = "{a["role"]}"',
-              f'machine = "{a["machine"]}"',
-              f'token_file = "${{XDG_CONFIG_HOME}}/agents/${{instance}}/{a["name"]}.token"', ""]
+def config_metni(instance: str, repo: str, ajanlar: list[dict]) -> str:
+    s = [
+        f'instance = "{instance}"',
+        f'repo = "{repo}"',
+        'base_branch = "main"',
+        'gorev_etiketi = "agents/gorev"',
+        'dsh_profile = "headless"',
+        f'dsh_home = "{H}/.dsh"',
+        f'dsh_patch = "{H}/.dsh/agents-overlay-lite.yml"',
+        f'state_dir = "{H}/.local/state/agents/{instance}"',
+        f'workdir = "{H}/.local/state/agents/{instance}/work"',
+        f'skills_root = "{H}/.local/share/agents/{instance}/skills"',
+        "",
+    ]
+    for a in ajanlar:
+        s += ["[[agents]]", f'name = "{a["ad"]}"', f'role = "{a["rol"]}"',
+              f'machine = "{a["makine"]}"',
+              f'token_file = "{H}/.config/{instance}/{a["token"]}"', ""]
     return chr(10).join(s)
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--instance", required=True)
-    p.add_argument("--repo", required=True)
-    p.add_argument("--n", type=int, default=1)
-    p.add_argument("--makine", action="append", default=[])
+    p.add_argument("--instance")
+    p.add_argument("--repo")
+    p.add_argument("--n", type=int)
     p.add_argument("--kuru", action="store_true")
     a = p.parse_args(argv)
-    token_dir = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "agents" / a.instance
-    metin = toml(uret(a.instance, a.repo, a.n, a.makine, token_dir))
+    instance = a.instance or sor("Instance adı", "proje")
+    repo = a.repo or sor("GitHub repo (sahip/ad)", "")
+    n = a.n or int(sor("Ajan sayısı", "3"))
+    makine_varsayilan = socket.gethostname()
+    ajanlar = []
+    for i, rol in enumerate(roller(n), 1):
+        varsayilan_ad = {"developer": "gelistirici", "decision": "karar"}.get(rol, f"inceleme{i}")
+        ad = sor(f"{i}. ajan adı", varsayilan_ad)
+        makine = sor(f"{i}. makine", makine_varsayilan)
+        token = sor(f"{i}. token dosyası", f"{ad}.token")
+        ajanlar.append({"ad": ad, "rol": rol, "makine": makine, "token": token})
+    metin = config_metni(instance, repo, ajanlar)
+    cfg_yolu = KOK / "agents" / "config" / f"{instance}.toml"
     if a.kuru:
         print(metin)
         return 0
-    hedef = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "agents" / f"{a.instance}.toml"
-    hedef.parent.mkdir(parents=True, exist_ok=True)
-    hedef.write_text(metin, encoding="utf-8")
-    print(f"yazıldı: {hedef}")
+    cfg_yolu.parent.mkdir(parents=True, exist_ok=True)
+    cfg_yolu.write_text(metin, encoding="utf-8")
+    betikler = []
+    for aj in ajanlar:
+        cikti = INSTALL / f"agents-kur-{aj['makine']}.sh"
+        subprocess.run([str(INSTALL / "uret.sh"), instance, aj["makine"], aj["rol"],
+                        repo, str(cikti), aj["token"]], check=True)
+        betikler.append(cikti)
+    print(chr(10) + "Config: " + str(cfg_yolu))
+    print("Makine betikleri:")
+    for b in betikler:
+        print("  " + str(b))
+    print(chr(10) + "Her makinede: repo kopyala → betiği çalıştır → token 0600.")
     return 0
 
 

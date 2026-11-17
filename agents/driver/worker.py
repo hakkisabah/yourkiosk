@@ -156,10 +156,14 @@ def incele(cfg: dict, ajan: dict, pr: dict) -> dict:
         "Değişiklik:",
         diff,
         "",
-        "Kararını SADECE şu blokta yaz (nonce aynen):",
+        "SADECE aşağıdaki JSON şablonunu doldur; blok dışında HİÇBİR metin yazma.",
+        "JSON geçerli olmalı; '...' yerine gerçek değer, listelerde açıklama kullan.",
         f"KARAR_JSON_BEGIN {nonce}",
-        '{"makine":"reviewer","pr":' + str(no) + ',"sha":"' + sha + '",'
-        '"karar":"onay|sorun","onem":"dusuk|orta|yuksek","ozet":"...","bulgular":[],"denetlenen":[]}',
+        '{"makine":"reviewer","pr":' + str(no) + ',"sha":"' + sha + '","karar":"onay",'
+        '"onem":"dusuk","ozet":"kisa ozet","bulgular":[],"denetlenen":['
+        '"gomulu sir","komut calistirma","dosya/yol","ag/TLS","kimlik/yetki",'
+        '"girdi dogrulama","sir sizintisi","bagimlilik","DoS/maliyet",'
+        '"kalicilik/geri donus","kapsayici/servis","test kaniti"]}',
         f"KARAR_JSON_END {nonce}",
     ])
     kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), Path(cfg["workdir"]),
