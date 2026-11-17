@@ -7,6 +7,13 @@ from PyQt6.QtWidgets import QApplication
 
 from pharmacy_app import PharmacyApp
 
+import ayarlar as _ayarlar
+import config as _config
+
+_ADLAR = {cfg for cfg, *_ in _ayarlar.KURALLAR.values()}
+_ADLAR |= {"OZELLIK_NOBET_LISTESI", "OZELLIK_YAYINLAR", "OZELLIK_KAYAN_YAZI", "OZELLIK_SAAT_TARIH"}
+_BASLANGIC = {ad: getattr(_config, ad) for ad in _ADLAR if hasattr(_config, ad)}
+
 EKRAN_G, EKRAN_Y = 1920, 1080
 
 
@@ -89,3 +96,15 @@ def paneli_kur(pencere: PharmacyApp, n: int) -> list[int]:
     pencere.setup_left_panel()
     QApplication.processEvents()
     return [cerceve.height() for _ad, _tel, cerceve in pencere.pharmacy_widgets]
+
+
+@pytest.fixture(autouse=True)
+def _config_geri_al():
+    """Her testten ÖNCE ve SONRA config varsayılanlarını geri koy."""
+    for ad, deger in _BASLANGIC.items():
+        setattr(_config, ad, deger)
+    _ayarlar._uygulanan_yollar.clear()
+    yield
+    for ad, deger in _BASLANGIC.items():
+        setattr(_config, ad, deger)
+    _ayarlar._uygulanan_yollar.clear()
