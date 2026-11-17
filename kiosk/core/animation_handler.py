@@ -5,6 +5,8 @@ class AnimationHandler:
         self.app_instance = app_instance
 
     def animate_transition(self, active_widget, incoming_widget, viewport_height):
+        active_widget.show()
+        incoming_widget.show()
         self.anim_out = QPropertyAnimation(active_widget, b"pos")
         self.anim_out.setDuration(1800)
         self.anim_out.setStartValue(QPoint(0, 0))
@@ -20,5 +22,7 @@ class AnimationHandler:
         self.group = QParallelAnimationGroup()
         self.group.addAnimation(self.anim_out)
         self.group.addAnimation(self.anim_in)
+        # Geçiş bitince eski blok tamamen gizlenir: alt kenarda 1 px'lik şerit kalmaz.
+        self.group.finished.connect(active_widget.hide)
         self.group.start()
         return self.group

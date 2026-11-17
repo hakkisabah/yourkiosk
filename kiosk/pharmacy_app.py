@@ -973,7 +973,8 @@ class PharmacyApp(QMainWindow):
         incoming["date_range_lbl"].setText(self._nobet_araligi_metni(curr))
         incoming["date_range_lbl"].setStyleSheet("color: black; background-color: red;")
 
-        vh = nw.viewport.height()
+        # Blok yüksekliği viewport'tan farklı olabilir; kaydırmayı BLOK yüksekliği kadar yap.
+        vh = max(nw.viewport.height(), active["widget"].height())
         self.animation_handler.animate_transition(active["widget"], incoming["widget"], vh)
         nw.active_block_idx = next_idx
         # Sol panel vurguyu TAKİP eder: kaydırma, orta geçişle aynı anda ve aynı süreyle
