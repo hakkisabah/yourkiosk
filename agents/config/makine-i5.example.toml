@@ -1,0 +1,15 @@
+instance = "agents-test"
+repo = "hakkisabah/agents-test"
+base_branch = "main"
+dsh_profile = "headless"
+dsh_home = "${HOME}/.dsh"
+dsh_patch = "${HOME}/.dsh/agents-overlay-lite.yml"
+state_dir = "${HOME}/.local/state/agents/agents-test"
+workdir = "${HOME}/.local/state/agents/agents-test/work"
+skills_root = "${HOME}/.local/share/agents/agents-test/skills"
+
+[[agents]]
+name = "inceleme"
+role = "reviewer"
+machine = "i5"
+token_file = "${HOME}/.config/yourkiosk-secrets/agents-test/inceleme.token"

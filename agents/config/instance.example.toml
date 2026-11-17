@@ -1,0 +1,33 @@
+# Örnek instance (TOML; Python 3.11+ stdlib)
+instance = "ornek"
+repo = "sahip/proje"
+base_branch = "main"
+dsh_profile = "headless"
+gorev_etiketi = "agents/gorev"
+# dsh_home = "${XDG_STATE_HOME}/agents/${instance}/dsh-home"
+# dsh_patch = "${XDG_STATE_HOME}/agents/${instance}/overlay.yml"
+
+state_dir = "${XDG_STATE_HOME}/agents/${instance}"
+workdir = "${XDG_STATE_HOME}/agents/${instance}/work"
+skills_root = "${XDG_DATA_HOME}/agents/${instance}/skills"
+
+[[agents]]
+name = "gelistirici"
+role = "developer"
+machine = "yerel"
+token_file = "${XDG_CONFIG_HOME}/agents/${instance}/gelistirici.token"
+permission = "workspace-write"
+
+[[agents]]
+name = "inceleme"
+role = "reviewer"
+machine = "i5"
+token_file = "${XDG_CONFIG_HOME}/agents/${instance}/inceleme.token"
+permission = "read-only"
+
+[[agents]]
+name = "karar"
+role = "decision"
+machine = "i3"
+token_file = "${XDG_CONFIG_HOME}/agents/${instance}/karar.token"
+permission = "read-only"

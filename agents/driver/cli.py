@@ -1,0 +1,281 @@
+"""agents CLI — doctor, status, install, run."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from . import config, roles, systemd, worker
+from .github import Github, GithubHatasi
+from .roles import KARAR_BEKLE, beklenen_rol
+from .state import Durum
+
+
+def _ajan(cfg: dict, rol: str) -> dict:
+    for a in cfg["agents"]:
+        if a["role"] == rol:
+            return a
+    raise SystemExit(f"rol yok: {rol}")
+
+
+def doctor(cfg_yolu: str | None) -> int:
+    sorun = 0
+    try:
+        cfg = config.yukle(Path(cfg_yolu) if cfg_yolu else None)
+    except config.ConfigHatasi as h:
+        print(f"✗ config: {h}")
+        return 2
+    print(f"✓ config: {cfg['instance']} · {cfg['repo']}")
+
+    if sys.version_info < (3, 11):
+        print(f"✗ Python 3.11+ gerekli (mevcut {sys.version.split()[0]})")
+        sorun += 1
+    else:
+        print(f"✓ python: {sys.version.split()[0]}")
+
+    for arac in ("git", "node", "bwrap", "systemctl"):
+        if shutil.which(arac) is None:
+            print(f"✗ araç yok: {arac}")
+            sorun += 1
+        else:
+            print(f"✓ {arac}: {shutil.which(arac)}")
+
+    node = shutil.which("node")
+    if node:
+        try:
+            surum = subprocess.run([node, "--version"], capture_output=True, text=True, timeout=10).stdout.strip()
+            major = int(surum.lstrip("v").split(".")[0])
+            if major < 20:
+                print(f"✗ node sürümü çok eski: {surum} (>=20)")
+                sorun += 1
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+
+    dsh = Path(cfg.get("dsh_checkout") or os.environ.get("DSH_CHECKOUT")
+               or str(Path.home() / "deepseek-harness"))
+    if (dsh / "apps" / "cli" / "lib" / "bin.js").is_file():
+        print(f"✓ DSH: {dsh}")
+    else:
+        print(f"✗ DSH checkout yok: {dsh} (git clone + pnpm install gerekir)")
+        sorun += 1
+
+    if cfg.get("dsh_home"):
+        dh = Path(cfg["dsh_home"])
+        if not dh.is_dir():
+            print(f"✗ dsh_home yok: {dh}")
+            sorun += 1
+        else:
+            env = dh / ".env"
+            anahtar = False
+            if env.is_file():
+                try:
+                    anahtar = any(s.startswith("DEEPSEEK_API_KEY=") and s.split("=", 1)[1].strip()
+                                  for s in env.read_text(encoding="utf-8").splitlines())
+                except OSError:
+                    anahtar = False
+            if not anahtar:
+                print(f"✗ {env} içinde geçerli DEEPSEEK_API_KEY yok")
+                sorun += 1
+            else:
+                print(f"✓ DEEPSEEK_API_KEY: {env}")
+    if cfg.get("dsh_patch"):
+        if Path(cfg["dsh_patch"]).is_file():
+            print(f"✓ dsh_patch: {cfg['dsh_patch']}")
+        else:
+            print(f"✗ dsh_patch yok: {cfg['dsh_patch']}")
+            sorun += 1
+    for a in cfg["agents"]:
+        t = Path(a["token_file"])
+        if not t.is_file():
+            print(f"✗ token yok: {t}")
+            sorun += 1
+        elif (t.stat().st_mode & 0o777) != 0o600:
+            print(f"✗ token izni {(t.stat().st_mode & 0o777):o} (0600): {t}")
+            sorun += 1
+        else:
+            print(f"✓ token: {t}")
+    Path(cfg["state_dir"]).mkdir(parents=True, exist_ok=True)
+    print(f"✓ durum: {cfg['state_dir']}")
+    print(f"= sonuç: {'HAZIR' if sorun == 0 else str(sorun) + ' eksik'}")
+    return 1 if sorun else 0
+
+
+def status(cfg_yolu: str | None) -> int:
+    cfg = config.yukle(Path(cfg_yolu) if cfg_yolu else None)
+    for a in cfg["agents"]:
+        with Durum(Path(cfg["state_dir"]), a["name"]) as d:
+            print(f"{a['name']:15s} {a['role']:10s} {json.dumps(d.oku(), ensure_ascii=False)}")
+    return 0
+
+
+def uninstall(cfg_yolu: str | None) -> int:
+    cfg = config.yukle(Path(cfg_yolu) if cfg_yolu else None)
+    sysd = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "systemd" / "user"
+    secili = [a for a in cfg["agents"] if rol is None or a["role"] == rol]
+    if rol is not None and not secili:
+        print(f"✗ rol yok: {rol}")
+        return 2
+    for a in secili:
+        ad = systemd.birim_adi(cfg["instance"], a["role"])
+        try:
+            (sysd / ad).unlink()
+            print(f"silindi: {sysd / ad}")
+        except FileNotFoundError:
+            pass
+    try:
+        (sysd / "agents-notify@.service").unlink()
+    except FileNotFoundError:
+        pass
+    print("systemctl --user daemon-reload çalıştırın")
+    return 0
+
+
+def install(cfg_yolu: str | None, kuru: bool, rol: str | None = None) -> int:
+    cfg = config.yukle(Path(cfg_yolu) if cfg_yolu else None)
+    sysd = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "systemd" / "user"
+    secili = [a for a in cfg["agents"] if rol is None or a["role"] == rol]
+    if rol is not None and not secili:
+        print(f"✗ rol yok: {rol}")
+        return 2
+    for a in secili:
+        ad = systemd.birim_adi(cfg["instance"], a["role"])
+        kok = Path(__file__).resolve().parents[2]
+        metin = systemd.servis_metni(
+            cfg["instance"], a["role"],
+            f"{sys.executable} -m agents.driver.cli run --role {a['role']}",
+            Path(cfg["state_dir"]),
+            {"AGENTS_CONFIG": str(Path(cfg_yolu).resolve()) if cfg_yolu else str(config.yapilandirma_yolu()),
+             "PYTHONPATH": str(kok)},
+            int(cfg.get("systemd", {}).get("restart_sec", 30)),
+        )
+        if kuru:
+            print(f"--- {ad} ---")
+            print(metin)
+        else:
+            sysd.mkdir(parents=True, exist_ok=True)
+            (sysd / ad).write_text(metin, encoding="utf-8")
+            (sysd / ad).chmod(0o644)
+            print(f"yazıldı: {sysd / ad}")
+    if not kuru:
+        (sysd / "agents-notify@.service").write_text(systemd.notify_metni(), encoding="utf-8")
+        print(f"yazıldı: {sysd / 'agents-notify@.service'}")
+    return 0
+
+
+def run(cfg_yolu: str | None, rol: str, kuru: bool, gorev: str | None = None) -> int:
+    cfg = config.yukle(Path(cfg_yolu) if cfg_yolu else None)
+    a = _ajan(cfg, rol)
+    with Durum(Path(cfg["state_dir"]), a["name"]) as d:
+        veri = d.oku()
+        durum = veri.get("durum") or beklenen_rol(rol)
+        if kuru:
+            print(json.dumps({"ajan": a["name"], "rol": rol, "durum": durum,
+                              "gorev": gorev}, ensure_ascii=False))
+            return 0
+        if rol == "developer":
+            onceki = d.oku()
+            if onceki.get("pr") and not onceki.get("merged"):
+                g0 = Github(cfg["repo"], a["token_file"])
+                p0 = g0.pr(int(onceki["pr"]))
+                if p0.get("merged"):
+                    if onceki.get("dosya"):
+                        try:
+                            Path(onceki["dosya"]).unlink()
+                        except OSError:
+                            pass
+                    d.yaz({"durum": "GELISTIR", "rol": rol})
+                else:
+                    print(f"{a['name']}: PR #{onceki['pr']} karar bekliyor")
+                    return 0
+            gorev_no = None
+            is_ = {}
+            if not gorev:
+                is_ = worker.gorev_al(cfg, a)
+                if not is_:
+                    print(f"{a['name']}: iş yok")
+                    return 0
+                gorev_no = is_["no"]
+                if gorev_no:
+                    gorev = f"#{gorev_no} {is_['baslik']}"
+                else:
+                    gorev = is_["baslik"]
+                if is_.get("govde"):
+                    gorev += chr(10) + is_["govde"]
+            sonuc = worker.gorev_baslat(cfg, a, gorev)
+            if is_.get("dosya") and sonuc.get("merged"):
+                try:
+                    Path(is_["dosya"]).unlink()
+                except OSError:
+                    pass
+            d.yaz({"durum": "BIRLESTI" if sonuc.get("merged") else KARAR_BEKLE,
+                   "rol": rol, "pr": sonuc["pr"], "sha": sonuc["sha"], "dal": sonuc["dal"],
+                   "dosya": is_.get("dosya")})
+            ek = " · birleştirildi" if sonuc.get("merged") else ""
+            if gorev_no:
+                g2 = Github(cfg["repo"], a["token_file"])
+                g2.yorum_yaz(gorev_no, f"PR #{sonuc['pr']} açıldı: {sonuc['sha'][:10]}{ek}")
+                if sonuc.get("merged"):
+                    g2.issue_kapat(gorev_no)
+            print(f"{a['name']}: PR #{sonuc['pr']} açıldı ({sonuc['sha'][:10]}){ek}")
+            return 1
+        if rol in {"reviewer", "decision"}:
+            g = Github(cfg["repo"], a["token_file"])
+            prlar = g.acik_prlar()
+            durumlar = {int(p["number"]): g.durumlar(str(p["head"]["sha"])) for p in prlar}
+            hedef = (roles.inceleme_plani(prlar, durumlar) if rol == "reviewer"
+                     else roles.karar_plani(prlar, durumlar,
+                                            any(x["role"] == "reviewer" for x in cfg["agents"])))
+            if not hedef:
+                print(f"{a['name']}: iş yok")
+                return 0
+            pr = hedef[0]
+            sonuc = (worker.incele(cfg, a, pr) if rol == "reviewer"
+                     else worker.karar_ver(cfg, a, pr))
+            d.yaz({"durum": durum, "rol": rol, "sonuc": sonuc})
+            print(f"{a['name']}: #{pr['number']} {sonuc}")
+            return 1
+        d.yaz({"durum": durum, "rol": rol})
+        print(f"{a['name']}: {durum}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="agents")
+    p.add_argument("--config")
+    alt = p.add_subparsers(dest="komut", required=True)
+    for ad in ("doctor", "status", "install", "uninstall"):
+        sp = alt.add_parser(ad)
+        sp.add_argument("--kuru", action="store_true")
+    alt.choices["install"].add_argument("--role")
+    r = alt.add_parser("run")
+    r.add_argument("--role", required=True)
+    r.add_argument("--gorev")
+    r.add_argument("--tek-tur", action="store_true")
+    r.add_argument("--kuru", action="store_true")
+    s = p.parse_args(argv)
+    if s.komut == "doctor":
+        return doctor(s.config)
+    if s.komut == "status":
+        return status(s.config)
+    if s.komut == "install":
+        return install(s.config, s.kuru, getattr(s, "role", None))
+    if s.komut == "uninstall":
+        return uninstall(s.config)
+    if s.komut == "run":
+        gorev = getattr(s, "gorev", None)
+        if gorev or getattr(s, "tek_tur", False):
+            run(s.config, s.role, s.kuru, gorev)
+            return 0
+        while True:
+            if not run(s.config, s.role, s.kuru, None):
+                time.sleep(30)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

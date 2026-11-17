@@ -28,13 +28,13 @@ Bu belge **yapılan her AWS işlemini** komutuyla kaydeder (tekrar üretilebilir
    `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` değerlerini **sohbete yazma**, şu dosyaya koy:
 
 ```bash
-mkdir -p ~/.config/hermes-secrets && chmod 700 ~/.config/hermes-secrets
-cat > ~/.config/hermes-secrets/aws-yourkiosk.credentials <<'EOF'
+mkdir -p ~/.config/yourkiosk-secrets && chmod 700 ~/.config/yourkiosk-secrets
+cat > ~/.config/yourkiosk-secrets/aws-yourkiosk.credentials <<'EOF'
 [default]
 aws_access_key_id = BURAYA
 aws_secret_access_key = BURAYA
 EOF
-chmod 600 ~/.config/hermes-secrets/aws-yourkiosk.credentials
+chmod 600 ~/.config/yourkiosk-secrets/aws-yourkiosk.credentials
 ```
 
 4. Bana şunları söyle: **bölge** (öneri `eu-central-1`), **kova adı** (öneri `yourkiosk-veri-<hesap-id-kısa>`),
@@ -129,7 +129,7 @@ En büyük kalem **istek sayısı**: cihaz yerel önbellek kullandığı için y
 | 21.10 | Identity pool | `cognito-identity create-identity-pool --cognito-identity-providers …` + `set-identity-pool-roles` | ✓ `eu-central-1:b787f617-…` |
 | 21.10 | User pool | `cognito-idp create-user-pool` (e-posta girişi, admin-only, 12 karakter parola) | ✓ `eu-central-1_y4Zlp17ZR` |
 | 21.10 | App client | `create-user-pool-client --no-generate-secret` + USER_PASSWORD_AUTH | ✓ `6n7eo6o0acc1fbg6vjr00sbj94` |
-| 21.10 | Yönetici | `admin-create-user contact@yourkiosk.io --message-action SUPPRESS` + `admin-set-user-password --permanent` | ✓ (parola: `~/.config/hermes-secrets/cognito-panel.parola`, 0600) |
+| 21.10 | Yönetici | `admin-create-user contact@yourkiosk.io --message-action SUPPRESS` + `admin-set-user-password --permanent` | ✓ (parola: `~/.config/yourkiosk-secrets/cognito-panel.parola`, 0600) |
 | 21.10 | **Uçtan uca doğrulama** | InitiateAuth → GetId → GetCredentialsForIdentity → S3 | ✓ giriş · geçici anahtar · `kiosk/*` yazma/okuma/silme · **ön ek dışı yazma reddedildi** |
 | 21.10 | Panel | `.env.local` + `npm test` | ✓ 104/104 |
 
@@ -165,7 +165,7 @@ aws cognito-idp delete-user-pool --user-pool-id …
 | Identity pool | `eu-central-1:b787f617-a4a0-4169-bb0e-28892d5f6481` |
 | User pool | `eu-central-1_y4Zlp17ZR` (e-posta girişi, yalnız yönetici hesap oluşturabilir) |
 | App client | `6n7eo6o0acc1fbg6vjr00sbj94` (secret yok — SPA) |
-| Yönetici | `contact@yourkiosk.io` — parola `~/.config/hermes-secrets/cognito-panel.parola` (0600) |
+| Yönetici | `contact@yourkiosk.io` — parola `~/.config/yourkiosk-secrets/cognito-panel.parola` (0600) |
 
 ### Temizlenecek artıklar (kurulum sırasında oluştu)
 
@@ -174,7 +174,7 @@ denenecek): `yourkiosk-panel` rolü, `yourkiosk-panel-s3` rolü, `eu-central-1:6
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH" AWS_DEFAULT_REGION=eu-central-1
-export AWS_SHARED_CREDENTIALS_FILE="$HOME/.config/hermes-secrets/aws-yourkiosk.credentials"
+export AWS_SHARED_CREDENTIALS_FILE="$HOME/.config/yourkiosk-secrets/aws-yourkiosk.credentials"
 aws cognito-identity delete-identity-pool --identity-pool-id eu-central-1:67a2b8af-750d-47d9-b81d-a74df364929a
 aws iam delete-role --role-name yourkiosk-panel-s3     # önce delete-role-policy
 aws iam delete-role --role-name yourkiosk-panel        # önce delete-role-policy
@@ -292,19 +292,19 @@ yükler ve CloudFront önbelleğini temizler.
 3. Anahtarı dosyaya koy (sohbete yazma):
 
 ```bash
-cat > ~/.config/hermes-secrets/aws-yayin.credentials <<'EOF'
+cat > ~/.config/yourkiosk-secrets/aws-yayin.credentials <<'EOF'
 [default]
 aws_access_key_id = BURAYA
 aws_secret_access_key = BURAYA
 EOF
-chmod 600 ~/.config/hermes-secrets/aws-yayin.credentials
+chmod 600 ~/.config/yourkiosk-secrets/aws-yayin.credentials
 ```
 
 4. Yayınla:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
-export AWS_SHARED_CREDENTIALS_FILE="$HOME/.config/hermes-secrets/aws-yayin.credentials"
+export AWS_SHARED_CREDENTIALS_FILE="$HOME/.config/yourkiosk-secrets/aws-yayin.credentials"
 export AWS_DEFAULT_REGION=eu-central-1
 ./panel/infra/yayinla.sh            # derle + yükle + invalidation
 ```

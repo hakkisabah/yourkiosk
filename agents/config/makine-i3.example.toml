@@ -1,0 +1,12 @@
+instance = "agents-test"
+repo = "hakkisabah/agents-test"
+base_branch = "main"
+state_dir = "${HOME}/.local/state/agents/agents-test"
+workdir = "${HOME}/.local/state/agents/agents-test/work"
+skills_root = "${HOME}/.local/share/agents/agents-test/skills"
+
+[[agents]]
+name = "karar"
+role = "decision"
+machine = "i3"
+token_file = "${HOME}/.config/yourkiosk-secrets/agents-test/karar.token"

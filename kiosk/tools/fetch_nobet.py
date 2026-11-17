@@ -32,7 +32,7 @@ KULLANIM
 
 ÖNEMLİ: bu araç **kiosk CİHAZI** içindir; `makinebilgileri.json` (cihaz kimliği) depoda
 bulunmaz. Kimlik yoksa araç traceback basmaz, ne yapılacağını söyler.
-i5/i3 gibi **ajan** makinelerinde nöbet verisi üretmeye gerek yoktur (orada `otomasyon/` kullanılır).
+i5/i3 gibi **ajan** makinelerinde nöbet verisi üretmeye gerek yoktur; orada ayrı ajan sistemi kullanılır.
 """
 
 from __future__ import annotations
@@ -324,7 +324,7 @@ def makine_bilgisi(cihaz_id: str | None = None, kok: Path | None = None) -> dict
     print("    python3 tools/fetch_nobet.py --cihaz-id <clientID>", file=sys.stderr)
     print("", file=sys.stderr)
     print("  Not: i5/i3 gibi AJAN makinelerinde nöbet verisi üretmeye gerek yoktur;", file=sys.stderr)
-    print("       orada otomasyon/ betikleri kullanılır (topla.py, yaz.py).", file=sys.stderr)
+    print("       orada ayrı ajan sistemi kullanılır.", file=sys.stderr)
     raise SystemExit(3)
 
 
