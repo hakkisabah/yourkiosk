@@ -51,6 +51,8 @@ def main(argv=None) -> int:
     p.add_argument("--instance")
     p.add_argument("--repo")
     p.add_argument("--n", type=int)
+    p.add_argument("--ajan", action="append", default=[],
+                   help="ad,rol,makine,token (tekrarlanabilir)")
     p.add_argument("--kuru", action="store_true")
     a = p.parse_args(argv)
     instance = a.instance or sor("Instance adı", "proje")
@@ -58,12 +60,20 @@ def main(argv=None) -> int:
     n = a.n or int(sor("Ajan sayısı", "3"))
     makine_varsayilan = socket.gethostname()
     ajanlar = []
-    for i, rol in enumerate(roller(n), 1):
-        varsayilan_ad = {"developer": "gelistirici", "decision": "karar"}.get(rol, f"inceleme{i}")
-        ad = sor(f"{i}. ajan adı", varsayilan_ad)
-        makine = sor(f"{i}. makine", makine_varsayilan)
-        token = sor(f"{i}. token dosyası", f"{ad}.token")
-        ajanlar.append({"ad": ad, "rol": rol, "makine": makine, "token": token})
+    if a.ajan:
+        for tanim in a.ajan:
+            parca = [x.strip() for x in tanim.split(",")]
+            if len(parca) != 4 or parca[1] not in {"developer", "reviewer", "decision"}:
+                raise SystemExit("--ajan formatı: ad,developer|reviewer|decision,makine,token")
+            ajanlar.append({"ad": parca[0], "rol": parca[1], "makine": parca[2], "token": parca[3]})
+        n = len(ajanlar)
+    if not a.ajan:
+        for i, rol in enumerate(roller(n), 1):
+            varsayilan_ad = {"developer": "gelistirici", "decision": "karar"}.get(rol, f"inceleme{i}")
+            ad = sor(f"{i}. ajan adı", varsayilan_ad)
+            makine = sor(f"{i}. makine", makine_varsayilan)
+            token = sor(f"{i}. token dosyası", f"{ad}.token")
+            ajanlar.append({"ad": ad, "rol": rol, "makine": makine, "token": token})
     metin = config_metni(instance, repo, ajanlar)
     cfg_yolu = KOK / "agents" / "config" / f"{instance}.toml"
     if a.kuru:
