@@ -55,7 +55,7 @@ def _oku(boru, kutu, ad, pid):
 
 def calistir(prompt: str, profil: str, cwd: Path, izin: str | None = None,
              dsh_home: str | None = None, patch: str | None = None,
-             repo: Path | None = None) -> tuple[int, str]:
+             repo: Path | None = None, zaman_asimi: int = 900) -> tuple[int, str]:
     if not Path(komut(profil, izin, patch)[1]).is_file():
         raise DshHatasi(f"DSH bulunamadı: {komut(profil, izin, patch)[1]}")
     ortam = dict(os.environ)
@@ -81,6 +81,19 @@ def calistir(prompt: str, profil: str, cwd: Path, izin: str | None = None,
         s.stdin.close()
     except (BrokenPipeError, OSError):
         pass
-    s.wait()
+    try:
+        s.wait(timeout=zaman_asimi)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(s.pid), 15)
+            s.wait(timeout=15)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                os.killpg(os.getpgid(s.pid), 9)
+            except OSError:
+                pass
+            s.wait()
+        t1.join(5); t2.join(5)
+        return 124, (kutu.get("out", "") + kutu.get("err", "")) + chr(10) + "DSH zaman aşımı"
     t1.join(10); t2.join(10)
     return s.returncode, kutu.get("out", "") + kutu.get("err", "")
