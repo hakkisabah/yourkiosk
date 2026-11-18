@@ -179,9 +179,41 @@ def incele(cfg: dict, ajan: dict, pr: dict) -> dict:
         g.durum_yaz(sha, roles.INCELEME, "failure", "karar bloğu yok/geçersiz")
         return {"durum": "failure", "neden": "karar bloğu yok/geçersiz"}
     onay = karar.get("karar") == "onay"
+    _inceleme_yorumu(g, no, sha, karar)
     g.durum_yaz(sha, roles.INCELEME, "success" if onay else "failure",
                 f"{karar.get('karar')} · {karar.get('ozet', '')}")
     return {"durum": "success" if onay else "failure", "karar": karar}
+
+
+def _inceleme_yorumu(g, no: int, sha: str, karar: dict) -> None:
+    """İnceleme sonucunu PR'a yorum olarak yaz (durum satırı tek başına yetersiz)."""
+    bulgular = karar.get("bulgular") or []
+    denetlenen = karar.get("denetlenen") or []
+    satirlar = [
+        f"## İnceleme · `{sha[:12]}`",
+        "",
+        f"**Karar:** {karar.get('karar', '-')}",
+        f"**Önem:** {karar.get('onem', '-')}",
+        f"**Özet:** {karar.get('ozet', '-')}",
+        "",
+        "### Bulgular",
+    ]
+    if isinstance(bulgular, list) and bulgular:
+        for b in bulgular:
+            satirlar.append(f"- {b}")
+    else:
+        satirlar.append("- Bulgu yok.")
+    satirlar += ["", "### Denetlenen"]
+    if isinstance(denetlenen, list) and denetlenen:
+        for d in denetlenen:
+            satirlar.append(f"- {d}")
+    else:
+        satirlar.append("- Belirtilmedi.")
+    satirlar += ["", "_Otomatik inceleme (i5)._"]
+    try:
+        g.yorum_yaz(no, chr(10).join(satirlar))
+    except Exception:  # noqa: BLE001 - yorum yazılamasa da durum yazılmalı
+        pass
 
 
 def karar_ver(cfg: dict, ajan: dict, pr: dict) -> dict:
@@ -192,6 +224,9 @@ def karar_ver(cfg: dict, ajan: dict, pr: dict) -> dict:
     inceleme_gerekli = any(x["role"] == "reviewer" for x in cfg["agents"])
     if inceleme_gerekli and d.get(roles.INCELEME) != "success":
         return {"durum": "bekle", "neden": "inceleme onayı yok"}
+    # Zorunlu durum kontrolü merge'den ÖNCE success olmalı; aksi hâlde
+    # "guvenlik/karar" kontrolü merge'i kilitler (GitHub 405).
+    g.durum_yaz(sha, roles.KARAR, "success", "birleştirme onayı")
     try:
         g.birlestir(no, sha)
         g.durum_yaz(sha, roles.KARAR, "success", "birleştirildi")
