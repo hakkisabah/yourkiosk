@@ -143,6 +143,8 @@ def install(cfg_yolu: str | None, kuru: bool, rol: str | None = None) -> int:
     if rol is not None and not secili:
         print(f"✗ rol yok: {rol}")
         return 2
+    Path(cfg["state_dir"]).mkdir(parents=True, exist_ok=True)
+    Path(cfg["workdir"]).mkdir(parents=True, exist_ok=True)
     for a in secili:
         ad = systemd.birim_adi(cfg["instance"], a["role"])
         kok = Path(__file__).resolve().parents[2]
