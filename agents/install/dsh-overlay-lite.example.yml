@@ -23,8 +23,6 @@
   disabled: true
 - id: tool-bash
   disabled: true
-- id: permission
-  disabled: true
 - id: ptc-runtime
   disabled: true
 - id: workflow-ptc
