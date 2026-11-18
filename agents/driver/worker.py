@@ -73,6 +73,8 @@ def klon_hazirla(cfg: dict, ajan: dict) -> Path:
 def _izin(cfg: dict, ajan: dict) -> str:
     if cfg.get("sandbox") == "yok":
         return ""
+    if "permission" in ajan:
+        return str(ajan["permission"])
     return str(ajan.get("permission") or ("workspace-write" if ajan["role"] == "developer" else "read-only"))
 
 
