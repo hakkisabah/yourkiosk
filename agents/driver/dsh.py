@@ -69,6 +69,7 @@ def calistir(prompt: str, profil: str, cwd: Path, izin: str | None = None,
                 if "=" in satir and not satir.strip().startswith("#"):
                     k, v = satir.split("=", 1)
                     ortam.setdefault(k.strip(), v.strip())
+    Path(cwd).mkdir(parents=True, exist_ok=True)
     s = subprocess.Popen(komut(profil, izin, patch), cwd=str(cwd), env=ortam,
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE, text=True, start_new_session=True)
