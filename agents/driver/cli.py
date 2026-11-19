@@ -173,6 +173,13 @@ def install(cfg_yolu: str | None, kuru: bool, rol: str | None = None) -> int:
 def run(cfg_yolu: str | None, rol: str, kuru: bool, gorev: str | None = None) -> int:
     cfg = config.yukle(Path(cfg_yolu) if cfg_yolu else None)
     a = _ajan(cfg, rol)
+    kimlik_yolu = str(cfg.get("makine_kimligi") or os.environ.get("MAKINE_KIMLIK_DOSYASI") or "")
+    kimlik = Path(kimlik_yolu).expanduser() if kimlik_yolu else None
+    if kimlik is not None and kimlik.is_file():
+        yazan = kimlik.read_text(encoding="utf-8").strip()
+        if yazan and yazan != str(a.get("machine")):
+            raise IsciHatasi(
+                f"makine kimliği uyuşmuyor: dosya={yazan!r} config={a.get('machine')!r}")
     with Durum(Path(cfg["state_dir"]), a["name"]) as d:
         veri = d.oku()
         durum = veri.get("durum") or beklenen_rol(rol)

@@ -211,5 +211,35 @@ class KararAyiklaTesti(unittest.TestCase):
         self.assertIsNone(worker.karar_ayikla(metin, "n"))
 
 
+class KararKapisiTesti(unittest.TestCase):
+    ALANLAR = list(worker.DENETIM_ALANLARI)
+
+    def _karar(self, **kw):
+        veri = {"pr": 7, "sha": "a" * 40, "nonce": "n1", "karar": "onay",
+                "onem": "dusuk", "ozet": "ok", "bulgular": [], "denetlenen": list(self.ALANLAR)}
+        veri.update(kw)
+        return veri
+
+    def test_onay_gecer(self):
+        self.assertEqual(worker._karar_kapisi(self._karar(), 7, "a" * 40, "n1"), [])
+
+    def test_nonce_ve_kapsam_zorunlu(self):
+        h = worker._karar_kapisi(self._karar(nonce="yanlis", denetlenen=["test kaniti"]),
+                                 7, "a" * 40, "n1")
+        self.assertTrue(any("nonce" in x for x in h))
+        self.assertTrue(any("denetlenen" in x for x in h))
+
+    def test_yuksek_bulgu_onay_olamaz(self):
+        h = worker._karar_kapisi(self._karar(bulgular=[{"onem": "yuksek", "dosya": "a.py",
+                                                         "satir": 1, "aciklama": "x",
+                                                         "kabul": "y"}]),
+                                 7, "a" * 40, "n1")
+        self.assertTrue(any("yuksek" in x for x in h))
+
+    def test_sorun_bulgusuz_ve_kabulsuz_olamaz(self):
+        h = worker._karar_kapisi(self._karar(karar="sorun", bulgular=[]), 7, "a" * 40, "n1")
+        self.assertTrue(any("bulgu" in x for x in h))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

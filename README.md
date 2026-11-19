@@ -92,6 +92,7 @@ yourkiosk/
 | [`panel/MAALIYET.md`](panel/MAALIYET.md) | Veri/görsel maliyet kıyasları, Lambda+Lightsail senaryoları |
 | [`web/CALISTIRMA.md`](web/CALISTIRMA.md) | Tarayıcı modunda adım adım çalıştırma + sorun giderme |
 | [`GITHUB-YUKLEME.md`](GITHUB-YUKLEME.md) | Bu depoyu GitHub'a güvenli yükleme rehberi |
+| [`SIRADAKI-ISLER.md`](SIRADAKI-ISLER.md) | Güncel plan, zorunlu iş akışı ve kalan işler |
 
 ## Ajan sistemi (agents/)
 

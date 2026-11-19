@@ -140,6 +140,70 @@ def karar_ayikla(metin: str, nonce: str) -> dict | None:
     return veri if isinstance(veri, dict) else None
 
 
+DENETIM_ALANLARI = (
+    "gömülü sır", "komut çalıştırma", "dosya/yol", "ağ/tls", "kimlik/yetki",
+    "girdi doğrulama", "sır sızıntısı", "bağımlılık", "dos/maliyet",
+    "kalıcılık/geri dönüş", "kapsayıcı/servis", "test kanıtı",
+)
+_DENETIM_ES = {
+    "gomulu sir": "gömülü sır", "komut calistirma": "komut çalıştırma",
+    "dosya/yol": "dosya/yol", "ag/tls": "ağ/tls", "kimlik/yetki": "kimlik/yetki",
+    "girdi dogrulama": "girdi doğrulama", "sir sizintisi": "sır sızıntısı",
+    "bagimlilik": "bağımlılık", "dos/maliyet": "dos/maliyet",
+    "kalicilik/geri donus": "kalıcılık/geri dönüş", "kapsayici/servis": "kapsayıcı/servis",
+    "test kaniti": "test kanıtı",
+}
+
+
+def _alan_norm(ad: object) -> str:
+    s = str(ad).strip().casefold()
+    return _DENETIM_ES.get(s, s)
+
+
+def _karar_kapisi(karar: dict, no: int, sha: str, nonce: str) -> list[str]:
+    """Eski karar_dogrula kapısının çekirdeği: fail-closed, kanıtlı ve tam kapsam."""
+    hatalar: list[str] = []
+    if str(karar.get("nonce") or "") != nonce:
+        hatalar.append("nonce eksik/yanlış")
+    if str(karar.get("sha") or "") != sha or str(karar.get("pr") or "") != str(no):
+        hatalar.append("sha/pr uyuşmuyor")
+    karar_turu = str(karar.get("karar") or "").strip().casefold()
+    if karar_turu not in {"onay", "sorun", "red"}:
+        hatalar.append(f"geçersiz karar: {karar_turu!r}")
+    onem = str(karar.get("onem") or "").strip().casefold()
+    if onem not in {"yuksek", "orta", "dusuk"}:
+        hatalar.append(f"geçersiz önem: {onem!r}")
+    denetlenen = {_alan_norm(x) for x in (karar.get("denetlenen") or [])}
+    eksik = [a for a in DENETIM_ALANLARI if a not in denetlenen]
+    if eksik:
+        hatalar.append("denetlenen eksik: " + ", ".join(eksik))
+    bulgular = karar.get("bulgular") or []
+    if not isinstance(bulgular, list):
+        hatalar.append("bulgular liste değil")
+        bulgular = []
+    yuksek = False
+    for i, b in enumerate(bulgular, 1):
+        if not isinstance(b, dict):
+            hatalar.append(f"bulgu {i}: nesne değil")
+            continue
+        if str(b.get("onem") or "").strip().casefold() == "yuksek":
+            yuksek = True
+        if karar_turu != "onay":
+            for alan in ("dosya", "satir", "aciklama", "kabul"):
+                if not str(b.get(alan) or "").strip():
+                    hatalar.append(f"bulgu {i}: {alan} zorunlu")
+            try:
+                if int(b.get("satir") or 0) <= 0:
+                    hatalar.append(f"bulgu {i}: satir > 0 olmalı")
+            except (TypeError, ValueError):
+                hatalar.append(f"bulgu {i}: satir sayı değil")
+    if karar_turu == "onay" and yuksek:
+        hatalar.append("yuksek bulgu varken onay verilemez")
+    if karar_turu in {"sorun", "red"} and not bulgular:
+        hatalar.append(f"{karar_turu} kararında bulgu zorunlu")
+    return hatalar
+
+
 def incele(cfg: dict, ajan: dict, pr: dict) -> dict:
     g = github.Github(cfg["repo"], ajan["token_file"])
     no = int(pr["number"])
@@ -161,11 +225,12 @@ def incele(cfg: dict, ajan: dict, pr: dict) -> dict:
         "SADECE aşağıdaki JSON şablonunu doldur; blok dışında HİÇBİR metin yazma.",
         "JSON geçerli olmalı; '...' yerine gerçek değer, listelerde açıklama kullan.",
         f"KARAR_JSON_BEGIN {nonce}",
-        '{"makine":"reviewer","pr":' + str(no) + ',"sha":"' + sha + '","karar":"onay",'
+        '{"makine":"reviewer","pr":' + str(no) + ',"sha":"' + sha + '","nonce":"' + nonce + '","karar":"onay",'
         '"onem":"dusuk","ozet":"kisa ozet","bulgular":[],"denetlenen":['
         '"gomulu sir","komut calistirma","dosya/yol","ag/TLS","kimlik/yetki",'
         '"girdi dogrulama","sir sizintisi","bagimlilik","DoS/maliyet",'
-        '"kalicilik/geri donus","kapsayici/servis","test kaniti"]}',
+        '"kalicilik/geri donus","kapsayici/servis","test kaniti"],'
+        '"bulgular_kaniti":"sorun/red ise her bulgu {dosya,satir,onem,aciklama,kabul} içermeli"}',
         f"KARAR_JSON_END {nonce}",
     ])
     kod, cikti = dsh.calistir(prompt, cfg.get("dsh_profile", "agents-dev"), Path(cfg["workdir"]),
@@ -178,6 +243,15 @@ def incele(cfg: dict, ajan: dict, pr: dict) -> dict:
     if not karar or str(karar.get("sha")) != sha or str(karar.get("pr")) != str(no):
         g.durum_yaz(sha, roles.INCELEME, "failure", "karar bloğu yok/geçersiz")
         return {"durum": "failure", "neden": "karar bloğu yok/geçersiz"}
+    hatalar = _karar_kapisi(karar, no, sha, nonce)
+    if hatalar:
+        yorum = dict(karar)
+        yorum["karar"] = "sorun"
+        yorum["ozet"] = "karar kapısı reddetti: " + "; ".join(hatalar)[:300]
+        _inceleme_yorumu(g, no, sha, yorum)
+        g.durum_yaz(sha, roles.INCELEME, "failure",
+                    "karar kapısı: " + "; ".join(hatalar)[:100])
+        return {"durum": "failure", "neden": "karar kapısı", "hatalar": hatalar}
     onay = karar.get("karar") == "onay"
     _inceleme_yorumu(g, no, sha, karar)
     g.durum_yaz(sha, roles.INCELEME, "success" if onay else "failure",
@@ -200,7 +274,12 @@ def _inceleme_yorumu(g, no: int, sha: str, karar: dict) -> None:
     ]
     if isinstance(bulgular, list) and bulgular:
         for b in bulgular:
-            satirlar.append(f"- {b}")
+            if isinstance(b, dict):
+                yer = f"{b.get('dosya', '-')}:{b.get('satir', '-')}"
+                satirlar.append(f"- `{yer}` — {b.get('aciklama', '-')} "
+                                f"(kabul: {b.get('kabul', '-')})")
+            else:
+                satirlar.append(f"- {b}")
     else:
         satirlar.append("- Bulgu yok.")
     satirlar += ["", "### Denetlenen"]
@@ -210,7 +289,7 @@ def _inceleme_yorumu(g, no: int, sha: str, karar: dict) -> None:
     else:
         satirlar.append("- Belirtilmedi.")
     satirlar += ["", "_Otomatik inceleme (i5)._"]
-    etiket = "agents/onay" if karar.get("karar") == "onay" else "agents/red"
+    etiket = "guvenlik/onay" if karar.get("karar") == "onay" else "guvenlik/sorun"
     imza = "İnceleme · " + sha[:12]
     try:
         mevcut = g.yorumlar(no)
@@ -241,7 +320,7 @@ def karar_ver(cfg: dict, ajan: dict, pr: dict) -> dict:
         g.birlestir(no, sha)
         g.durum_yaz(sha, roles.KARAR, "success", "birleştirildi")
         try:
-            g.etiket_ekle(no, ["agents/birlesti"])
+            g.etiket_ekle(no, ["karar/verildi"])
         except Exception:  # noqa: BLE001 - etiket merge sonucunu engellemez
             pass
         return {"durum": "success", "pr": no}
