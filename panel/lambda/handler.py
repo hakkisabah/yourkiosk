@@ -33,6 +33,8 @@ import time
 from typing import Any
 
 import boto3
+
+import veri_cekici
 from botocore.config import Config as BotoConfig
 
 # --------------------------------------------------------------------- sabitler
@@ -281,6 +283,10 @@ def lambda_handler(olay: dict[str, Any], _baglam: Any = None) -> dict[str, Any]:
     yol = _yol(olay)
     yontem = (olay.get("requestMethod") or olay.get("httpMethod") or "GET").upper()
 
+    # EventBridge zamanlanmış görev: HTTP değil, oturum/Origin aranmaz.
+    if olay.get("kaynak") == "aws.events" or "Scheduled Event" in str(olay.get("detail-type", "")):
+        return _zamanlanmis()
+
     if yontem == "OPTIONS":  # CORS ön kontrolü
         return _yanit(204)
 
@@ -297,6 +303,8 @@ def lambda_handler(olay: dict[str, Any], _baglam: Any = None) -> dict[str, Any]:
         return _imzala_istegi(olay)
     if yol == "/komut" and yontem == "POST":
         return _komut_istegi(olay)
+    if yol == "/veri-guncelle" and yontem == "POST":
+        return _veri_guncelle_istegi(olay)
     return _yanit(404, {"hata": "bilinmeyen uç nokta"})
 
 
@@ -376,3 +384,27 @@ def _komut_istegi(olay: dict[str, Any]) -> dict[str, Any]:
     except Exception as hata:  # noqa: BLE001 - S3 hatasını panele anlaşılır dön
         return _yanit(502, {"hata": f"komut yazılamadı: {hata}"})
     return _yanit(200, {"komut": belge})
+
+
+
+def _veri_guncelle(ham: dict | None = None) -> dict:
+    return veri_cekici.guncelle(s3_istemcisi(), kova(), on_ek(), ham=ham)
+
+
+def _veri_guncelle_istegi(olay: dict[str, Any]) -> dict[str, Any]:
+    basliklar = {k.lower(): v for k, v in (olay.get("headers") or {}).items()}
+    if not oturum_gecerli(cerezden_oturum(basliklar.get("cookie"))):
+        return _yanit(401, {"hata": "oturum yok veya süresi doldu"})
+    try:
+        sonuc = _veri_guncelle()
+    except Exception as hata:  # noqa: BLE001 - kaynak/S3 hatası panele döner
+        return _yanit(502, {"hata": f"veri güncellenemedi: {hata}"})
+    return _yanit(200, sonuc)
+
+
+def _zamanlanmis() -> dict[str, Any]:
+    try:
+        sonuc = _veri_guncelle()
+    except Exception as hata:  # noqa: BLE001 - EventBridge yeniden dener
+        return {"ok": False, "hata": str(hata)}
+    return {"ok": True, **sonuc}
