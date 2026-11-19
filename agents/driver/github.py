@@ -65,6 +65,9 @@ class Github:
     def yorum_yaz(self, no: int, govde: str) -> dict:
         return self._istek("POST", f"/repos/{self.repo}/issues/{no}/comments", {"body": govde})
 
+    def etiket_ekle(self, no: int, etiketler: list[str]) -> dict:
+        return self._istek("POST", f"/repos/{self.repo}/issues/{no}/labels", {"labels": etiketler})
+
     def issue_kapat(self, no: int) -> dict:
         return self._istek("PATCH", f"/repos/{self.repo}/issues/{no}", {"state": "closed"})
 
