@@ -19,7 +19,7 @@ Tarayıcı ──POST /giris {şifre}──► Lambda ──► Set-Cookie: yk_o
 
 | Dosya | Görev |
 |---|---|
-| `handler.py` | Tüm uç noktalar: `/giris`, `/oturum`, `/cikis`, `/imzala` |
+| `handler.py` | Tüm uç noktalar: `/giris`, `/oturum`, `/cikis`, `/imzala`, `/komut` |
 | `sifre_ozetle.py` | Yönetici şifresinden `PANEL_SIFRE_OZETI` üretir (şifre düz metin saklanmaz) |
 | `tests/test_handler.py` | 23 test: şifre özeti, cookie imzası/süresi/kurcalanması, beyaz liste, boyut sınırı, CORS/CSRF, hız sınırı |
 | `requirements.txt` | `boto3` (Lambda çalışma zamanında zaten vardır) |
@@ -76,7 +76,7 @@ aws lambda create-function --function-name yourkiosk-panel \
   --runtime python3.12 --handler handler.lambda_handler \
   --role arn:aws:iam::<HESAP>:role/<ROL> --zip-file fileb://fonksiyon.zip \
   --timeout 10 --memory-size 256 \
-  --environment "Variables={KOVA_ADI=yourkiosk-veri,ON_EK=kiosk/,PANEL_ORIGIN=https://panel.example.com,OTURUM_SURE_S=43200,OTURUM_ANAHTARI=<RASTGELE_64_KARAKTER>,PANEL_SIFRE_OZETI=<1. ADIMDAKI_OZET>}"
+  --environment "Variables={KOVA_ADI=yourkiosk-veri,ON_EK=kiosk/,PANEL_ORIGIN=https://panel.example.com,OTURUM_SURE_S=43200,OTURUM_ANAHTARI=<RASTGELE_64_KARAKTER>,PANEL_SIFRE_OZETI=<1. ADIMDAKI_OZET>,KOMUT_ANAHTARI=<KOMUT_HMAC_ANAHTARI>}"
 ```
 
 * `OTURUM_ANAHTARI`: `python3 -c "import secrets;print(secrets.token_urlsafe(48))"` ile üretin.

@@ -69,6 +69,11 @@ export class LambdaIstemcisi {
     return this._cagir<ImzaSonucu>('/imzala', istek)
   }
 
+  /** İmzalı uzaktan komutu Lambda'da üretir; anahtar tarayıcıya girmez. */
+  komutGonder(istek: { komut: string; cihazId?: string; aciklama?: string }): Promise<{ komut: Record<string, unknown> }> {
+    return this._cagir<{ komut: Record<string, unknown> }>('/komut', istek)
+  }
+
   /** Presigned URL ile doğrudan S3'e istek (kimlik bilgisi taşımaz). */
   async s3Istek(url: string, baslat: RequestInit): Promise<Response> {
     return this.fetchGibi(url, { credentials: 'omit', ...baslat })

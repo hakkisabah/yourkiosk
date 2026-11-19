@@ -77,6 +77,7 @@ export function lambdaKaynagi(cfg: PanelConfig, istemci = new LambdaIstemcisi(cf
   return {
     mod: 'lambda',
     silDesteklenir: false,
+    komutGonder: (istek) => istemci.komutGonder(istek),
     oku: _oku,
     async yaz(ad, veri, etag) {
       if (etag) {

@@ -4,7 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 
 import { DOSYALAR } from '@/aws/config'
 import { DOSYA_ACIKLAMALARI } from '@/domain/dosyaBilgisi'
-import { komutOzeti, hedefMetni } from '@/domain/komut'
+import { IZINLI_KOMUTLAR, komutOzeti, hedefMetni } from '@/domain/komut'
 import { kapsamCoz, kapsamSatirlari } from '@/domain/kapsam'
 import { gunEtiketi, gosterilecekKayitlar, konumAdlariniBul, ozetle, tarihMetni, type CihazKonumu } from '@/domain/veri'
 import { useBaglanti } from '@/stores/baglanti'
@@ -58,6 +58,24 @@ const veriYasiGun = computed<number | null>(() => {
 
 const komutSec = ref<HTMLInputElement | null>(null)
 const komutMesaj = ref('')
+const komutTuru = ref<(typeof IZINLI_KOMUTLAR)[number]>('ekrani-yenile')
+const komutCihaz = ref('')
+const komutGonderiliyor = ref(false)
+
+async function komutGonder(): Promise<void> {
+  const kaynak = baglanti.kaynak
+  if (!kaynak?.komutGonder) return
+  komutGonderiliyor.value = true
+  try {
+    await kaynak.komutGonder({ komut: komutTuru.value, cihazId: komutCihaz.value.trim() })
+    komutMesaj.value = 'komut imzalandı ve kovaya yazıldı (cihaz en geç 20 sn içinde alır)'
+    await dosyalar.dosyaYukle('komut', DOSYALAR.komut)
+  } catch (h) {
+    komutMesaj.value = 'gönderilemedi: ' + (h as Error).message
+  } finally {
+    komutGonderiliyor.value = false
+  }
+}
 
 async function komutYukle(olay: Event): Promise<void> {
   const girdi = olay.target as HTMLInputElement
@@ -197,7 +215,17 @@ const dosyaSatirlari = computed(() =>
             Panel komut <strong>göndermez</strong> (cihazın HMAC anahtarı istemcide tutulmaz). Gönderim
             <code>kiosk/tools/komut_gonder.py</code> ile yapılır; burada yalnız kovadaki son komut görünür.
           </v-card-subtitle>
-          <v-card-actions class="px-4 pt-0">
+          <v-card-actions v-if="baglanti.kaynak?.komutGonder" class="px-4 pt-0 flex-wrap gap-2">
+            <v-select v-model="komutTuru" :items="IZINLI_KOMUTLAR" density="compact" hide-details
+              label="Komut" style="max-width: 230px" />
+            <v-text-field v-model="komutCihaz" density="compact" hide-details
+              label="Cihaz kimliği (boş: tümü)" style="max-width: 240px" />
+            <v-btn size="small" color="primary" :loading="komutGonderiliyor" @click="komutGonder">
+              Komut gönder
+            </v-btn>
+            <span v-if="komutMesaj" class="text-caption ml-1">{{ komutMesaj }}</span>
+          </v-card-actions>
+          <v-card-actions v-else class="px-4 pt-0">
             <v-btn size="small" variant="tonal" prepend-icon="mdi-upload" @click="komutSec?.click()">
               İmzalı komut dosyası yükle
             </v-btn>

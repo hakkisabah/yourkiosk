@@ -46,6 +46,7 @@ IZINLI_DOSYALAR = frozenset(
         "match.json",
         "lastupdate.json",
         "makinebilgileri.json",
+        "komut.json",
     }
 )
 IZINLI_ISLEMLER = frozenset({"oku", "yaz"})
@@ -181,6 +182,8 @@ def imzala(dosya: str, islem: str, etag: str | None = None, boyut: int | None = 
     """Presigned GET/PUT URL üretir (yalnızca beyaz listedeki dosyalar)."""
     if islem not in IZINLI_ISLEMLER:
         raise ValueError(f"izin verilmeyen işlem: {islem!r}")
+    if dosya == "komut.json" and islem == "yaz":
+        raise ValueError("komut.json yalnızca /komut uç noktasıyla yazılır (imzalı)")
     anahtar = nesne_anahtari(dosya)
     if islem == "oku":
         if etag:
@@ -292,6 +295,8 @@ def lambda_handler(olay: dict[str, Any], _baglam: Any = None) -> dict[str, Any]:
         return _yanit(200, {"cikis": True}, cookie=cookie_sil())
     if yol == "/imzala" and yontem == "POST":
         return _imzala_istegi(olay)
+    if yol == "/komut" and yontem == "POST":
+        return _komut_istegi(olay)
     return _yanit(404, {"hata": "bilinmeyen uç nokta"})
 
 
@@ -328,3 +333,46 @@ def _imzala_istegi(olay: dict[str, Any]) -> dict[str, Any]:
     except ValueError as hata:
         return _yanit(400, {"hata": str(hata)})
     return _yanit(200, sonuc)
+
+
+
+# ------------------------------------------------------------------ uzaktan komut
+IZINLI_KOMUTLAR = ("yeniden-baslat", "uygulamayi-yeniden-baslat", "ekrani-yenile")
+
+
+def komut_imzala(belge: dict[str, Any], anahtar: str) -> str:
+    """Cihazla AYNI kanonik metin: id|komut|cihazId|zaman."""
+    metin = "|".join(str(belge.get(a, "") or "") for a in ("id", "komut", "cihazId", "zaman"))
+    return hmac.new(anahtar.encode("utf-8"), metin.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _komut_istegi(olay: dict[str, Any]) -> dict[str, Any]:
+    basliklar = {k.lower(): v for k, v in (olay.get("headers") or {}).items()}
+    if not oturum_gecerli(cerezden_oturum(basliklar.get("cookie"))):
+        return _yanit(401, {"hata": "oturum yok veya süresi doldu"})
+    anahtar = os.environ.get("KOMUT_ANAHTARI", "").strip()
+    if not anahtar:
+        return _yanit(503, {"hata": "KOMUT_ANAHTARI tanımlı değil"})
+    veri = _govde_coz(olay)
+    komut = str(veri.get("komut") or "").strip().lower()
+    if komut not in IZINLI_KOMUTLAR:
+        return _yanit(400, {"hata": f"izin verilmeyen komut: {komut!r}"})
+    cihaz = str(veri.get("cihazId") or "").strip()
+    belge = {
+        "id": f"cmd-{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}",
+        "komut": komut,
+        "cihazId": cihaz,
+        "zaman": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "olusturan": "panel/lambda",
+        "aciklama": str(veri.get("aciklama") or "")[:200],
+    }
+    belge["imza"] = komut_imzala(belge, anahtar)
+    try:
+        s3_istemcisi().put_object(
+            Bucket=kova(), Key=nesne_anahtari("komut.json"),
+            Body=json.dumps(belge, ensure_ascii=False).encode("utf-8"),
+            ContentType="application/json; charset=utf-8", CacheControl="no-store",
+        )
+    except Exception as hata:  # noqa: BLE001 - S3 hatasını panele anlaşılır dön
+        return _yanit(502, {"hata": f"komut yazılamadı: {hata}"})
+    return _yanit(200, {"komut": belge})

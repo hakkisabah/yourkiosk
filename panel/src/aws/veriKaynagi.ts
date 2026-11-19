@@ -62,4 +62,6 @@ export interface VeriKaynagi {
    * Mod desteklemiyorsa (Lambda) hata fırlatır — `silDesteklenir` ile aynı kural.
    */
   nesneSil(anahtar: string): Promise<void>
+  /** Lambda modunda imzalı komut gönderimi; Cognito modunda yok. */
+  komutGonder?(istek: { komut: string; cihazId?: string; aciklama?: string }): Promise<{ komut: Record<string, unknown> }>
 }
