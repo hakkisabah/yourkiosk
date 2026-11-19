@@ -210,10 +210,17 @@ def _inceleme_yorumu(g, no: int, sha: str, karar: dict) -> None:
     else:
         satirlar.append("- Belirtilmedi.")
     satirlar += ["", "_Otomatik inceleme (i5)._"]
+    etiket = "agents/onay" if karar.get("karar") == "onay" else "agents/red"
     try:
         g.yorum_yaz(no, chr(10).join(satirlar))
-    except Exception:  # noqa: BLE001 - yorum yazılamasa da durum yazılmalı
-        pass
+        g.etiket_ekle(no, [etiket])
+    except Exception as hata:  # noqa: BLE001 - yorum yazılamasa da durum yazılmalı
+        # Yetki eksikse sessiz kalma: durum açıklamasında görünür.
+        try:
+            g.durum_yaz(sha, roles.INCELEME, "failure",
+                        f"yorum/etiket yazılamadı: {str(hata)[:80]}")
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def karar_ver(cfg: dict, ajan: dict, pr: dict) -> dict:
@@ -230,6 +237,10 @@ def karar_ver(cfg: dict, ajan: dict, pr: dict) -> dict:
     try:
         g.birlestir(no, sha)
         g.durum_yaz(sha, roles.KARAR, "success", "birleştirildi")
+        try:
+            g.etiket_ekle(no, ["agents/birlesti"])
+        except Exception:  # noqa: BLE001 - etiket merge sonucunu engellemez
+            pass
         return {"durum": "success", "pr": no}
     except github.GithubHatasi as h:
         g.durum_yaz(sha, roles.KARAR, "failure", str(h)[:120])
