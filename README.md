@@ -115,7 +115,7 @@ Modlar:
 - **2 ajan:** developer + decision.
 - **3+ ajan:** developer + bir veya daha fazla reviewer + decision.
 
-Ayrıntı: [`agents/README.md`](agents/README.md) ve [`agents/install/RUNBOOK.md`](agents/install/RUNBOOK.md).
+Ajan kapısı: i5 incelemesi + i3 kararı olmadan main dalına merge yapılmaz. Ayrıntı: [`agents/README.md`](agents/README.md) ve [`agents/install/RUNBOOK.md`](agents/install/RUNBOOK.md).
 
 ## Katkı ve sorun bildirimi
 
