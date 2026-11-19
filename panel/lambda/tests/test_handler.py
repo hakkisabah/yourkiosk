@@ -326,3 +326,22 @@ def test_imzala_komut_yazmayi_reddeder(sahte_s3: SahteS3) -> None:
         olay("/imzala", {"dosya": "komut.json", "islem": "yaz"}, cookie=cerez)
     )
     assert yanit["statusCode"] == 400
+
+
+
+def test_zamanlanmis_gorev_oturum_istemez(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(handler, "_veri_guncelle", lambda ham=None: {"degisti": True, "gun": 2})
+    yanit = handler.lambda_handler({"kaynak": "aws.events"})
+    assert yanit["ok"] is True and yanit["degisti"] is True
+
+
+def test_veri_guncelle_oturum_ister() -> None:
+    yanit = handler.lambda_handler(olay("/veri-guncelle", {}))
+    assert yanit["statusCode"] == 401
+
+
+def test_veri_guncelle_oturumla_calisir(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(handler, "_veri_guncelle", lambda ham=None: {"degisti": False, "gun": 1})
+    cerez = _giris_yap()
+    yanit = handler.lambda_handler(olay("/veri-guncelle", {}, cookie=cerez))
+    assert yanit["statusCode"] == 200 and govde(yanit)["degisti"] is False

@@ -61,6 +61,26 @@ const komutMesaj = ref('')
 const komutTuru = ref<(typeof IZINLI_KOMUTLAR)[number]>('ekrani-yenile')
 const komutCihaz = ref('')
 const komutGonderiliyor = ref(false)
+const veriGuncelleniyor = ref(false)
+const veriGuncelleMesaj = ref('')
+
+async function veriGuncelle(): Promise<void> {
+  const kaynak = baglanti.kaynak
+  if (!kaynak?.veriGuncelle) return
+  veriGuncelleniyor.value = true
+  try {
+    const sonuc = await kaynak.veriGuncelle()
+    veriGuncelleMesaj.value = sonuc.degisti
+      ? 'veri güncellendi: ' + (sonuc.gun ?? '?') + ' gün / ' + (sonuc.kayit ?? '?') + ' kayıt'
+      : 'değişiklik yok (kaynak aynı)'
+    await dosyalar.hepsiniYukle()
+    simdi.value = new Date()
+  } catch (h) {
+    veriGuncelleMesaj.value = 'güncellenemedi: ' + (h as Error).message
+  } finally {
+    veriGuncelleniyor.value = false
+  }
+}
 
 async function komutGonder(): Promise<void> {
   const kaynak = baglanti.kaynak
@@ -204,6 +224,13 @@ const dosyaSatirlari = computed(() =>
               Yayın verisi {{ Math.floor(veriYasiGun) }} gün eski; kovadaki
               <code>lastSystemData.json</code> güncellenmeli.
             </v-alert>
+            <div v-if="baglanti.kaynak?.veriGuncelle" class="mt-3 d-flex align-center flex-wrap gap-2">
+              <v-btn size="small" variant="tonal" prepend-icon="mdi-refresh"
+                :loading="veriGuncelleniyor" @click="veriGuncelle">
+                Veriyi güncelle
+              </v-btn>
+              <span v-if="veriGuncelleMesaj" class="text-caption ml-1">{{ veriGuncelleMesaj }}</span>
+            </div>
           </v-card-text>
         </v-card>
       </v-col>

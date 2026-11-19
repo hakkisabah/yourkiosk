@@ -19,7 +19,8 @@ Tarayıcı ──POST /giris {şifre}──► Lambda ──► Set-Cookie: yk_o
 
 | Dosya | Görev |
 |---|---|
-| `handler.py` | Tüm uç noktalar: `/giris`, `/oturum`, `/cikis`, `/imzala`, `/komut` |
+| `handler.py` | Tüm uç noktalar: `/giris`, `/oturum`, `/cikis`, `/imzala`, `/komut`, `/veri-guncelle`; EventBridge zamanlanmış görev |
+| `veri_cekici.py` | Kaynaktan nöbet verisini çeker, `lastSystemData.json` + `lastupdate.json` yazar |
 | `sifre_ozetle.py` | Yönetici şifresinden `PANEL_SIFRE_OZETI` üretir (şifre düz metin saklanmaz) |
 | `tests/test_handler.py` | 23 test: şifre özeti, cookie imzası/süresi/kurcalanması, beyaz liste, boyut sınırı, CORS/CSRF, hız sınırı |
 | `requirements.txt` | `boto3` (Lambda çalışma zamanında zaten vardır) |
