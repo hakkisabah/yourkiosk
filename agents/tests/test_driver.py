@@ -241,5 +241,40 @@ class KararKapisiTesti(unittest.TestCase):
         self.assertTrue(any("bulgu" in x for x in h))
 
 
+class YorumTesti(unittest.TestCase):
+    class G:
+        def __init__(self):
+            self.yorum = []
+        def yorumlar(self, no):
+            return []
+        def yorum_yaz(self, no, govde):
+            self.yorum.append((no, govde))
+        def etiket_ekle(self, no, e):
+            pass
+        def pr_dosyalari(self, no):
+            return [{"filename": "a.py"}]
+
+    def test_i5_yorumu_eski_bicim(self):
+        from agents.driver import yorum
+        g = self.G()
+        yorum.inceleme_yorumu(g, 5, "a" * 40, {
+            "karar": "onay", "onem": "orta", "ozet": "ozet", "bulgular": [],
+            "denetlenen": ["test kaniti"]})
+        govde = g.yorum[0][1]
+        self.assertIn("i5 — güvenlik incelemesi", govde)
+        self.assertIn("makine-okunabilir karar", govde)
+        self.assertIn("test kaniti", govde)
+
+    def test_i3_yorumu_eski_bicim(self):
+        from agents.driver import yorum
+        g = self.G()
+        yorum.karar_yorumu(g, 5, "a" * 40, {"karar": "onay", "onem": "orta",
+                                            "bulgular": [], "denetlenen": ["test kaniti"]},
+                           {"durum": "success"})
+        govde = g.yorum[0][1]
+        self.assertIn("i3 — karar / ikinci görüş", govde)
+        self.assertIn('"makine": "i3"', govde)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
