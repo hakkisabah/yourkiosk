@@ -93,6 +93,29 @@ yourkiosk/
 | [`web/CALISTIRMA.md`](web/CALISTIRMA.md) | Tarayıcı modunda adım adım çalıştırma + sorun giderme |
 | [`GITHUB-YUKLEME.md`](GITHUB-YUKLEME.md) | Bu depoyu GitHub'a güvenli yükleme rehberi |
 
+## Ajan sistemi (agents/)
+
+Depo içinde, projeden bağımsız çalışan bir ajan orkestrasyonu vardır:
+
+- `agents/install/wizard.py` — instance/repo/ajan sayısı ve adlarını sorar, config + makine kurulum betiklerini üretir.
+- `agents/config/` — örnek yapılandırmalar (`*.example.toml`); makineye özel dosyalar git'e girmez.
+- `agents/driver/` — DSH tabanlı developer / reviewer / decision döngüsü, GitHub PR kapısı ve systemd birimleri.
+- `agents/roles/`, `agents/skills/`, `agents/memory/` — rol tanımları, beceri indeksi ve kalıcı bağlam.
+
+Kurulum:
+
+```bash
+python3 agents/install/wizard.py
+```
+
+Modlar:
+
+- **1 ajan:** developer kendi PR'ını merge eder.
+- **2 ajan:** developer + decision.
+- **3+ ajan:** developer + bir veya daha fazla reviewer + decision.
+
+Ayrıntı: [`agents/README.md`](agents/README.md) ve [`agents/install/RUNBOOK.md`](agents/install/RUNBOOK.md).
+
 ## Katkı ve sorun bildirimi
 
 * Hata/istek: GitHub Issues. Güvenlik konuları için lütfen herkese açık issue açmayın.
