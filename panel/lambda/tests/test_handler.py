@@ -275,3 +275,54 @@ def test_oturum_suresi_dolunca_imza_verilmez(sahte_s3: SahteS3, monkeypatch: pyt
     eski = handler.oturum_uret(an=time.time() - 10_000, sure=60)
     yanit = handler.lambda_handler(olay("/imzala", {"dosya": "ayarlar.json", "islem": "oku"}, cookie=eski))
     assert yanit["statusCode"] == 401
+
+
+
+class SahteKomutS3:
+    def __init__(self) -> None:
+        self.yazilan: list[tuple[str, bytes]] = []
+
+    def put_object(self, **kw):  # noqa: ANN003
+        self.yazilan.append((kw["Key"], kw["Body"]))
+
+
+def test_komut_oturum_ister() -> None:
+    yanit = handler.lambda_handler(olay("/komut", {"komut": "ekrani-yenile"}))
+    assert yanit["statusCode"] == 401
+
+
+def test_komut_imzalar_ve_s3_e_yazar(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KOMUT_ANAHTARI", "a" * 64)
+    s3 = SahteKomutS3()
+    monkeypatch.setattr(handler, "s3_istemcisi", lambda: s3)
+    cerez = _giris_yap()
+    yanit = handler.lambda_handler(olay("/komut", {"komut": "ekrani-yenile", "cihazId": "123"}, cookie=cerez))
+    assert yanit["statusCode"] == 200
+    belge = govde(yanit)["komut"]
+    assert belge["komut"] == "ekrani-yenile"
+    assert belge["cihazId"] == "123"
+    assert belge["imza"] == handler.komut_imzala(belge, "a" * 64)
+    assert s3.yazilan and s3.yazilan[0][0] == "kiosk/komut.json"
+
+
+def test_komut_beyaz_liste(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KOMUT_ANAHTARI", "a" * 64)
+    monkeypatch.setattr(handler, "s3_istemcisi", lambda: SahteKomutS3())
+    cerez = _giris_yap()
+    yanit = handler.lambda_handler(olay("/komut", {"komut": "rm -rf /"}, cookie=cerez))
+    assert yanit["statusCode"] == 400
+
+
+def test_komut_anahtari_yoksa_503(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("KOMUT_ANAHTARI", raising=False)
+    cerez = _giris_yap()
+    yanit = handler.lambda_handler(olay("/komut", {"komut": "ekrani-yenile"}, cookie=cerez))
+    assert yanit["statusCode"] == 503
+
+
+def test_imzala_komut_yazmayi_reddeder(sahte_s3: SahteS3) -> None:
+    cerez = _giris_yap()
+    yanit = handler.lambda_handler(
+        olay("/imzala", {"dosya": "komut.json", "islem": "yaz"}, cookie=cerez)
+    )
+    assert yanit["statusCode"] == 400
