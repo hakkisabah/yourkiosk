@@ -10,7 +10,7 @@ import secrets
 import subprocess
 from pathlib import Path
 
-from . import dsh, github, roles
+from . import dsh, github, roles, yorum
 
 
 class IsciHatasi(Exception):
@@ -245,15 +245,15 @@ def incele(cfg: dict, ajan: dict, pr: dict) -> dict:
         return {"durum": "failure", "neden": "karar bloğu yok/geçersiz"}
     hatalar = _karar_kapisi(karar, no, sha, nonce)
     if hatalar:
-        yorum = dict(karar)
-        yorum["karar"] = "sorun"
-        yorum["ozet"] = "karar kapısı reddetti: " + "; ".join(hatalar)[:300]
-        _inceleme_yorumu(g, no, sha, yorum)
+        hata_yorumu = dict(karar)
+        hata_yorumu["karar"] = "sorun"
+        hata_yorumu["ozet"] = "karar kapısı reddetti: " + "; ".join(hatalar)[:300]
+        yorum.inceleme_yorumu(g, no, sha, hata_yorumu)
         g.durum_yaz(sha, roles.INCELEME, "failure",
                     "karar kapısı: " + "; ".join(hatalar)[:100])
         return {"durum": "failure", "neden": "karar kapısı", "hatalar": hatalar}
     onay = karar.get("karar") == "onay"
-    _inceleme_yorumu(g, no, sha, karar)
+    yorum.inceleme_yorumu(g, no, sha, karar)
     g.durum_yaz(sha, roles.INCELEME, "success" if onay else "failure",
                 f"{karar.get('karar')} · {karar.get('ozet', '')}")
     return {"durum": "success" if onay else "failure", "karar": karar}
@@ -313,12 +313,18 @@ def karar_ver(cfg: dict, ajan: dict, pr: dict) -> dict:
     inceleme_gerekli = any(x["role"] == "reviewer" for x in cfg["agents"])
     if inceleme_gerekli and d.get(roles.INCELEME) != "success":
         return {"durum": "bekle", "neden": "inceleme onayı yok"}
+    i5 = yorum.i5_karari(g, no, sha) if inceleme_gerekli else None
+    if inceleme_gerekli and (not i5 or str(i5.get("karar")) != "onay"):
+        g.durum_yaz(sha, roles.KARAR, "failure", "i5 karar yorumu yok/uyuşmuyor")
+        yorum.karar_yorumu(g, no, sha, i5, {"durum": "failure"})
+        return {"durum": "failure", "neden": "i5 karar yorumu yok/uyuşmuyor"}
     # Zorunlu durum kontrolü merge'den ÖNCE success olmalı; aksi hâlde
-    # "guvenlik/karar" kontrolü merge'i kilitler (GitHub 405).
+    # "guvenlik/karar" kontrolü merge'i kilitler.
     g.durum_yaz(sha, roles.KARAR, "success", "birleştirme onayı")
     try:
         g.birlestir(no, sha)
         g.durum_yaz(sha, roles.KARAR, "success", "birleştirildi")
+        yorum.karar_yorumu(g, no, sha, i5, {"durum": "success"})
         try:
             g.etiket_ekle(no, ["karar/verildi"])
         except Exception:  # noqa: BLE001 - etiket merge sonucunu engellemez
@@ -326,4 +332,5 @@ def karar_ver(cfg: dict, ajan: dict, pr: dict) -> dict:
         return {"durum": "success", "pr": no}
     except github.GithubHatasi as h:
         g.durum_yaz(sha, roles.KARAR, "failure", str(h)[:120])
+        yorum.karar_yorumu(g, no, sha, i5, {"durum": "failure"})
         return {"durum": "failure", "neden": str(h)}
