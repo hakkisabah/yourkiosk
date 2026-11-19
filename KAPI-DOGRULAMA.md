@@ -1,1 +1,0 @@
-kapi dogrulama 2026-11-19T16:03:54Z
