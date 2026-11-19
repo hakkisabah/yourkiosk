@@ -68,6 +68,9 @@ class Github:
     def etiket_ekle(self, no: int, etiketler: list[str]) -> dict:
         return self._istek("POST", f"/repos/{self.repo}/issues/{no}/labels", {"labels": etiketler})
 
+    def yorumlar(self, no: int) -> list[dict]:
+        return self._istek("GET", f"/repos/{self.repo}/issues/{no}/comments?per_page=100")
+
     def issue_kapat(self, no: int) -> dict:
         return self._istek("PATCH", f"/repos/{self.repo}/issues/{no}", {"state": "closed"})
 

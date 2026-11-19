@@ -211,8 +211,11 @@ def _inceleme_yorumu(g, no: int, sha: str, karar: dict) -> None:
         satirlar.append("- Belirtilmedi.")
     satirlar += ["", "_Otomatik inceleme (i5)._"]
     etiket = "agents/onay" if karar.get("karar") == "onay" else "agents/red"
+    imza = "İnceleme · " + sha[:12]
     try:
-        g.yorum_yaz(no, chr(10).join(satirlar))
+        mevcut = g.yorumlar(no)
+        if not any(imza in str(y.get("body", "")) for y in mevcut):
+            g.yorum_yaz(no, chr(10).join(satirlar))
         g.etiket_ekle(no, [etiket])
     except Exception as hata:  # noqa: BLE001 - yorum yazılamasa da durum yazılmalı
         # Yetki eksikse sessiz kalma: durum açıklamasında görünür.
