@@ -14,10 +14,10 @@ show_usage() {
 
   2. GitHub Gist (curl) ile Tek Satırda Kullanım:
      # Varsayılan 'developer' profili için:
-     curl -fsSL "https://githubusercontent.com" | bash
+     curl -fsSL "https://gist.githubusercontent.com/hakkisabah/dd8d579c2db233be982926ae53021a28/raw/hermes-ctx-memory.sh" | bash
 
      # Farklı bir profil için (örneğin 'research' profili):
-     curl -fsSL "https://githubusercontent.com" | bash -s -- research
+     curl -fsSL "https://gist.githubusercontent.com/hakkisabah/dd8d579c2db233be982926ae53021a28/raw/hermes-ctx-memory.sh" | bash -s -- research
 
 EOF
 }
