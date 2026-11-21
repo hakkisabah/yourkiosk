@@ -4,6 +4,12 @@ repo = "sahip/proje"
 base_branch = "main"
 dsh_profile = "headless"
 gorev_etiketi = "agents/gorev"
+
+# PR gövdesi (zorunlu): Doğrulama bölümü bu komutun gerçek çıktısından yazılır.
+test_command = "python3 -m unittest discover -s agents/tests -t ."
+# test_timeout = 900
+# dogrulama_atla = false        # yalnız doküman işleri; merge yine reddedilir
+# govde_neden = "..."           # gövdeye ## Neden bölümü ekler
 # dsh_home = "${XDG_STATE_HOME}/agents/${instance}/dsh-home"
 # dsh_patch = "${XDG_STATE_HOME}/agents/${instance}/overlay.yml"
 

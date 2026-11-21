@@ -140,3 +140,37 @@ def karar_yorumu(g, no: int, sha: str, i5: dict | None, sonuc: dict) -> None:
             g.yorum_yaz(no, chr(10).join(satirlar))
     except Exception:  # noqa: BLE001
         pass
+
+
+def govde_eksik_yorumu(g, no: int, sha: str, eksikler: list[str]) -> None:
+    """Gövde kapısı reddini PR'a yazar (aynı sha için tek yorum)."""
+    imza = "Gövde kapısı · " + sha[:12]
+    satirlar = [
+        f"## {imza}",
+        "",
+        "Bu PR birleştirilemez: gövde zorunlu bölümleri taşımıyor.",
+        "",
+        "### Eksikler",
+    ]
+    satirlar += [f"- {e}" for e in eksikler]
+    satirlar += [
+        "",
+        "### Beklenen gövde",
+        "",
+        "```markdown",
+        "## Ne",
+        "- ne değişti (dosya/ davranış)",
+        "",
+        "## Doğrulama",
+        "- `komut` → çıkış 0",
+        "",
+        "## Sır",
+        "Yok.",
+        "```",
+        "",
+        "_Otomatik kapı (i3). Gövde düzeltilince yeni push gerekmez._",
+    ]
+    mevcut = g.yorumlar(no)
+    if any(imza in str(y.get("body", "")) for y in mevcut):
+        return
+    g.yorum_yaz(no, "\n".join(satirlar))

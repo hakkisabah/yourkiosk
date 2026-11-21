@@ -19,6 +19,18 @@ import config  # noqa: E402
 from agents.driver import roles, worker  # noqa: E402
 
 SHA = "a" * 40
+GOVDE = """## Ne
+
+- `agents/driver/roles.py`: kapı zorunlu.
+
+## Doğrulama
+
+- `python3 -m unittest discover -s agents/tests -t .` → çıkış 0
+
+## Sır
+
+Yok.
+"""
 
 
 class SahteGithub:
@@ -68,7 +80,8 @@ def _i5_yorumu(sha: str = SHA, karar: str = "onay") -> dict:
 class KapiTesti(unittest.TestCase):
     cfg = {"repo": "s/p", "agents": [{"name": "dev", "role": "developer",
                                       "token_file": "/yok"}]}
-    pr = {"number": 7, "head": {"sha": SHA}}
+    pr = {"number": 7, "head": {"sha": SHA, "ref": "agents/agents-test-kapi"},
+          "body": GOVDE}
 
     def _karar(self, sahte: SahteGithub) -> dict:
         with mock.patch.object(worker.github, "Github", return_value=sahte):
@@ -107,6 +120,42 @@ class KapiTesti(unittest.TestCase):
         sonuc = self._karar(sahte)
         self.assertEqual(sonuc["durum"], "success")
         self.assertEqual(sahte.birlestirilen, [(7, SHA)])
+
+    def test_govde_eksikse_merge_yok(self):
+        sahte = SahteGithub(durumlar={roles.INCELEME: "success"},
+                            yorumlar=[_i5_yorumu()])
+        pr = {"number": 7, "head": {"sha": SHA, "ref": "agents/agents-test-kapi"},
+              "body": "## Ne\n\nvar\n"}
+        with mock.patch.object(worker.github, "Github", return_value=sahte):
+            sonuc = worker.karar_ver(self.cfg, {"name": "i3", "token_file": "/yok"}, pr)
+        self.assertEqual(sonuc["durum"], "bekle")
+        self.assertIn("PR gövdesi eksik", sonuc["neden"])
+        self.assertEqual(sahte.birlestirilen, [])
+        self.assertEqual(sahte.yazilan, [])  # durum yazılmaz, sha kilitlenmesin
+
+    def test_govde_duzeltilince_ayni_sha_merge_edilir(self):
+        sahte = SahteGithub(durumlar={roles.INCELEME: "success"},
+                            yorumlar=[_i5_yorumu()])
+        anahtar = mock.patch.object(worker.github, "Github", return_value=sahte)
+        with anahtar:
+            e1 = worker.karar_ver(self.cfg, {"name": "i3", "token_file": "/yok"},
+                                  {"number": 7, "head": {"sha": SHA, "ref": "agents/agents-test-kapi"},
+                                   "body": "## Ne\n"})
+        self.assertEqual(e1["durum"], "bekle")
+        with anahtar:
+            e2 = worker.karar_ver(self.cfg, {"name": "i3", "token_file": "/yok"}, self.pr)
+        self.assertEqual(e2["durum"], "success")
+        self.assertEqual(sahte.birlestirilen, [(7, SHA)])
+
+    def test_insan_pr_govdesiz_de_merge_edilir(self):
+        sahte = SahteGithub(durumlar={roles.INCELEME: "success"},
+                            yorumlar=[_i5_yorumu()])
+        pr = {"number": 8, "head": {"sha": SHA, "ref": "feat/elle-acilan"},
+              "body": "Manually added by human."}
+        with mock.patch.object(worker.github, "Github", return_value=sahte):
+            sonuc = worker.karar_ver(self.cfg, {"name": "i3", "token_file": "/yok"}, pr)
+        self.assertEqual(sonuc["durum"], "success")
+        self.assertEqual(sahte.birlestirilen, [(8, SHA)])
 
     def test_karar_plani_incelemesiz_pr_secmez(self):
         self.assertEqual(roles.karar_plani([self.pr], {}), [])

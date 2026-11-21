@@ -10,7 +10,7 @@ import secrets
 import subprocess
 from pathlib import Path
 
-from . import dsh, github, roles, yorum
+from . import dsh, github, govde, roles, yorum
 
 
 class IsciHatasi(Exception):
@@ -97,6 +97,38 @@ def gorev_al(cfg: dict, ajan: dict) -> dict | None:
     return None
 
 
+# Doğrulama komutu tanımlı değilse en az sözdizimi kontrolü koşar; gövdedeki
+# "çıkış 0" kanıtı bu çıktıdan gelir (uydurma kanıt yok).
+VARSAYILAN_TEST = "python3 -m compileall -q ."
+
+
+def _degisen_dosyalar(wd: Path, ilk: str, son: str, token: str) -> list[str]:
+    try:
+        cikti = _git(wd, "diff", "--name-only", f"{ilk}..{son}", token=token)
+    except IsciHatasi:
+        return []
+    return [s.strip() for s in cikti.splitlines() if s.strip()][:100]
+
+
+def _dogrulama_calistir(wd: Path, cfg: dict) -> list[str]:
+    """test_command'ı temiz ortamda koşar; gövdeye makine kanıtı döndürür."""
+    komut = str(cfg.get("test_command") or VARSAYILAN_TEST)
+    zaman = int(cfg.get("test_timeout") or 900)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GITHUB_")}
+    try:
+        s = subprocess.run(komut, shell=True, cwd=wd, env=env, timeout=zaman,
+                           capture_output=True, text=True)
+    except subprocess.TimeoutExpired:
+        return [f"- `{komut}` → çıkış 124 (zaman aşımı {zaman}s): BAŞARISIZ"]
+    except OSError as h:
+        return [f"- `{komut}` → çalıştırılamadı: {h}"[:400]]
+    kuyruk = [x for x in (s.stdout + s.stderr).strip().splitlines() if x.strip()][-3:]
+    satirlar = [f"- `{komut}` → çıkış {s.returncode}"
+                + (" (BAŞARISIZ)" if s.returncode else "")]
+    satirlar += [f"  - {x.strip()[:200]}" for x in kuyruk]
+    return satirlar
+
+
 def gorev_baslat(cfg: dict, ajan: dict, gorev: str) -> dict:
     wd = klon_hazirla(cfg, ajan)
     token = _token(ajan)
@@ -117,9 +149,17 @@ def gorev_baslat(cfg: dict, ajan: dict, gorev: str) -> dict:
     son = _git(wd, "rev-parse", "HEAD", token=token).strip()
     if son == once:
         raise IsciHatasi("DSH değişiklik üretmedi: " + cikti[-400:])
+    govde_metni = govde.olustur(
+        gorev,
+        _degisen_dosyalar(wd, once, son, token),
+        _dogrulama_calistir(wd, cfg) if not cfg.get("dogrulama_atla") else [
+            "- Doğrulama atlandı (dogrulama_atla=true)."],
+        neden=cfg.get("govde_neden"),
+    )
+    (Path(cfg["state_dir"]) / "pr-govdesi.md").write_text(govde_metni, encoding="utf-8")
     _git(wd, "push", "-u", "origin", dal, token=token)
     g = github.Github(cfg["repo"], ajan["token_file"])
-    pr = g.pr_olustur(f"agents: {gorev[:60]}", gorev, cfg["base_branch"], dal)
+    pr = g.pr_olustur(f"agents: {gorev[:60]}", govde_metni, cfg["base_branch"], dal)
     # Geliştirici ASLA merge etmez. Tek ajanlı/eksik rollü config'lerde bile
     # kapı (i5 incelemesi + i3 kararı) atlanmaz; PR karar bekler.
     return {"pr": pr.get("number"), "sha": son, "dal": dal, "workdir": str(wd)}
@@ -312,6 +352,17 @@ def karar_ver(cfg: dict, ajan: dict, pr: dict) -> dict:
     # birleştirme yok (fail-closed).
     if d.get(roles.INCELEME) != "success":
         return {"durum": "bekle", "neden": "inceleme onayı yok"}
+    # Gövde kapısı: sürücünün açtığı PR'larda ayrıntılı gövde yoksa merge yok.
+    # İnsan PR'ları kapsam dışı (yoksa insan PR'ı asla birleşemezdi).
+    eksik = (govde.eksikler(str(pr.get("body") or ""))
+             if govde.gerekli(pr, cfg.get("gorev_etiketi", "agents/gorev")) else [])
+    if eksik:
+        # Durum yazılmaz: gövde düzeltilince aynı sha yeniden denenebilsin.
+        try:
+            yorum.govde_eksik_yorumu(g, no, sha, eksik)
+        except Exception:  # noqa: BLE001 - yorum yazılamasa da karar kapalı kalır
+            pass
+        return {"durum": "bekle", "neden": "PR gövdesi eksik", "eksikler": eksik}
     i5 = yorum.i5_karari(g, no, sha)
     if not i5 or str(i5.get("karar")) != "onay":
         g.durum_yaz(sha, roles.KARAR, "failure", "i5 karar yorumu yok/uyuşmuyor")

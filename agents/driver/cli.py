@@ -39,6 +39,12 @@ def doctor(cfg_yolu: str | None) -> int:
         print(f"⚠ kapı rolleri eksik: {', '.join(eksik)} — bu makinede yalnız kendi "
               "rolü çalışır; eksik rol başka makinede koşmalı, yoksa PR'lar karar bekler")
 
+    if cfg.get("test_command"):
+        print(f"✓ test_command: {cfg['test_command']}")
+    else:
+        print("⚠ test_command yok — PR doğrulaması `python3 -m compileall -q .` ile yapılır; "
+              "instance'a uygun komutu yaz (gövde kapısı kanıt ister)")
+
     if sys.version_info < (3, 11):
         print(f"✗ Python 3.11+ gerekli (mevcut {sys.version.split()[0]})")
         sorun += 1
@@ -259,6 +265,24 @@ def run(cfg_yolu: str | None, rol: str, kuru: bool, gorev: str | None = None) ->
     return 0
 
 
+def govde_denetle(config_yolu: str | None, pr_no: int) -> int:
+    """Bir PR'ın gövdesini kapıdan geçirir — makineyle doğrulanan kontrol noktası."""
+    from . import config as cfg_mod, github, govde
+
+    cfg = cfg_mod.yukle(config_yolu)
+    ajan = (cfg.get("agents") or [{}])[0]
+    g = github.Github(cfg["repo"], ajan.get("token_file") or cfg.get("token_file"))
+    pr = g.pr(pr_no)
+    eksik = govde.eksikler(str(pr.get("body") or ""))
+    if eksik:
+        print(f"✗ #{pr_no} gövde kapıdan geçmedi:")
+        for e in eksik:
+            print("  - " + e)
+        return 1
+    print(f"✓ #{pr_no} gövde kapıdan geçti")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="agents")
     p.add_argument("--config")
@@ -268,6 +292,8 @@ def main(argv: list[str] | None = None) -> int:
         sp.add_argument("--kuru", action="store_true")
     alt.choices["install"].add_argument("--role")
     alt.choices["uninstall"].add_argument("--role")
+    gv = alt.add_parser("govde")
+    gv.add_argument("--pr", type=int, required=True)
     r = alt.add_parser("run")
     r.add_argument("--role", required=True)
     r.add_argument("--gorev")
@@ -282,6 +308,8 @@ def main(argv: list[str] | None = None) -> int:
         return install(s.config, s.kuru, getattr(s, "role", None))
     if s.komut == "uninstall":
         return uninstall(s.config, getattr(s, "role", None))
+    if s.komut == "govde":
+        return govde_denetle(s.config, s.pr)
     if s.komut == "run":
         gorev = getattr(s, "gorev", None)
         if gorev or getattr(s, "tek_tur", False):

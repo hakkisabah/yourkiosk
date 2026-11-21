@@ -1,3 +1,4 @@
+test_command = "python3 -m unittest discover -s agents/tests -t ."
 instance = "agents-test"
 repo = "hakkisabah/agents-test"
 base_branch = "main"
