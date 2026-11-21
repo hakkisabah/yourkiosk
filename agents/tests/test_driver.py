@@ -171,7 +171,8 @@ class RolPlanTesti(unittest.TestCase):
         self.assertEqual(len(roles.karar_plani([pr], d)), 1)
         d[5][roles.KARAR] = "success"
         self.assertEqual(len(roles.karar_plani([pr], d)), 0)
-        self.assertEqual(len(roles.karar_plani([pr], {}, False)), 1)
+        # İnceleme onayı yoksa PR karara sunulmaz (kapı koşulsuz).
+        self.assertEqual(len(roles.karar_plani([pr], {})), 0)
 
 class GithubTesti(unittest.TestCase):
     def test_status_en_yeni(self):

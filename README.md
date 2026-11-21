@@ -109,13 +109,18 @@ Kurulum:
 python3 agents/install/wizard.py
 ```
 
-Modlar:
+Modlar (kapı her modda zorunlu — eksik rol varsa PR açar, birleştirmez):
 
-- **1 ajan:** developer kendi PR'ını merge eder.
-- **2 ajan:** developer + decision.
-- **3+ ajan:** developer + bir veya daha fazla reviewer + decision.
+| Mod | Roller | Davranış |
+|---|---|---|
+| 1 ajan | developer | Görevi uygular, PR açar, **karar bekler**. İnceleme/karar rolü olmadığı için PR birleşmez; yalnız geliştirme/deneme içindir. |
+| 2 ajan | developer + decision | developer PR'ı açar; decision inceleme durumu `success` olmadan merge etmez, PR onay bekler. |
+| 3 ajan | developer + reviewer + decision | developer PR'ı açar, reviewer yeni head'i inceler, decision i5 onayını sha ile doğrulayıp squash-merge eder. |
 
-Ajan kapısı: i5 incelemesi + i3 kararı olmadan main dalına merge yapılmaz. Ayrıntı: [`agents/README.md`](agents/README.md) ve [`agents/install/RUNBOOK.md`](agents/install/RUNBOOK.md).
+Ajan kapısı: **i5 incelemesi (`guvenlik/inceleme=success`) + i3 kararı olmadan main dalına merge
+yapılmaz.** Kapı config'teki ajan sayısından bağımsızdır ve kodda zorunludur (fail-closed);
+eksik rolü `agents doctor` uyarı olarak gösterir. Ayrıntı: [`agents/README.md`](agents/README.md)
+ve [`agents/install/RUNBOOK.md`](agents/install/RUNBOOK.md).
 
 ## Katkı ve sorun bildirimi
 
@@ -133,27 +138,3 @@ gerekiyorsa iki yol var: (1) Riverbank'tan PyQt6 ticari lisansı almak, ya da (2
 **PySide6**'ya (LGPL v3) taşımak — bu durumda depo lisansı daha esnek seçilebilir. Tarayıcı
 (`web/`) ve panel (`panel/`) katmanları Qt'ye bağlı olmadığı için ayrı lisanslanabilir; bu depoda
 bütünlük adına tek lisans kullanılmıştır.
-
-## Ajan sistemi (`agents/`)
-
-`agents/`, DSH (deepseek-harness) üzerinde çalışan, proje kodundan bağımsız çoklu ajan
-geliştirme sistemidir. Ajanlar rollere ayrılır: **developer** görevi uygular ve dalına push eder,
-**reviewer** yeni head'i inceler, **decision** onaylanan PR'ı sha doğrulamasıyla squash-merge eder.
-Sırlar depo dışında, makine/rol başına ayrı token dosyasında (0600) tutulur.
-
-Kurulum:
-
-```bash
-python3 agents/install/wizard.py
-```
-
-Sihirbaz instance, GitHub repo ve ajan sayısını sorar; `agents/config/<instance>.toml` ile
-makinelere özel kurulum betiklerini üretir. Ön koşullar ve ayrıntılar: [`agents/README.md`](agents/README.md).
-
-Ajan modları:
-
-| Mod | Roller | Davranış |
-|---|---|---|
-| 1 ajan | developer | Ajan görevi yapar, PR açar ve kendi PR'ını squash-merge eder; insan/review beklemez. Dal koruması review zorunlu kılıyorsa uygun değildir. |
-| 2 ajan | developer + decision | developer PR'ı açar; decision ayrı bir inceleme onayı aramadan sha doğrulamasıyla merge eder. |
-| 3+ ajan | developer + reviewer(lar) + decision | developer PR'ı açar, reviewer(lar) yeni head'i inceler; decision ancak inceleme onayından sonra merge eder. |

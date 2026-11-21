@@ -22,6 +22,9 @@ class CliTesti(unittest.TestCase):
         tok.write_text("x" * 20, encoding="utf-8")
         tok.chmod(0o600)
         cfg = t / "i.toml"
+        dsh = t / "dsh"
+        (dsh / "apps" / "cli" / "lib").mkdir(parents=True)
+        (dsh / "apps" / "cli" / "lib" / "bin.js").write_text("//", encoding="utf-8")
         cfg.write_text(f"""
 instance = "test"
 repo = "s/p"
@@ -29,6 +32,7 @@ base_branch = "main"
 state_dir = "{t}/state"
 workdir = "{t}/work"
 skills_root = "{t}/skills"
+dsh_checkout = "{dsh}"
 [[agents]]
 name = "dev"
 role = "developer"
@@ -41,7 +45,9 @@ token_file = "{tok}"
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as d:
             t = Path(d)
             cfg = self._cfg(t)
-            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(t / "cfg")}):
+            # Doctor ortama bağlı olmasın: araç yoklaması sahtelenir.
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(t / "cfg")}), \
+                    mock.patch.object(cli.shutil, "which", return_value="/usr/bin/sahte"):
                 out = io.StringIO()
                 with redirect_stdout(out):
                     self.assertEqual(cli.doctor(str(cfg)), 0, out.getvalue())
@@ -50,6 +56,8 @@ token_file = "{tok}"
             self.assertIn("Restart=on-failure", metin)
             self.assertIn("StartLimitIntervalSec=0", metin)
             self.assertIn("OnFailure=agents-notify@test.service", metin)
+            # Kapı kuralı README'de olduğu gibi doctor'da da görünür olmalı.
+            self.assertIn("kapı rolleri eksik: reviewer, decision", metin)
 
 
 if __name__ == "__main__":

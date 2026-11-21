@@ -120,11 +120,9 @@ def gorev_baslat(cfg: dict, ajan: dict, gorev: str) -> dict:
     _git(wd, "push", "-u", "origin", dal, token=token)
     g = github.Github(cfg["repo"], ajan["token_file"])
     pr = g.pr_olustur(f"agents: {gorev[:60]}", gorev, cfg["base_branch"], dal)
-    sonuc = {"pr": pr.get("number"), "sha": son, "dal": dal, "workdir": str(wd)}
-    if len(cfg["agents"]) == 1:
-        g.birlestir(int(pr["number"]), son)
-        sonuc["merged"] = True
-    return sonuc
+    # Geliştirici ASLA merge etmez. Tek ajanlı/eksik rollü config'lerde bile
+    # kapı (i5 incelemesi + i3 kararı) atlanmaz; PR karar bekler.
+    return {"pr": pr.get("number"), "sha": son, "dal": dal, "workdir": str(wd)}
 
 
 def karar_ayikla(metin: str, nonce: str) -> dict | None:
@@ -310,11 +308,12 @@ def karar_ver(cfg: dict, ajan: dict, pr: dict) -> dict:
     no = int(pr["number"])
     sha = str(pr["head"]["sha"])
     d = g.durumlar(sha)
-    inceleme_gerekli = any(x["role"] == "reviewer" for x in cfg["agents"])
-    if inceleme_gerekli and d.get(roles.INCELEME) != "success":
+    # Kapı koşulsuzdur: config'te reviewer olmasa da inceleme onayı olmadan
+    # birleştirme yok (fail-closed).
+    if d.get(roles.INCELEME) != "success":
         return {"durum": "bekle", "neden": "inceleme onayı yok"}
-    i5 = yorum.i5_karari(g, no, sha) if inceleme_gerekli else None
-    if inceleme_gerekli and (not i5 or str(i5.get("karar")) != "onay"):
+    i5 = yorum.i5_karari(g, no, sha)
+    if not i5 or str(i5.get("karar")) != "onay":
         g.durum_yaz(sha, roles.KARAR, "failure", "i5 karar yorumu yok/uyuşmuyor")
         yorum.karar_yorumu(g, no, sha, i5, {"durum": "failure"})
         return {"durum": "failure", "neden": "i5 karar yorumu yok/uyuşmuyor"}

@@ -10,6 +10,7 @@ from pathlib import Path
 KOK = Path(__file__).resolve().parents[2]
 INSTALL = Path(__file__).resolve().parent
 H = chr(36) + "{HOME}"
+KAPI_ROLLERI = ("developer", "reviewer", "decision")
 
 
 def sor(soru: str, varsayilan: str = "") -> str:
@@ -76,6 +77,10 @@ def main(argv=None) -> int:
             token = sor(f"{i}. token dosyası", f"{ad}.token")
             ajanlar.append({"ad": ad, "rol": rol, "makine": makine, "token": token})
     metin = config_metni(instance, repo, ajanlar)
+    eksik = [r for r in KAPI_ROLLERI if r not in {aj["rol"] for aj in ajanlar}]
+    if eksik:
+        print(f"⚠ kapı rolleri eksik: {', '.join(eksik)} — bu ajanlar PR açar ama "
+              "birleştirme olmaz; tam kapı için developer+reviewer+decision gerekir")
     cfg_yolu = KOK / "agents" / "config" / f"{instance}.toml"
     if a.kuru:
         print(metin)
