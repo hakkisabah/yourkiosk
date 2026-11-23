@@ -14,6 +14,9 @@ except ImportError:  # pragma: no cover
 
 DEGISKEN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
+# Kapı rollerinin tamamı: geliştirici PR açar, i5 inceler, i3 karar verir.
+KAPI_ROLLERI = ("developer", "reviewer", "decision")
+
 
 class ConfigHatasi(Exception):
     pass
@@ -69,7 +72,17 @@ def yukle(yol: Path | None = None) -> dict:
         for alan in ("name", "role", "machine", "token_file"):
             if not str(a.get(alan) or "").strip():
                 raise ConfigHatasi(f"ajan alanı eksik: {alan}")
+        rol = str(a["role"]).strip()
+        if rol not in KAPI_ROLLERI:
+            raise ConfigHatasi(
+                f"bilinmeyen rol: {rol!r} (geçerli: {', '.join(KAPI_ROLLERI)})")
+        a["role"] = rol
         a["token_file"] = _genislet(str(a["token_file"]), instance)
+    roller = [a["role"] for a in ajanlar]
+    for rol in set(roller):
+        if roller.count(rol) > 1:
+            adlar = ", ".join(a["name"] for a in ajanlar if a["role"] == rol)
+            raise ConfigHatasi(f"rol iki kez tanımlı: {rol} ({adlar})")
     xdg_state = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
     xdg_data = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
     for anahtar, varsayilan in (
@@ -82,6 +95,17 @@ def yukle(yol: Path | None = None) -> dict:
         if veri.get(anahtar):
             veri[anahtar] = _genislet(str(veri[anahtar]), instance)
     return veri
+
+
+def kapi_eksikleri(veri: dict) -> list[str]:
+    """Kapıyı tamamlamak için eksik roller.
+
+    Makine başına config'ler (yalnız kendi rolü) geçerlidir; bu yüzden eksik
+    rol yükleme hatası değildir — doctor uyarır, karar kapısı ise merge'ü
+    koşulsuz engeller.
+    """
+    var = {str(a.get("role")) for a in veri.get("agents") or []}
+    return [r for r in KAPI_ROLLERI if r not in var]
 
 
 def sabit_yol_denetle(kok: Path) -> list[str]:

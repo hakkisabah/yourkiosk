@@ -40,10 +40,51 @@ Sihirbaz instance/repo/N ajan bilgilerini sorar; config ve makine betiklerini ü
      agents@<instance>-decision.service
    ```
 
-## 1 ajan modu
+## Eksik rollü modlar
 
-Config'te tek `[[agents]]` (developer). Ajan görevi yapar, PR açar ve **kendi PR'ını
-squash-merge** eder; insan beklemez. Dal koruması review istiyorsa bu mod uyumsuzdur.
+Kapı (i5 incelemesi + i3 kararı) config'teki ajan sayısından bağımsız olarak zorunludur; eksik rol
+PR'ı birleştirmez, `karar` bekler:
+
+- **1 ajan (developer):** görevi uygular, dalına push eder, PR açar ve **karar bekler**. Yalnız
+  geliştirme/deneme içindir; PR birleşmez.
+- **2 ajan (developer + decision):** decision inceleme durumu `success` olmadan merge etmez;
+  reviewer yoksa PR onay bekler.
+- **3 ajan (developer + reviewer + decision):** tam kapı; varsayılan kurulum.
+
+`agents doctor` eksik kapı rollerini uyarı olarak basar, `roles.py` aynı kuralı çalışma anında
+uygular (fail-closed).
+
+## PR gövdesi (zorunlu)
+
+PR gövdesini sürücü üretir (`agents/driver/govde.py`) ve **karar aşamasında yeniden
+denetler**. Üç bölüm zorunlu; eksikse PR birleşmez, PR'a "Gövde kapısı" yorumu düşer:
+
+```markdown
+## Ne
+- ne değişti (değişen dosyalar)
+
+## Doğrulama
+- `komut` → çıkış 0        # makine kanıtı; başarısızsa merge yok
+
+## Sır
+Yok.                       # ya "Yok." ya eklenen/değişen sır dosyaları
+```
+
+- `Doğrulama` bölümündeki satırlar `test_command` çıktısından gelir (uydurulmaz).
+- `test_command` config'te tanımlı değilse `python3 -m compileall -q .` koşar
+  (en az sözdizimi kanıtı). Instance'a uygun komutu yaz:
+  `test_command = "python3 -m unittest discover -s agents/tests -t ."`.
+- `dogrulama_atla = true` yalnız dokümantasyon işlerinde; o zaman da gövde
+  `Doğrulama atlandı` der ve kapı merge'i reddeder.
+- Gövde kapısı elle denetlenebilir (makineyle doğrulanan kontrol noktası):
+  ```bash
+  ./agents/bin/agents --config ... govde --pr 42      # PR gövdesini denetle
+  python3 -m agents.driver.govde --kontrol pr-govdesi.md
+  ```
+- Gövde düzeltildiğinde yeni push gerekmez; aynı sha sonraki turda merge edilir.
+- **Kapsam:** kapı yalnız sürücünün açtığı PR'larda (`agents/*` dalı veya
+  `agents/gorev` etiketi) uygulanır. İnsan eliyle açılan PR'larda gövde serbest;
+  onlar için tek koşul i5 incelemesidir — aksi hâlde insan PR'ı hiç birleşemezdi.
 
 ## Roller
 

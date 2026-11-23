@@ -57,14 +57,15 @@ def inceleme_plani(acik_prlar: list[dict], durumlar: dict[int, dict[str, str]]) 
     return hedef
 
 
-def karar_plani(acik_prlar: list[dict], durumlar: dict[int, dict[str, str]],
-                inceleme_gerekli: bool = True) -> list[dict]:
-    """İki onayı tamam ve kararı olmayan PR'lar."""
+def karar_plani(acik_prlar: list[dict], durumlar: dict[int, dict[str, str]]) -> list[dict]:
+    """İnceleme onayı (i5) tamam ve kararı olmayan PR'lar.
+
+    Kapı her modda zorunlu: i5 onayı olmayan PR karara sunulmaz.
+    """
     hedef = []
     for pr in acik_prlar:
         no = int(pr.get("number") or 0)
         d = durumlar.get(no, {})
-        inceleme_ok = (d.get(INCELEME) == "success") if inceleme_gerekli else True
-        if inceleme_ok and d.get(KARAR) not in {"success", "failure"}:
+        if d.get(INCELEME) == "success" and d.get(KARAR) not in {"success", "failure"}:
             hedef.append(pr)
     return hedef
